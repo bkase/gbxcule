@@ -362,6 +362,10 @@ class PyBoyVecMpBackend:
         # Derived seeds (populated on reset)
         self._derived_seeds: list[int] = []
 
+    def __del__(self) -> None:
+        """Ensure workers are cleaned up on garbage collection."""
+        self.close()
+
     def _partition_envs(self) -> list[list[int]]:
         """Partition environment indices across workers."""
         num_envs = self._config.num_envs
@@ -405,17 +409,38 @@ class PyBoyVecMpBackend:
             conn.send(msg)
 
     def _recv_all(self) -> list[WorkerResponse]:
-        """Receive responses from all workers."""
+        """Receive responses from all workers.
+
+        Raises:
+            RuntimeError: If a worker has died (broken pipe/EOF).
+        """
         responses = []
-        for conn in self._conns:
-            resp = conn.recv()
-            responses.append(resp)
+        for i, conn in enumerate(self._conns):
+            try:
+                if not conn.poll(timeout=30.0):  # 30 second timeout
+                    self.close()
+                    raise RuntimeError(f"Worker {i} timed out waiting for response")
+                resp = conn.recv()
+                responses.append(resp)
+            except EOFError:
+                self.close()
+                raise RuntimeError(
+                    f"Worker {i} died unexpectedly (pipe closed)"
+                ) from None
+            except BrokenPipeError:
+                self.close()
+                raise RuntimeError(f"Worker {i} connection broken") from None
         return responses
 
     def _check_responses(self, responses: list[WorkerResponse]) -> None:
-        """Check for errors in worker responses."""
+        """Check for errors in worker responses.
+
+        Raises:
+            RuntimeError: If any worker reported an error.
+        """
         for i, resp in enumerate(responses):
             if resp.type == ResponseType.ERR:
+                self.close()
                 raise RuntimeError(f"Worker {i} error: {resp.error}")
 
     def reset(self, seed: int | None = None) -> tuple[NDArrayF32, dict[str, Any]]:
