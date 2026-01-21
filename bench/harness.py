@@ -40,9 +40,11 @@ def register_backends() -> None:
 
     from gbxcule.backends.pyboy_single import PyBoySingleBackend
     from gbxcule.backends.pyboy_vec_mp import PyBoyVecMpBackend
+    from gbxcule.backends.warp_vec import WarpVecBackend
 
     BACKEND_REGISTRY["pyboy_single"] = PyBoySingleBackend
     BACKEND_REGISTRY["pyboy_vec_mp"] = PyBoyVecMpBackend
+    BACKEND_REGISTRY["warp_vec"] = WarpVecBackend
 
 
 def create_backend(
@@ -95,6 +97,15 @@ def create_backend(
             rom_path,
             num_envs=num_envs,
             num_workers=num_workers,
+            frames_per_step=frames_per_step,
+            release_after_frames=release_after_frames,
+            obs_dim=obs_dim,
+            base_seed=base_seed,
+        )
+    elif name == "warp_vec":
+        return backend_cls(
+            rom_path,
+            num_envs=num_envs,
             frames_per_step=frames_per_step,
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
@@ -496,12 +507,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Backend selection
+    # Backend selection (required for benchmark mode, ignored in verify mode)
     parser.add_argument(
         "--backend",
-        choices=["pyboy_single", "pyboy_vec_mp"],
-        required=True,
-        help="Backend to benchmark",
+        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec"],
+        default=None,
+        help="Backend to benchmark (required for benchmark mode)",
     )
 
     # ROM selection (mutually exclusive)
@@ -867,6 +878,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # Check for scaling sweep mode
     if args.env_counts:
+        if args.backend is None:
+            print(
+                "Error: --backend is required for scaling sweep mode", file=sys.stderr
+            )
+            return 1
         try:
             env_counts = [int(x.strip()) for x in args.env_counts.split(",")]
             if not env_counts:
@@ -886,6 +902,11 @@ def main(argv: list[str] | None = None) -> int:
         return run_verify(args, rom_path)
 
     # Single run mode (benchmark)
+    # Require --backend for benchmark mode
+    if args.backend is None:
+        print("Error: --backend is required for benchmark mode", file=sys.stderr)
+        return 1
+
     # Validate backend constraints
     if args.backend == "pyboy_single" and args.num_envs != 1:
         print(
