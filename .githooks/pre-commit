@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-commit hook for GBxCuLE Learning Lab
+# Silence on success, loud on failure (per CONSTITUTION.md)
+
+set -euo pipefail
+
+# Allow skipping hooks for emergencies
+if [[ "${SKIP_HOOKS:-0}" == "1" ]]; then
+    exit 0
+fi
+
+# Check if uv is installed
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv is not installed"
+    echo ""
+    echo "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "Then run: make setup"
+    exit 1
+fi
+
+# Run the check target - silent on success
+if ! make check 2>&1; then
+    echo ""
+    echo "Pre-commit checks failed!"
+    echo ""
+    echo "To fix:"
+    echo "  1. Run 'make fmt' to auto-fix formatting"
+    echo "  2. Run 'make check' to verify"
+    echo ""
+    echo "Emergency skip: SKIP_HOOKS=1 git commit ..."
+    exit 1
+fi

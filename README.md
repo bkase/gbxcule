@@ -11,23 +11,44 @@ GPU-native many-env Game Boy runtime (Warp→CUDA) + benchmark/verification harn
 This project uses [uv](https://docs.astral.sh/uv/) as the single way to install and run everything.
 
 ```bash
-# Install dependencies and create virtual environment
-uv sync
+# Install dependencies
+make setup
 
-# Run tests
-uv run pytest
+# Install git hooks (runs checks before each commit)
+make hooks
 
-# Run the package entry point
-uv run python -m gbxcule
+# Run all checks (what the pre-commit hook runs)
+make check
 
-# Format code
-uv run ruff format .
+# See all available commands
+make help
+```
 
-# Lint code
-uv run ruff check .
+### Common Commands
 
-# Type check
-uv run pyright
+| Command | Description |
+|---------|-------------|
+| `make setup` | Install dependencies via uv |
+| `make hooks` | Install git pre-commit hooks |
+| `make fmt` | Format code and apply safe lint fixes |
+| `make lint` | Check formatting and lint (no modifications) |
+| `make test` | Run unit tests |
+| `make roms` | Generate micro-ROMs |
+| `make smoke` | Run minimal sanity check |
+| `make bench` | Run baseline benchmarks |
+| `make check` | Run all checks (commit hook gate) |
+
+### Direct uv Commands
+
+You can also run commands directly with uv:
+
+```bash
+uv sync              # Install dependencies
+uv run pytest        # Run tests
+uv run python -m gbxcule  # Run package entry point
+uv run ruff format . # Format code
+uv run ruff check .  # Lint code
+uv run pyright       # Type check
 ```
 
 ## Lock Discipline

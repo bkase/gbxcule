@@ -30,51 +30,42 @@ help: ## Show this help message
 	@echo "  make check    # Run all checks (used by pre-commit)"
 
 setup: ## Install dependencies via uv
-	uv sync
+	@uv sync
 	@mkdir -p $(ROM_OUT) $(RUNS_OUT)
-	@echo "Setup complete. Run 'make hooks' to install git hooks."
 
 fmt: ## Format code and apply safe lint fixes
-	$(RUFF) format $(SRC_DIRS)
-	$(RUFF) check --fix $(SRC_DIRS)
+	@$(RUFF) format $(SRC_DIRS)
+	@$(RUFF) check --fix $(SRC_DIRS) || true
 
 lint: ## Check formatting and lint (no modifications)
-	$(RUFF) format --check $(SRC_DIRS)
-	$(RUFF) check $(SRC_DIRS)
+	@$(RUFF) format --check $(SRC_DIRS) > /dev/null
+	@$(RUFF) check $(SRC_DIRS) > /dev/null
 
 test: ## Run unit tests
-	$(PYTEST) -q
+	@$(PYTEST) -q --tb=short
 
 typecheck: ## Run type checking with pyright
-	$(PYRIGHT)
+	@$(PYRIGHT) > /dev/null
 
 roms: ## Generate micro-ROMs
 	@mkdir -p $(ROM_OUT)
-	$(PY) bench/roms/build_micro_rom.py
+	@$(PY) bench/roms/build_micro_rom.py > /dev/null
 
 smoke: roms ## Run minimal sanity check (fast, for commit hook)
-	@echo "Running smoke tests..."
-	$(PYTEST) -q
-	@echo "Smoke tests passed."
+	@# Smoke just ensures ROMs build; tests run separately in check
 
 bench: roms ## Run baseline benchmarks
 	@echo "Benchmark harness not yet implemented (Epic 7)"
-	@echo "For now, run: make smoke"
 
 verify: ## Run verification mode (scaffold)
 	@echo "Verification mode not yet implemented (Epic 8)"
-	@echo "For now, run: make test"
 
 check: lint test smoke ## Run all checks (commit hook gate)
-	@echo ""
-	@echo "All checks passed!"
 
 hooks: ## Install git hooks
-	git config core.hooksPath .githooks
-	@echo "Git hooks installed. Pre-commit will run 'make check'."
+	@git config core.hooksPath .githooks
 
 clean: ## Remove generated files
-	rm -rf $(ROM_OUT)/* $(RUNS_OUT)/*
-	rm -rf .pytest_cache .ruff_cache
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	@echo "Cleaned generated files."
+	@rm -rf $(ROM_OUT)/* $(RUNS_OUT)/*
+	@rm -rf .pytest_cache .ruff_cache
+	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
