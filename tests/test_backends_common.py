@@ -350,3 +350,69 @@ def test_run_artifact_to_json_dict_roundtrip() -> None:
     parsed = json.loads(s)
     assert parsed["schema_version"] == 1
     assert parsed["config"]["backend"] == "pyboy_single"
+
+
+# ---------------------------------------------------------------------------
+# CPU state hash helper
+# ---------------------------------------------------------------------------
+
+
+def test_hash_cpu_state_deterministic() -> None:
+    """hash_cpu_state is deterministic for identical states."""
+    from gbxcule.backends.common import CpuState
+    from gbxcule.core.signatures import hash_cpu_state
+
+    state: CpuState = {
+        "pc": 0x0150,
+        "sp": 0xFFFE,
+        "a": 0x00,
+        "f": 0xB0,
+        "b": 0x01,
+        "c": 0x13,
+        "d": 0x00,
+        "e": 0xD8,
+        "h": 0x01,
+        "l": 0x4D,
+        "flags": {"z": 1, "n": 0, "h": 1, "c": 1},
+        "instr_count": None,
+        "cycle_count": None,
+    }
+
+    h1 = hash_cpu_state(state)
+    h2 = hash_cpu_state(state)
+
+    assert h1 == h2
+    assert len(h1) == 64  # blake2b 32-byte digest = 64 hex chars
+
+
+def test_hash_cpu_state_different_for_different_states() -> None:
+    """hash_cpu_state produces different hashes for different states."""
+    from gbxcule.backends.common import CpuState
+    from gbxcule.core.signatures import hash_cpu_state
+
+    state1: CpuState = {"pc": 0x0150, "sp": 0xFFFE, "a": 0}
+    state2: CpuState = {"pc": 0x0151, "sp": 0xFFFE, "a": 0}
+
+    h1 = hash_cpu_state(state1)
+    h2 = hash_cpu_state(state2)
+
+    assert h1 != h2
+
+
+def test_hash_cpu_state_exclude_counters() -> None:
+    """hash_cpu_state can exclude counters from hash."""
+    from gbxcule.backends.common import CpuState
+    from gbxcule.core.signatures import hash_cpu_state
+
+    state_with: CpuState = {"pc": 0x0150, "instr_count": 100}
+    state_without: CpuState = {"pc": 0x0150, "instr_count": 200}
+
+    # With counters, different
+    h1 = hash_cpu_state(state_with, include_counters=True)
+    h2 = hash_cpu_state(state_without, include_counters=True)
+    assert h1 != h2
+
+    # Without counters, same (only pc matters)
+    h3 = hash_cpu_state(state_with, include_counters=False)
+    h4 = hash_cpu_state(state_without, include_counters=False)
+    assert h3 == h4
