@@ -332,3 +332,147 @@ def empty_obs(num_envs: int, obs_dim: int) -> NDArrayF32:
         Zero array of shape (num_envs, obs_dim), dtype float32.
     """
     return np.zeros((num_envs, obs_dim), dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Run metadata schema (JSON-serializable artifacts)
+# ---------------------------------------------------------------------------
+
+RESULT_SCHEMA_VERSION: int = 1
+
+
+@dataclass(frozen=True)
+class SystemInfo:
+    """System information for reproducibility.
+
+    Attributes:
+        platform: OS platform (e.g., "Linux", "Darwin").
+        python: Python version string.
+        numpy: NumPy version string.
+        pyboy: PyBoy version string or None if not available.
+        warp: Warp version string or None if not available.
+        cpu: CPU model string or None.
+        gpu: GPU model string or None.
+    """
+
+    platform: str
+    python: str
+    numpy: str
+    pyboy: str | None
+    warp: str | None
+    cpu: str | None
+    gpu: str | None
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "platform": self.platform,
+            "python": self.python,
+            "numpy": self.numpy,
+            "pyboy": self.pyboy,
+            "warp": self.warp,
+            "cpu": self.cpu,
+            "gpu": self.gpu,
+        }
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    """Configuration for a benchmark run.
+
+    Attributes:
+        backend: Backend identifier (e.g., "pyboy_single", "warp_vec").
+        device: Device type ("cpu" or "cuda").
+        rom_path: Path to the ROM file.
+        rom_sha256: SHA-256 hash of the ROM file.
+        stage: Execution stage.
+        num_envs: Number of parallel environments.
+        frames_per_step: Frames advanced per step call.
+        release_after_frames: Frames before button release.
+        steps: Number of steps to run.
+        warmup_steps: Number of warmup steps (not timed).
+        actions_seed: Random seed for action generation.
+        sync_every: Sync interval for verification, or None.
+    """
+
+    backend: str
+    device: Device
+    rom_path: str
+    rom_sha256: str
+    stage: Stage
+    num_envs: int
+    frames_per_step: int
+    release_after_frames: int
+    steps: int
+    warmup_steps: int
+    actions_seed: int
+    sync_every: int | None
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "backend": self.backend,
+            "device": self.device,
+            "rom_path": self.rom_path,
+            "rom_sha256": self.rom_sha256,
+            "stage": self.stage,
+            "num_envs": self.num_envs,
+            "frames_per_step": self.frames_per_step,
+            "release_after_frames": self.release_after_frames,
+            "steps": self.steps,
+            "warmup_steps": self.warmup_steps,
+            "actions_seed": self.actions_seed,
+            "sync_every": self.sync_every,
+        }
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """Results from a benchmark run.
+
+    Attributes:
+        measured_steps: Actual number of steps measured.
+        seconds: Total elapsed time in seconds.
+        total_sps: Total steps per second (all envs).
+        per_env_sps: Steps per second per environment.
+        frames_per_sec: Frames per second (total_sps * frames_per_step).
+    """
+
+    measured_steps: int
+    seconds: float
+    total_sps: float
+    per_env_sps: float
+    frames_per_sec: float
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "measured_steps": self.measured_steps,
+            "seconds": self.seconds,
+            "total_sps": self.total_sps,
+            "per_env_sps": self.per_env_sps,
+            "frames_per_sec": self.frames_per_sec,
+        }
+
+
+def run_artifact_to_json_dict(
+    system: SystemInfo,
+    config: RunConfig,
+    result: RunResult,
+) -> dict[str, Any]:
+    """Convert a complete run artifact to a JSON-serializable dictionary.
+
+    Args:
+        system: System information.
+        config: Run configuration.
+        result: Run results.
+
+    Returns:
+        Dictionary suitable for json.dumps().
+    """
+    return {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "system": system.to_json_dict(),
+        "config": config.to_json_dict(),
+        "result": result.to_json_dict(),
+    }
