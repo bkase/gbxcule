@@ -138,6 +138,20 @@ def get_system_info() -> dict[str, Any]:
     except (ImportError, AttributeError):
         info["warp"] = None
 
+    # Try to get git commit SHA
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        info["git_commit"] = result.stdout.strip() if result.returncode == 0 else None
+    except Exception:
+        info["git_commit"] = None
+
     return info
 
 
