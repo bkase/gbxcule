@@ -106,6 +106,68 @@ def create_backend(
 
 
 # ---------------------------------------------------------------------------
+# Action Generation (Pure)
+# ---------------------------------------------------------------------------
+
+# Generator version for reproducibility tracking
+ACTION_GEN_VERSION = "1.0"
+
+
+def generate_actions(
+    step_idx: int,
+    num_envs: int,
+    seed: int | None,
+    gen_name: str,
+) -> np.ndarray:
+    """Generate actions for a single step (pure function).
+
+    This function is deterministic given the same inputs. It has no side effects.
+
+    Args:
+        step_idx: The current step index (0-based).
+        num_envs: Number of environments to generate actions for.
+        seed: Base seed for random generation. None means noop.
+        gen_name: Generator name ("noop" or "seeded_random").
+
+    Returns:
+        int32 array of shape (num_envs,) with action indices.
+
+    Raises:
+        ValueError: If gen_name is unknown.
+    """
+    if gen_name == "noop":
+        return np.zeros((num_envs,), dtype=np.int32)
+
+    if gen_name == "seeded_random":
+        if seed is None:
+            raise ValueError("seeded_random generator requires a seed")
+        # Create a deterministic seed for this step
+        # Using step_idx in the seed ensures different actions per step
+        step_seed = seed + step_idx
+        rng = np.random.default_rng(step_seed)
+        return rng.integers(0, 9, size=(num_envs,), dtype=np.int32)
+
+    raise ValueError(f"Unknown action generator: {gen_name}")
+
+
+def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
+    """Get metadata for action generator (for artifact recording).
+
+    Args:
+        gen_name: Generator name.
+        seed: Base seed (or None).
+
+    Returns:
+        Dict with name, version, and seed.
+    """
+    return {
+        "name": gen_name,
+        "version": ACTION_GEN_VERSION,
+        "seed": seed,
+    }
+
+
+# ---------------------------------------------------------------------------
 # System Info
 # ---------------------------------------------------------------------------
 
@@ -181,6 +243,7 @@ def run_benchmark(
     *,
     steps: int,
     warmup_steps: int,
+    action_gen: str,
     actions_seed: int | None,
     frames_per_step: int,
 ) -> dict[str, Any]:
@@ -190,7 +253,8 @@ def run_benchmark(
         backend: The backend to benchmark.
         steps: Number of steps to measure.
         warmup_steps: Number of warmup steps (not timed).
-        actions_seed: Seed for action generation (None = all noop).
+        action_gen: Action generator name ("noop" or "seeded_random").
+        actions_seed: Seed for action generation (required for seeded_random).
         frames_per_step: Frames per step (for FPS calculation).
 
     Returns:
@@ -201,24 +265,26 @@ def run_benchmark(
     # Reset
     backend.reset(seed=actions_seed)
 
-    # Create action generator
-    rng = np.random.default_rng(actions_seed) if actions_seed is not None else None
-
-    def get_actions() -> np.ndarray:
-        if rng is not None:
-            return rng.integers(0, 9, size=(num_envs,), dtype=np.int32)
-        return np.zeros((num_envs,), dtype=np.int32)
-
-    # Warmup
-    for _ in range(warmup_steps):
-        actions = get_actions()
+    # Warmup (step indices are negative to distinguish from measured steps)
+    for i in range(warmup_steps):
+        actions = generate_actions(
+            step_idx=-(warmup_steps - i),
+            num_envs=num_envs,
+            seed=actions_seed,
+            gen_name=action_gen,
+        )
         backend.step(actions)
 
     # Measured run
     start_time = time.perf_counter()
 
-    for _ in range(steps):
-        actions = get_actions()
+    for i in range(steps):
+        actions = generate_actions(
+            step_idx=i,
+            num_envs=num_envs,
+            seed=actions_seed,
+            gen_name=action_gen,
+        )
         backend.step(actions)
 
     elapsed = time.perf_counter() - start_time
@@ -445,6 +511,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # Build config
         rom_sha256 = compute_rom_sha256(str(rom_path))
+        # Use seed for seeded_random generator, None for noop
+        effective_seed = (
+            args.actions_seed if args.action_gen == "seeded_random" else None
+        )
         config = {
             "backend": args.backend,
             "device": backend.device,
@@ -457,8 +527,9 @@ def main(argv: list[str] | None = None) -> int:
             "release_after_frames": args.release_after_frames,
             "steps": args.steps,
             "warmup_steps": args.warmup_steps,
-            "actions_seed": args.actions_seed,
-            "action_gen": args.action_gen,
+            "action_generator": get_action_gen_metadata(
+                args.action_gen, effective_seed
+            ),
             "sync_every": None,  # For future GPU backends
         }
 
@@ -467,9 +538,8 @@ def main(argv: list[str] | None = None) -> int:
             backend,
             steps=args.steps,
             warmup_steps=args.warmup_steps,
-            actions_seed=(
-                args.actions_seed if args.action_gen == "seeded_random" else None
-            ),
+            action_gen=args.action_gen,
+            actions_seed=effective_seed,
             frames_per_step=args.frames_per_step,
         )
 
