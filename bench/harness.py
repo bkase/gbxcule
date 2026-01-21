@@ -784,6 +784,151 @@ def write_actions_trace(actions_trace: list[list[int]], output_path: Path) -> No
             f.write(json.dumps(actions) + "\n")
 
 
+def write_mismatch_bundle(
+    output_dir: Path,
+    *,
+    timestamp: str,
+    rom_path: Path,
+    rom_sha256: str,
+    ref_backend: str,
+    dut_backend: str,
+    mismatch_step: int,
+    env_idx: int,
+    ref_state: dict[str, Any],
+    dut_state: dict[str, Any],
+    diff: dict[str, Any],
+    actions_trace: list[list[int]],
+    system_info: dict[str, Any],
+    action_gen_name: str,
+    action_gen_seed: int | None,
+    frames_per_step: int,
+    release_after_frames: int,
+    compare_every: int,
+    verify_steps: int,
+) -> Path:
+    """Write a mismatch repro bundle atomically.
+
+    Creates a directory with all necessary files to reproduce the mismatch.
+
+    Args:
+        output_dir: Base output directory (e.g., bench/runs).
+        timestamp: Timestamp string for the bundle name.
+        rom_path: Path to the ROM file.
+        rom_sha256: SHA-256 hash of the ROM.
+        ref_backend: Reference backend name.
+        dut_backend: DUT backend name.
+        mismatch_step: Step index where mismatch occurred.
+        env_idx: Environment index where mismatch occurred.
+        ref_state: Normalized reference CPU state.
+        dut_state: Normalized DUT CPU state.
+        diff: State difference dictionary.
+        actions_trace: List of actions up to mismatch.
+        system_info: System information dictionary.
+        action_gen_name: Action generator name.
+        action_gen_seed: Action generator seed.
+        frames_per_step: Frames per step setting.
+        release_after_frames: Release after frames setting.
+        compare_every: Compare every N steps setting.
+        verify_steps: Total verification steps setting.
+
+    Returns:
+        Path to the final bundle directory.
+    """
+    import os
+    import shutil
+    import uuid
+
+    # Create bundle name
+    bundle_name = f"{timestamp}_{rom_path.stem}_{ref_backend}_vs_{dut_backend}"
+    final_dir = output_dir / "mismatch" / bundle_name
+    temp_dir = output_dir / "mismatch" / f".tmp_{uuid.uuid4()}"
+
+    try:
+        # Create temp directory
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write metadata.json
+        metadata = {
+            "schema_version": MISMATCH_SCHEMA_VERSION,
+            "timestamp_utc": datetime.now(UTC).isoformat(),
+            "rom_path": str(rom_path),
+            "rom_sha256": rom_sha256,
+            "ref_backend": ref_backend,
+            "dut_backend": dut_backend,
+            "mismatch_step": mismatch_step,
+            "env_idx": env_idx,
+            "verify_steps": verify_steps,
+            "compare_every": compare_every,
+            "frames_per_step": frames_per_step,
+            "release_after_frames": release_after_frames,
+            "action_generator": {
+                "name": action_gen_name,
+                "version": ACTION_GEN_VERSION,
+                "seed": action_gen_seed,
+            },
+            "system": system_info,
+        }
+        with open(temp_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        # Write ref_state.json
+        with open(temp_dir / "ref_state.json", "w") as f:
+            json.dump(ref_state, f, indent=2)
+
+        # Write dut_state.json
+        with open(temp_dir / "dut_state.json", "w") as f:
+            json.dump(dut_state, f, indent=2)
+
+        # Write diff.json
+        with open(temp_dir / "diff.json", "w") as f:
+            json.dump(diff, f, indent=2)
+
+        # Write actions.jsonl
+        with open(temp_dir / "actions.jsonl", "w") as f:
+            for actions in actions_trace:
+                f.write(json.dumps(actions) + "\n")
+
+        # Write repro.sh
+        repro_script = f"""#!/bin/bash
+# Reproduction script for mismatch at step {mismatch_step}
+# Generated: {datetime.now(UTC).isoformat()}
+
+set -e
+
+# Navigate to project root (adjust if needed)
+cd "$(dirname "$0")/../../../.."
+
+# Run verification with action replay
+uv run python bench/harness.py \\
+    --verify \\
+    --ref-backend {ref_backend} \\
+    --dut-backend {dut_backend} \\
+    --rom "{rom_path}" \\
+    --verify-steps {verify_steps} \\
+    --compare-every {compare_every} \\
+    --frames-per-step {frames_per_step} \\
+    --release-after-frames {release_after_frames} \\
+    --actions-file "$(dirname "$0")/actions.jsonl"
+"""
+        repro_path = temp_dir / "repro.sh"
+        with open(repro_path, "w") as f:
+            f.write(repro_script)
+        os.chmod(repro_path, 0o755)
+
+        # Atomically rename temp dir to final
+        if final_dir.exists():
+            shutil.rmtree(final_dir)
+        shutil.move(str(temp_dir), str(final_dir))
+
+        return final_dir
+
+    except Exception:
+        # Clean up temp dir on failure
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        raise
+
+
 def run_verify(
     args: argparse.Namespace,
     rom_path: Path,
@@ -895,17 +1040,36 @@ def run_verify(
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
                     print(f"First differing fields: {list(diff.keys())[:5]}")
-                    # Return mismatch info (bundle writing will be added later)
-                    # For now, write action trace to output dir
+
+                    # Write full mismatch bundle
                     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-                    trace_path = (
-                        Path(args.output_dir)
-                        / "mismatch"
-                        / f"{timestamp}_{rom_path.stem}"
-                        / "actions.jsonl"
+                    rom_sha256 = compute_rom_sha256(str(rom_path))
+                    system_info = get_system_info()
+
+                    bundle_path = write_mismatch_bundle(
+                        output_dir=Path(args.output_dir),
+                        timestamp=timestamp,
+                        rom_path=rom_path,
+                        rom_sha256=rom_sha256,
+                        ref_backend=args.ref_backend,
+                        dut_backend=args.dut_backend,
+                        mismatch_step=step_idx,
+                        env_idx=0,
+                        ref_state=ref_state,
+                        dut_state=dut_state,
+                        diff=diff,
+                        actions_trace=actions_trace,
+                        system_info=system_info,
+                        action_gen_name=args.action_gen,
+                        action_gen_seed=effective_seed,
+                        frames_per_step=args.frames_per_step,
+                        release_after_frames=args.release_after_frames,
+                        compare_every=args.compare_every,
+                        verify_steps=args.verify_steps,
                     )
-                    write_actions_trace(actions_trace, trace_path)
-                    print(f"Action trace: {trace_path}")
+
+                    print(f"Bundle: {bundle_path}")
+                    print(f"Repro: {bundle_path / 'repro.sh'}")
                     return 1
 
         print(f"PASS: No mismatches in {args.verify_steps} steps")
