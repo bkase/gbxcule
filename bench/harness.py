@@ -744,6 +744,46 @@ def run_scaling_sweep(
 MISMATCH_SCHEMA_VERSION = 1
 
 
+def load_actions_trace(actions_file: str) -> list[np.ndarray]:
+    """Load actions trace from JSONL file.
+
+    Args:
+        actions_file: Path to actions.jsonl file.
+
+    Returns:
+        List of action arrays (one per step).
+
+    Raises:
+        FileNotFoundError: If file doesn't exist.
+        ValueError: If file format is invalid.
+    """
+    actions_list: list[np.ndarray] = []
+    with open(actions_file) as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                actions_data = json.loads(line)
+                actions_list.append(np.array(actions_data, dtype=np.int32))
+            except (json.JSONDecodeError, TypeError) as e:
+                raise ValueError(f"Invalid action trace at line {line_num}: {e}") from e
+    return actions_list
+
+
+def write_actions_trace(actions_trace: list[list[int]], output_path: Path) -> None:
+    """Write actions trace to JSONL file.
+
+    Args:
+        actions_trace: List of action lists (one per step).
+        output_path: Path to write the JSONL file.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        for actions in actions_trace:
+            f.write(json.dumps(actions) + "\n")
+
+
 def run_verify(
     args: argparse.Namespace,
     rom_path: Path,
@@ -757,6 +797,29 @@ def run_verify(
     Returns:
         Exit code (0 for match, 1 for mismatch or error).
     """
+    # Load actions from file if provided (overrides generator)
+    replay_actions: list[np.ndarray] | None = None
+    if args.actions_file:
+        try:
+            replay_actions = load_actions_trace(args.actions_file)
+            print(f"Replaying actions from: {args.actions_file}")
+            # Override verify_steps to match action trace length
+            if len(replay_actions) < args.verify_steps:
+                print(
+                    f"Warning: action trace has {len(replay_actions)} steps, "
+                    f"using that instead of {args.verify_steps}",
+                    file=sys.stderr,
+                )
+                args.verify_steps = len(replay_actions)
+        except FileNotFoundError:
+            print(
+                f"Error: actions file not found: {args.actions_file}", file=sys.stderr
+            )
+            return 1
+        except ValueError as e:
+            print(f"Error loading actions file: {e}", file=sys.stderr)
+            return 1
+
     print(f"Verification mode: ref={args.ref_backend} vs dut={args.dut_backend}")
     print(f"ROM: {rom_path.name}")
     print(f"Steps: {args.verify_steps}, compare every {args.compare_every}")
@@ -804,13 +867,16 @@ def run_verify(
 
         # Verify loop
         for step_idx in range(args.verify_steps):
-            # Generate actions
-            actions = generate_actions(
-                step_idx=step_idx,
-                num_envs=1,
-                seed=effective_seed,
-                gen_name=args.action_gen,
-            )
+            # Get actions (from replay or generate)
+            if replay_actions is not None:
+                actions = replay_actions[step_idx]
+            else:
+                actions = generate_actions(
+                    step_idx=step_idx,
+                    num_envs=1,
+                    seed=effective_seed,
+                    gen_name=args.action_gen,
+                )
 
             # Record actions
             actions_trace.append(actions.tolist())
@@ -829,7 +895,17 @@ def run_verify(
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
                     print(f"First differing fields: {list(diff.keys())[:5]}")
-                    # Return mismatch info for bundle writing (will be added later)
+                    # Return mismatch info (bundle writing will be added later)
+                    # For now, write action trace to output dir
+                    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+                    trace_path = (
+                        Path(args.output_dir)
+                        / "mismatch"
+                        / f"{timestamp}_{rom_path.stem}"
+                        / "actions.jsonl"
+                    )
+                    write_actions_trace(actions_trace, trace_path)
+                    print(f"Action trace: {trace_path}")
                     return 1
 
         print(f"PASS: No mismatches in {args.verify_steps} steps")
