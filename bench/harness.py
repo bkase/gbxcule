@@ -415,6 +415,31 @@ def run_benchmark(
 # ---------------------------------------------------------------------------
 
 
+def _write_json_atomic(path: Path, data: dict) -> None:
+    """Write JSON data to path atomically using temp file + rename.
+
+    This ensures partial writes never exist at the target path ("Crash-Only" pattern).
+
+    Args:
+        path: Destination file path.
+        data: Dictionary to serialize as JSON.
+    """
+    import os
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write to temp file in same directory (ensures same filesystem for rename)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.rename(tmp_path, path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
+
+
 def write_artifact(
     output_dir: Path,
     *,
@@ -423,7 +448,7 @@ def write_artifact(
     config: dict[str, Any],
     results: dict[str, Any],
 ) -> Path:
-    """Write a benchmark artifact to JSON.
+    """Write a benchmark artifact to JSON atomically.
 
     Args:
         output_dir: Directory for output files.
@@ -437,8 +462,6 @@ def write_artifact(
     """
     from gbxcule.backends.common import RESULT_SCHEMA_VERSION
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     artifact = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "run_id": run_id,
@@ -449,8 +472,7 @@ def write_artifact(
     }
 
     artifact_path = output_dir / f"{run_id}.json"
-    with open(artifact_path, "w") as f:
-        json.dump(artifact, f, indent=2)
+    _write_json_atomic(artifact_path, artifact)
 
     return artifact_path
 
@@ -463,7 +485,7 @@ def write_scaling_artifact(
     sweep_config: dict[str, Any],
     results_list: list[dict[str, Any]],
 ) -> Path:
-    """Write a scaling benchmark artifact to JSON.
+    """Write a scaling benchmark artifact to JSON atomically.
 
     Args:
         output_dir: Directory for output files.
@@ -477,8 +499,6 @@ def write_scaling_artifact(
     """
     from gbxcule.backends.common import RESULT_SCHEMA_VERSION
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     artifact = {
         "schema_version": RESULT_SCHEMA_VERSION,
         "run_id": run_id,
@@ -489,8 +509,7 @@ def write_scaling_artifact(
     }
 
     artifact_path = output_dir / f"{run_id}__scaling.json"
-    with open(artifact_path, "w") as f:
-        json.dump(artifact, f, indent=2)
+    _write_json_atomic(artifact_path, artifact)
 
     return artifact_path
 
@@ -504,7 +523,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="GBxCuLE Benchmark Harness",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Backend selection (required for benchmark mode, ignored in verify mode)
@@ -525,24 +544,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--steps",
         type=int,
         default=100,
-        help="Number of steps to measure (default: 100)",
+        help="Number of steps to measure",
     )
     parser.add_argument(
         "--warmup-steps",
         type=int,
         default=10,
-        help="Number of warmup steps (default: 10)",
+        help="Number of warmup steps",
     )
     parser.add_argument(
         "--stage",
         choices=["emulate_only", "full_step", "reward_only", "obs_only"],
         default="emulate_only",
-        help="Execution stage (default: emulate_only)",
+        help="Execution stage",
     )
 
     # Backend configuration
     parser.add_argument(
-        "--num-envs", type=int, default=1, help="Number of environments (default: 1)"
+        "--num-envs", type=int, default=1, help="Number of environments"
     )
     parser.add_argument(
         "--env-counts",
@@ -554,19 +573,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--num-workers",
         type=int,
         default=None,
-        help="Number of workers for MP backend (default: num_envs)",
+        help="Number of workers for MP backend (defaults to num_envs)",
     )
     parser.add_argument(
         "--frames-per-step",
         type=int,
         default=24,
-        help="Frames per step (default: 24)",
+        help="Frames per step",
     )
     parser.add_argument(
         "--release-after-frames",
         type=int,
         default=8,
-        help="Frames before button release (default: 8)",
+        help="Frames before button release",
     )
 
     # Action configuration
@@ -574,13 +593,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--actions-seed",
         type=int,
         default=None,
-        help="Seed for action generation (default: None = noop)",
+        help="Seed for action generation (None = noop)",
     )
     parser.add_argument(
         "--action-gen",
         choices=["noop", "seeded_random"],
         default="noop",
-        help="Action generator type (default: noop)",
+        help="Action generator type",
     )
 
     # Verify mode configuration
@@ -593,25 +612,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ref-backend",
         choices=["pyboy_single", "pyboy_vec_mp"],
         default="pyboy_single",
-        help="Reference backend for verification (default: pyboy_single)",
+        help="Reference backend for verification",
     )
     parser.add_argument(
         "--dut-backend",
         choices=["pyboy_single", "pyboy_vec_mp", "warp_vec"],
         default="warp_vec",
-        help="Device-under-test backend for verification (default: warp_vec)",
+        help="Device-under-test backend for verification",
     )
     parser.add_argument(
         "--verify-steps",
         type=int,
         default=100,
-        help="Number of verification steps (default: 100)",
+        help="Number of verification steps",
     )
     parser.add_argument(
         "--compare-every",
         type=int,
         default=1,
-        help="Compare states every N steps (default: 1)",
+        help="Compare states every N steps",
     )
     parser.add_argument(
         "--actions-file",
@@ -625,7 +644,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output-dir",
         type=str,
         default="bench/runs",
-        help="Output directory for artifacts (default: bench/runs)",
+        help="Output directory for artifacts",
     )
 
     return parser.parse_args(argv)

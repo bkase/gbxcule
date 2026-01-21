@@ -17,57 +17,9 @@ DEFAULT_OUT_DIR = Path(__file__).parent / "out"
 
 # Nintendo logo (required for boot ROM validation)
 # This is the exact sequence the Game Boy checks at 0x0104-0x0133
-NINTENDO_LOGO = bytes(
-    [
-        0xCE,
-        0xED,
-        0x66,
-        0x66,
-        0xCC,
-        0x0D,
-        0x00,
-        0x0B,
-        0x03,
-        0x73,
-        0x00,
-        0x83,
-        0x00,
-        0x0C,
-        0x00,
-        0x0D,
-        0x00,
-        0x08,
-        0x11,
-        0x1F,
-        0x88,
-        0x89,
-        0x00,
-        0x0E,
-        0xDC,
-        0xCC,
-        0x6E,
-        0xE6,
-        0xDD,
-        0xDD,
-        0xD9,
-        0x99,
-        0xBB,
-        0xBB,
-        0x67,
-        0x63,
-        0x6E,
-        0x0E,
-        0xEC,
-        0xCC,
-        0xDD,
-        0xDC,
-        0x99,
-        0x9F,
-        0xBB,
-        0xB9,
-        0x33,
-        0x3E,
-    ]
+NINTENDO_LOGO = bytes.fromhex(
+    "CEED6666CC0D000B03730083000C000D0008111F8889000E"
+    "DCCC6EE6DDDDD999BBBB67636E0EECCCDDDC999FBBB9333E"
 )
 
 
