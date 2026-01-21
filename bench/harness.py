@@ -168,6 +168,97 @@ def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# State Comparison (Pure)
+# ---------------------------------------------------------------------------
+
+# Canonical register keys for normalization
+CANONICAL_REGISTER_KEYS = ["pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l"]
+CANONICAL_FLAG_KEYS = ["z", "n", "h", "c"]
+
+
+def normalize_cpu_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Normalize CPU state for comparison (pure function).
+
+    Ensures consistent key ordering and types for deterministic comparison.
+
+    Args:
+        state: Raw CPU state dictionary from backend.
+
+    Returns:
+        Normalized dictionary with canonical key order and Python int types.
+    """
+    normalized: dict[str, Any] = {}
+
+    # Normalize registers in canonical order
+    for key in CANONICAL_REGISTER_KEYS:
+        if key in state:
+            normalized[key] = int(state[key])
+        else:
+            normalized[key] = None
+
+    # Normalize flags
+    if "flags" in state and state["flags"]:
+        normalized["flags"] = {
+            key: int(state["flags"].get(key, 0)) for key in CANONICAL_FLAG_KEYS
+        }
+    else:
+        normalized["flags"] = {key: 0 for key in CANONICAL_FLAG_KEYS}
+
+    # Optional counters
+    normalized["instr_count"] = (
+        int(state["instr_count"]) if state.get("instr_count") is not None else None
+    )
+    normalized["cycle_count"] = (
+        int(state["cycle_count"]) if state.get("cycle_count") is not None else None
+    )
+
+    return normalized
+
+
+def diff_states(
+    ref_state: dict[str, Any], dut_state: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Compute differences between normalized CPU states (pure function).
+
+    Args:
+        ref_state: Normalized reference state.
+        dut_state: Normalized DUT state.
+
+    Returns:
+        None if states match, otherwise a dict with field-level differences.
+    """
+    diffs: dict[str, Any] = {}
+
+    # Compare registers
+    for key in CANONICAL_REGISTER_KEYS:
+        ref_val = ref_state.get(key)
+        dut_val = dut_state.get(key)
+        if ref_val != dut_val:
+            diffs[key] = {"ref": ref_val, "dut": dut_val}
+
+    # Compare flags
+    ref_flags = ref_state.get("flags", {})
+    dut_flags = dut_state.get("flags", {})
+    flag_diffs: dict[str, Any] = {}
+    for key in CANONICAL_FLAG_KEYS:
+        ref_val = ref_flags.get(key)
+        dut_val = dut_flags.get(key)
+        if ref_val != dut_val:
+            flag_diffs[key] = {"ref": ref_val, "dut": dut_val}
+    if flag_diffs:
+        diffs["flags"] = flag_diffs
+
+    # Compare counters (optional, skip if both None)
+    for key in ["instr_count", "cycle_count"]:
+        ref_val = ref_state.get(key)
+        dut_val = dut_state.get(key)
+        if ref_val is not None and dut_val is not None and ref_val != dut_val:
+            diffs[key] = {"ref": ref_val, "dut": dut_val}
+
+    return diffs if diffs else None
+
+
+# ---------------------------------------------------------------------------
 # System Info
 # ---------------------------------------------------------------------------
 
@@ -481,6 +572,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Action generator type (default: noop)",
     )
 
+    # Verify mode configuration
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Enable verification mode (ref vs DUT comparison)",
+    )
+    parser.add_argument(
+        "--ref-backend",
+        choices=["pyboy_single", "pyboy_vec_mp"],
+        default="pyboy_single",
+        help="Reference backend for verification (default: pyboy_single)",
+    )
+    parser.add_argument(
+        "--dut-backend",
+        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec"],
+        default="warp_vec",
+        help="Device-under-test backend for verification (default: warp_vec)",
+    )
+    parser.add_argument(
+        "--verify-steps",
+        type=int,
+        default=100,
+        help="Number of verification steps (default: 100)",
+    )
+    parser.add_argument(
+        "--compare-every",
+        type=int,
+        default=1,
+        help="Compare states every N steps (default: 1)",
+    )
+    parser.add_argument(
+        "--actions-file",
+        type=str,
+        default=None,
+        help="Path to actions.jsonl file for replay (overrides generator)",
+    )
+
     # Output configuration
     parser.add_argument(
         "--output-dir",
@@ -598,6 +726,109 @@ def run_scaling_sweep(
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Mismatch Bundle Schema Version
+# ---------------------------------------------------------------------------
+
+MISMATCH_SCHEMA_VERSION = 1
+
+
+def run_verify(
+    args: argparse.Namespace,
+    rom_path: Path,
+) -> int:
+    """Run verification mode comparing ref vs DUT.
+
+    Args:
+        args: Parsed arguments.
+        rom_path: Path to ROM file.
+
+    Returns:
+        Exit code (0 for match, 1 for mismatch or error).
+    """
+    print(f"Verification mode: ref={args.ref_backend} vs dut={args.dut_backend}")
+    print(f"ROM: {rom_path.name}")
+    print(f"Steps: {args.verify_steps}, compare every {args.compare_every}")
+    print()
+
+    # Use seed for seeded_random generator, None for noop
+    effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
+
+    # Create ref backend
+    try:
+        ref_backend = create_backend(
+            args.ref_backend,
+            str(rom_path),
+            num_envs=1,  # Verify uses single env for now
+            frames_per_step=args.frames_per_step,
+            release_after_frames=args.release_after_frames,
+            base_seed=effective_seed,
+        )
+    except Exception as e:
+        print(f"Error creating ref backend: {e}", file=sys.stderr)
+        return 1
+
+    # Create DUT backend
+    try:
+        dut_backend = create_backend(
+            args.dut_backend,
+            str(rom_path),
+            num_envs=1,
+            frames_per_step=args.frames_per_step,
+            release_after_frames=args.release_after_frames,
+            base_seed=effective_seed,
+        )
+    except Exception as e:
+        ref_backend.close()
+        print(f"Error creating DUT backend: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        # Reset both backends with same seed
+        ref_backend.reset(seed=effective_seed)
+        dut_backend.reset(seed=effective_seed)
+
+        # Action trace for recording
+        actions_trace: list[list[int]] = []
+
+        # Verify loop
+        for step_idx in range(args.verify_steps):
+            # Generate actions
+            actions = generate_actions(
+                step_idx=step_idx,
+                num_envs=1,
+                seed=effective_seed,
+                gen_name=args.action_gen,
+            )
+
+            # Record actions
+            actions_trace.append(actions.tolist())
+
+            # Step both backends
+            ref_backend.step(actions)
+            dut_backend.step(actions)
+
+            # Compare states every compare_every steps
+            if step_idx % args.compare_every == 0:
+                ref_state = normalize_cpu_state(ref_backend.get_cpu_state(0))
+                dut_state = normalize_cpu_state(dut_backend.get_cpu_state(0))
+
+                diff = diff_states(ref_state, dut_state)
+                if diff is not None:
+                    # Mismatch found
+                    print(f"MISMATCH at step {step_idx}")
+                    print(f"First differing fields: {list(diff.keys())[:5]}")
+                    # Return mismatch info for bundle writing (will be added later)
+                    return 1
+
+        print(f"PASS: No mismatches in {args.verify_steps} steps")
+        return 0
+
+    finally:
+        ref_backend.close()
+        dut_backend.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     args = parse_args(argv)
@@ -650,7 +881,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_scaling_sweep(args, rom_path, env_counts)
 
-    # Single run mode
+    # Check for verify mode
+    if args.verify:
+        return run_verify(args, rom_path)
+
+    # Single run mode (benchmark)
     # Validate backend constraints
     if args.backend == "pyboy_single" and args.num_envs != 1:
         print(
