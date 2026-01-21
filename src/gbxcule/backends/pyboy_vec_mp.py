@@ -7,6 +7,7 @@ multiple PyBoy instances across worker processes.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import multiprocessing as mp
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -28,6 +29,7 @@ from gbxcule.backends.common import (
     empty_obs,
     flags_from_f,
 )
+from gbxcule.core.signatures import hash64
 
 # ---------------------------------------------------------------------------
 # Configuration dataclass
@@ -80,6 +82,23 @@ class PyBoyMpConfig:
             )
         if not Path(self.rom_path).exists():
             raise ValueError(f"ROM file not found: {self.rom_path}")
+
+
+def _compute_rom_sha256(rom_path: str) -> str:
+    """Compute SHA-256 hash of a ROM file.
+
+    Args:
+        rom_path: Path to the ROM file.
+
+    Returns:
+        Hex-encoded SHA-256 hash string.
+    """
+    sha256 = hashlib.sha256()
+    with open(rom_path, "rb") as f:
+        # Read in chunks for memory efficiency (though ROMs are small)
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +338,9 @@ class PyBoyVecMpBackend:
         self.num_envs = num_envs
         self._obs_dim = obs_dim
 
+        # Compute ROM SHA for deterministic seeding
+        self._rom_sha = _compute_rom_sha256(rom_path)
+
         # Specs
         self.action_spec = ArraySpec(
             shape=(self.num_envs,),
@@ -336,6 +358,9 @@ class PyBoyVecMpBackend:
         self._conns: list[Connection] = []
         self._env_partition: list[list[int]] = []
         self._initialized = False
+
+        # Derived seeds (populated on reset)
+        self._derived_seeds: list[int] = []
 
     def _partition_envs(self) -> list[list[int]]:
         """Partition environment indices across workers."""
@@ -412,12 +437,26 @@ class PyBoyVecMpBackend:
         responses = self._recv_all()
         self._check_responses(responses)
 
+        # Compute derived seeds for each environment
+        # Use the reset seed if provided, otherwise fall back to config base_seed
+        effective_seed = seed if seed is not None else self._config.base_seed
+        if effective_seed is not None:
+            self._derived_seeds = [
+                hash64(effective_seed, env_idx, self._rom_sha)
+                for env_idx in range(self.num_envs)
+            ]
+        else:
+            # No seed provided - clear derived seeds
+            self._derived_seeds = []
+
         # Build observation (zeros for M0)
         obs = empty_obs(self.num_envs, self._obs_dim)
 
         info: dict[str, Any] = {
             "seed": seed,
             "base_seed": self._config.base_seed,
+            "rom_sha256": self._rom_sha,
+            "derived_seeds": self._derived_seeds if self._derived_seeds else None,
         }
         return obs, info
 
