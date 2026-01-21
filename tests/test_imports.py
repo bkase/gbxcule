@@ -27,14 +27,22 @@ def test_import_backends() -> None:
 def test_import_backends_common() -> None:
     """Test that common types can be imported."""
     from gbxcule.backends.common import (
-        ActionSpec,
-        ObsSpec,
+        ArraySpec,
+        BackendSpec,
+        CpuFlags,
+        CpuState,
+        Device,
+        Stage,
         StepOutput,
         VecBackend,
     )
 
-    assert ActionSpec is not None
-    assert ObsSpec is not None
+    assert ArraySpec is not None
+    assert BackendSpec is not None
+    assert CpuFlags is not None
+    assert CpuState is not None
+    assert Device is not None
+    assert Stage is not None
     assert StepOutput is not None
     assert VecBackend is not None
 
