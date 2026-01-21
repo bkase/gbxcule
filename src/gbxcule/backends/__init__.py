@@ -5,6 +5,17 @@ are imported lazily to avoid heavy deps at import time.
 """
 
 from gbxcule.backends.common import (
+    ACTION_A,
+    ACTION_B,
+    ACTION_DOWN,
+    ACTION_LEFT,
+    ACTION_NOOP,
+    ACTION_RIGHT,
+    ACTION_SELECT,
+    ACTION_START,
+    ACTION_TO_BUTTON,
+    ACTION_UP,
+    NUM_ACTIONS,
     RESULT_SCHEMA_VERSION,
     ArraySpec,
     BackendSpec,
@@ -20,6 +31,7 @@ from gbxcule.backends.common import (
     StepOutput,
     SystemInfo,
     VecBackend,
+    action_to_button,
     as_i32_actions,
     empty_obs,
     flags_from_f,
@@ -43,6 +55,19 @@ __all__ = [
     "CpuState",
     # Protocol
     "VecBackend",
+    # Action constants
+    "ACTION_NOOP",
+    "ACTION_UP",
+    "ACTION_DOWN",
+    "ACTION_LEFT",
+    "ACTION_RIGHT",
+    "ACTION_A",
+    "ACTION_B",
+    "ACTION_START",
+    "ACTION_SELECT",
+    "NUM_ACTIONS",
+    "ACTION_TO_BUTTON",
+    "action_to_button",
     # Run metadata
     "RESULT_SCHEMA_VERSION",
     "SystemInfo",

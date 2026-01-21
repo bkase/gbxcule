@@ -203,6 +203,54 @@ class VecBackend(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Action mapping constants
+# ---------------------------------------------------------------------------
+
+# Canonical action indices used by all backends
+ACTION_NOOP = 0
+ACTION_UP = 1
+ACTION_DOWN = 2
+ACTION_LEFT = 3
+ACTION_RIGHT = 4
+ACTION_A = 5
+ACTION_B = 6
+ACTION_START = 7
+ACTION_SELECT = 8
+
+NUM_ACTIONS = 9
+
+# Mapping from action index to PyBoy button name
+ACTION_TO_BUTTON: dict[int, str | None] = {
+    ACTION_NOOP: None,
+    ACTION_UP: "up",
+    ACTION_DOWN: "down",
+    ACTION_LEFT: "left",
+    ACTION_RIGHT: "right",
+    ACTION_A: "a",
+    ACTION_B: "b",
+    ACTION_START: "start",
+    ACTION_SELECT: "select",
+}
+
+
+def action_to_button(action: int) -> str | None:
+    """Convert action index to PyBoy button name.
+
+    Args:
+        action: Action index (0-8).
+
+    Returns:
+        Button name string, or None for noop.
+
+    Raises:
+        ValueError: If action is out of range.
+    """
+    if action < 0 or action >= NUM_ACTIONS:
+        raise ValueError(f"Action {action} out of range [0, {NUM_ACTIONS})")
+    return ACTION_TO_BUTTON[action]
+
+
+# ---------------------------------------------------------------------------
 # Validation helpers (fast boundary checks)
 # ---------------------------------------------------------------------------
 
