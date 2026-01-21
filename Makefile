@@ -55,10 +55,11 @@ smoke: roms ## Run minimal sanity check (fast, for commit hook)
 	@# Smoke just ensures ROMs build; tests run separately in check
 
 bench: roms ## Run baseline benchmarks
-	@echo "Benchmark harness not yet implemented (Epic 7)"
+	@$(PY) bench/harness.py --backend pyboy_single --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10
+	@$(PY) bench/harness.py --backend pyboy_vec_mp --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10 --num-envs 4 --num-workers 2
 
-verify: ## Run verification mode (scaffold)
-	@echo "Verification mode not yet implemented (Epic 8)"
+verify: roms ## Run verification mode (expected to fail in M0 due to DUT stub)
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 4 --compare-every 1 || echo "Mismatch expected (DUT is a stub). Check bench/runs/mismatch/ for repro bundle."
 
 check: lint test smoke ## Run all checks (commit hook gate)
 
