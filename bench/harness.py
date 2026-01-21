@@ -353,6 +353,46 @@ def write_artifact(
     return artifact_path
 
 
+def write_scaling_artifact(
+    output_dir: Path,
+    *,
+    run_id: str,
+    system_info: dict[str, Any],
+    sweep_config: dict[str, Any],
+    results_list: list[dict[str, Any]],
+) -> Path:
+    """Write a scaling benchmark artifact to JSON.
+
+    Args:
+        output_dir: Directory for output files.
+        run_id: Unique run identifier.
+        system_info: System information dict.
+        sweep_config: Sweep configuration (shared across env counts).
+        results_list: List of results for each env count.
+
+    Returns:
+        Path to the written artifact file.
+    """
+    from gbxcule.backends.common import RESULT_SCHEMA_VERSION
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    artifact = {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "run_id": run_id,
+        "timestamp_utc": datetime.now(UTC).isoformat(),
+        "system": system_info,
+        "sweep_config": sweep_config,
+        "results": results_list,
+    }
+
+    artifact_path = output_dir / f"{run_id}__scaling.json"
+    with open(artifact_path, "w") as f:
+        json.dump(artifact, f, indent=2)
+
+    return artifact_path
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -403,6 +443,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--num-envs", type=int, default=1, help="Number of environments (default: 1)"
     )
     parser.add_argument(
+        "--env-counts",
+        type=str,
+        default=None,
+        help="Comma-separated env counts for scaling sweep (e.g. '1,2,4,8')",
+    )
+    parser.add_argument(
         "--num-workers",
         type=int,
         default=None,
@@ -446,6 +492,112 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def run_scaling_sweep(
+    args: argparse.Namespace,
+    rom_path: Path,
+    env_counts: list[int],
+) -> int:
+    """Run a scaling sweep across multiple env counts.
+
+    Args:
+        args: Parsed arguments.
+        rom_path: Path to ROM file.
+        env_counts: List of env counts to sweep.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    # Collect system info once
+    system_info = get_system_info()
+    rom_sha256 = compute_rom_sha256(str(rom_path))
+
+    # Use seed for seeded_random generator, None for noop
+    effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
+
+    # Build sweep config (shared across all runs)
+    sweep_config = {
+        "backend": args.backend,
+        "rom_path": str(rom_path),
+        "rom_sha256": rom_sha256,
+        "stage": args.stage,
+        "env_counts": env_counts,
+        "frames_per_step": args.frames_per_step,
+        "release_after_frames": args.release_after_frames,
+        "steps": args.steps,
+        "warmup_steps": args.warmup_steps,
+        "action_generator": get_action_gen_metadata(args.action_gen, effective_seed),
+        "sync_every": None,
+    }
+
+    results_list: list[dict[str, Any]] = []
+
+    print(f"Running scaling sweep: env_counts={env_counts}")
+    print(f"Backend: {args.backend}")
+    print(f"ROM: {rom_path.name}")
+    print()
+
+    for num_envs in env_counts:
+        # pyboy_single only supports 1 env
+        if args.backend == "pyboy_single" and num_envs != 1:
+            print(f"  Skipping num_envs={num_envs} (pyboy_single only supports 1)")
+            continue
+
+        try:
+            backend = create_backend(
+                args.backend,
+                str(rom_path),
+                num_envs=num_envs,
+                num_workers=args.num_workers,
+                frames_per_step=args.frames_per_step,
+                release_after_frames=args.release_after_frames,
+                base_seed=args.actions_seed,
+            )
+        except Exception as e:
+            print(f"  Error creating backend for num_envs={num_envs}: {e}")
+            continue
+
+        try:
+            results = run_benchmark(
+                backend,
+                steps=args.steps,
+                warmup_steps=args.warmup_steps,
+                action_gen=args.action_gen,
+                actions_seed=effective_seed,
+                frames_per_step=args.frames_per_step,
+            )
+
+            # Add entry with env_count + results
+            entry = {
+                "num_envs": num_envs,
+                "device": backend.device,
+                **results,
+            }
+            results_list.append(entry)
+
+            print(f"  num_envs={num_envs}: {results['total_sps']:.1f} SPS")
+
+        finally:
+            backend.close()
+
+    # Generate run ID and write artifact
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    run_id = f"{timestamp}_{args.backend}_{rom_path.stem}"
+
+    output_dir = Path(args.output_dir)
+    artifact_path = write_scaling_artifact(
+        output_dir,
+        run_id=run_id,
+        system_info=system_info,
+        sweep_config=sweep_config,
+        results_list=results_list,
+    )
+
+    print()
+    print(f"Scaling artifact: {artifact_path}")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     args = parse_args(argv)
@@ -482,6 +634,23 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: Must specify --rom or --suite", file=sys.stderr)
         return 1
 
+    # Check for scaling sweep mode
+    if args.env_counts:
+        try:
+            env_counts = [int(x.strip()) for x in args.env_counts.split(",")]
+            if not env_counts:
+                print("Error: --env-counts must not be empty", file=sys.stderr)
+                return 1
+            if any(x < 1 for x in env_counts):
+                print("Error: All env counts must be >= 1", file=sys.stderr)
+                return 1
+        except ValueError as e:
+            print(f"Error parsing --env-counts: {e}", file=sys.stderr)
+            return 1
+
+        return run_scaling_sweep(args, rom_path, env_counts)
+
+    # Single run mode
     # Validate backend constraints
     if args.backend == "pyboy_single" and args.num_envs != 1:
         print(
