@@ -1,0 +1,14 @@
+# Debug configuration for GBxCuLE harness
+
+benchmark:
+  warmup_steps: 64
+  steps: 256
+  sync_every: 1
+
+verify:
+  steps: 256
+  compare_every: 1
+
+runtime:
+  frames_per_step: 24
+  release_after_frames: 8

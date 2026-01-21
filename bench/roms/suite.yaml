@@ -1,0 +1,5 @@
+# Micro-ROM test suite
+# Each entry defines a ROM for benchmarking/verification
+
+roms: []
+# ROMs will be added when build_micro_rom.py is implemented

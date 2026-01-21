@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gbxcule-learning-lab"
+version = "0.0.0"
+description = "GPU-native many-env Game Boy runtime (Warp→CUDA) + benchmark/verification harness"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "pyboy>=2.6.1",
+    "warp-lang>=1.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-xdist",
+    "hypothesis",
+    "ruff",
+    "pyright",
+]
+
+[tool.uv]
+# Resolve lock for the platforms we actually support in dev.
+# This improves lock performance and avoids unsatisfiable branches.
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+
+[tool.hatch.build.targets.wheel]
+# src-layout packaging: ship the package from src/gbxcule
+packages = ["src/gbxcule"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+include = ["src/gbxcule/core", "src/gbxcule/backends/common.py"]
