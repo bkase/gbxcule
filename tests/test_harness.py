@@ -464,3 +464,214 @@ class TestArtifactSchema:
             )
 
             assert path.name == "test_scaling__scaling.json"
+
+
+# ---------------------------------------------------------------------------
+# State Comparison Tests
+# ---------------------------------------------------------------------------
+
+
+class TestStateDiff:
+    """Tests for CPU state normalization and comparison."""
+
+    def test_normalize_cpu_state_all_keys(self) -> None:
+        """normalize_cpu_state includes all canonical keys."""
+        from harness import normalize_cpu_state
+
+        raw_state = {
+            "pc": 0x100,
+            "sp": 0xFFFE,
+            "a": 1,
+            "f": 0xB0,
+            "b": 2,
+            "c": 3,
+            "d": 4,
+            "e": 5,
+            "h": 6,
+            "l": 7,
+            "flags": {"z": 1, "n": 0, "h": 1, "c": 1},
+        }
+
+        normalized = normalize_cpu_state(raw_state)
+
+        # Check all canonical keys present
+        assert "pc" in normalized
+        assert "sp" in normalized
+        assert "flags" in normalized
+
+    def test_diff_states_no_diff(self) -> None:
+        """diff_states returns None when states match."""
+        from harness import diff_states, normalize_cpu_state
+
+        state = normalize_cpu_state(
+            {
+                "pc": 0x100,
+                "sp": 0xFFFE,
+                "a": 0,
+                "f": 0,
+                "b": 0,
+                "c": 0,
+                "d": 0,
+                "e": 0,
+                "h": 0,
+                "l": 0,
+                "flags": {"z": 0, "n": 0, "h": 0, "c": 0},
+            }
+        )
+
+        diff = diff_states(state, state)
+        assert diff is None
+
+    def test_diff_states_detects_diff(self) -> None:
+        """diff_states detects register differences."""
+        from harness import diff_states, normalize_cpu_state
+
+        ref = normalize_cpu_state(
+            {
+                "pc": 0x100,
+                "sp": 0xFFFE,
+                "a": 0,
+                "f": 0,
+                "b": 0,
+                "c": 0,
+                "d": 0,
+                "e": 0,
+                "h": 0,
+                "l": 0,
+                "flags": {"z": 0, "n": 0, "h": 0, "c": 0},
+            }
+        )
+        dut = normalize_cpu_state(
+            {
+                "pc": 0x200,  # Different
+                "sp": 0xFFFE,
+                "a": 0,
+                "f": 0,
+                "b": 0,
+                "c": 0,
+                "d": 0,
+                "e": 0,
+                "h": 0,
+                "l": 0,
+                "flags": {"z": 0, "n": 0, "h": 0, "c": 0},
+            }
+        )
+
+        diff = diff_states(ref, dut)
+        assert diff is not None
+        assert "pc" in diff
+        assert diff["pc"]["ref"] == 0x100
+        assert diff["pc"]["dut"] == 0x200
+
+
+# ---------------------------------------------------------------------------
+# Mismatch Bundle Tests
+# ---------------------------------------------------------------------------
+
+
+class TestMismatchBundle:
+    """Tests for mismatch bundle writing."""
+
+    def test_write_mismatch_bundle_creates_files(self) -> None:
+        """write_mismatch_bundle creates all required files."""
+        from harness import write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=Path("test.gb"),
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=5,
+                env_idx=0,
+                ref_state={"pc": 0x100},
+                dut_state={"pc": 0x200},
+                diff={"pc": {"ref": 0x100, "dut": 0x200}},
+                actions_trace=[[0], [0], [0], [0], [0], [0]],
+                system_info={"platform": "test"},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=10,
+            )
+
+            # Check all required files exist
+            assert (bundle_path / "metadata.json").exists()
+            assert (bundle_path / "ref_state.json").exists()
+            assert (bundle_path / "dut_state.json").exists()
+            assert (bundle_path / "diff.json").exists()
+            assert (bundle_path / "actions.jsonl").exists()
+            assert (bundle_path / "repro.sh").exists()
+
+    def test_mismatch_bundle_metadata_schema(self) -> None:
+        """Metadata has correct schema version."""
+        from harness import MISMATCH_SCHEMA_VERSION, write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=Path("test.gb"),
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=0,
+                env_idx=0,
+                ref_state={},
+                dut_state={},
+                diff={},
+                actions_trace=[],
+                system_info={},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=1,
+            )
+
+            with open(bundle_path / "metadata.json") as f:
+                metadata = json.load(f)
+
+            assert metadata["schema_version"] == MISMATCH_SCHEMA_VERSION
+            assert metadata["mismatch_step"] == 0
+            assert metadata["ref_backend"] == "pyboy_single"
+            assert metadata["dut_backend"] == "warp_vec"
+
+    def test_repro_sh_uses_uv_and_actions_file(self) -> None:
+        """repro.sh uses uv run and --actions-file."""
+        from harness import write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=Path("test.gb"),
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=0,
+                env_idx=0,
+                ref_state={},
+                dut_state={},
+                diff={},
+                actions_trace=[],
+                system_info={},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=1,
+            )
+
+            with open(bundle_path / "repro.sh") as f:
+                repro_content = f.read()
+
+            assert "uv run" in repro_content
+            assert "--actions-file" in repro_content
+            assert "--verify" in repro_content
