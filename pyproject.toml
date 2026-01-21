@@ -44,3 +44,5 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 include = ["src/gbxcule/core", "src/gbxcule/backends/common.py"]
+# Enforce strict mode for shared contract modules
+strict = ["src/gbxcule/backends/common.py"]
