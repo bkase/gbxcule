@@ -7,6 +7,7 @@ verification and as a baseline for benchmarks.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -43,6 +44,7 @@ class PyBoySingleBackend:
     name: str = "pyboy_single"
     device: Device = "cpu"
     num_envs: int = 1
+    _BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
 
     def __init__(
         self,
@@ -85,11 +87,17 @@ class PyBoySingleBackend:
 
     def _make_pyboy(self) -> Any:
         """Create a fresh PyBoy instance."""
+        if not self._BOOTROM_PATH.exists():
+            raise FileNotFoundError(
+                f"Boot ROM not found: {self._BOOTROM_PATH}. "
+                "Expected repo-local fast boot ROM."
+            )
         PyBoy = get_pyboy_class()
         pyboy = PyBoy(
             self._rom_path,
             window="null",
             sound_emulated=False,
+            bootrom=str(self._BOOTROM_PATH),
         )
         pyboy.set_emulation_speed(0)  # No speed limit
         return pyboy

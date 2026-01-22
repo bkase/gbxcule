@@ -36,14 +36,15 @@ class TestWarpVecCpuSpecific:
         return WarpVecCpuBackend(str(ROM_PATH), num_envs=2, obs_dim=32)
 
     def test_step_increments_counter(self, backend: WarpVecCpuBackend) -> None:
-        """step() increments per-env counter."""
+        """step() advances instruction and cycle counters."""
         backend.reset()
         actions = np.zeros((2,), dtype=np.int32)
         state0 = backend.get_cpu_state(0)
         backend.step(actions)
         state1 = backend.get_cpu_state(0)
-        assert state1["instr_count"] == state0["instr_count"] + 1
-        assert state1["pc"] == (state0["pc"] + 1) & 0xFFFF
+        assert state1["instr_count"] > state0["instr_count"]
+        assert state1["cycle_count"] > state0["cycle_count"]
+        assert state1["pc"] >= 0x0100
 
     def test_multi_env_counters_progress(self, backend: WarpVecCpuBackend) -> None:
         """All env counters advance each step."""
@@ -52,8 +53,9 @@ class TestWarpVecCpuSpecific:
         backend.step(actions)
         state0 = backend.get_cpu_state(0)
         state1 = backend.get_cpu_state(1)
-        assert state0["instr_count"] == 1
-        assert state1["instr_count"] == 1
+        assert state0["instr_count"] > 0
+        assert state1["instr_count"] > 0
+        assert state0["instr_count"] == state1["instr_count"]
 
     def test_determinism_across_instances(self) -> None:
         """Identical runs produce identical state progression."""

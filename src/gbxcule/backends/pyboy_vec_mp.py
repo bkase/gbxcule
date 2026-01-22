@@ -36,6 +36,8 @@ from gbxcule.core.signatures import hash64
 # Configuration dataclass
 # ---------------------------------------------------------------------------
 
+BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
+
 
 @dataclass(frozen=True)
 class PyBoyMpConfig:
@@ -165,6 +167,10 @@ def _worker_main(
         release_after_frames: Frames before button release.
     """
     PyBoy = get_pyboy_class()
+    if not BOOTROM_PATH.exists():
+        raise FileNotFoundError(
+            f"Boot ROM not found: {BOOTROM_PATH}. Expected repo-local fast boot ROM."
+        )
 
     pyboys: list[Any] = []
 
@@ -180,7 +186,12 @@ def _worker_main(
 
                 # Create fresh PyBoy instances
                 for _ in env_indices:
-                    pb = PyBoy(rom_path, window="null", sound_emulated=False)
+                    pb = PyBoy(
+                        rom_path,
+                        window="null",
+                        sound_emulated=False,
+                        bootrom=str(BOOTROM_PATH),
+                    )
                     pb.set_emulation_speed(0)
                     pyboys.append(pb)
 

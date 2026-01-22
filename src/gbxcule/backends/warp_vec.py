@@ -1,7 +1,4 @@
-"""Warp-based backend (CPU bring-up).
-
-M2 Workstream 2: ROM loading + ABI v0 memory model.
-"""
+"""Warp-based backend (CPU vector, M2 correctness)."""
 
 from __future__ import annotations
 
@@ -22,16 +19,18 @@ from gbxcule.backends.common import (
     empty_obs,
     flags_from_f,
 )
-from gbxcule.core import abi
+from gbxcule.core.abi import MEM_SIZE
 from gbxcule.kernels.cpu_step import (
-    get_inc_counter_kernel,
+    get_cpu_step_kernel,
     get_warp,
     warmup_warp_cpu,
 )
 
+BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
+
 
 class WarpVecCpuBackend:
-    """Warp-based vectorized backend (CPU bring-up)."""
+    """Warp-based vectorized backend (CPU)."""
 
     name: str = "warp_vec_cpu"
     device: Device = "cpu"
@@ -49,15 +48,7 @@ class WarpVecCpuBackend:
         """Initialize the warp_vec CPU backend."""
         self.num_envs = num_envs
         self._obs_dim = obs_dim
-        self._rom_path = Path(rom_path)
-        self._rom_bytes = self._rom_path.read_bytes()
-        if len(self._rom_bytes) > abi.MEM_SIZE:
-            raise ValueError(
-                f"ROM too large for ABI v0 memory: {len(self._rom_bytes)} > "
-                f"{abi.MEM_SIZE}"
-            )
-        self._rom_u8 = np.frombuffer(self._rom_bytes, dtype=np.uint8)
-        self._rom_len = int(self._rom_u8.size)
+        self._rom_path = rom_path
         self._initialized = False
         self._frames_per_step = frames_per_step
         self._release_after_frames = release_after_frames
@@ -66,20 +57,22 @@ class WarpVecCpuBackend:
         self._wp = get_warp()
         self._device = self._wp.get_device("cpu")
         warmup_warp_cpu()
-        self._kernel = get_inc_counter_kernel()
+        self._kernel = get_cpu_step_kernel()
+
         self._mem = None
         self._pc = None
         self._sp = None
         self._a = None
-        self._f = None
         self._b = None
         self._c = None
         self._d = None
         self._e = None
         self._h = None
         self._l = None
+        self._f = None
         self._instr_count = None
         self._cycle_count = None
+        self._cycle_in_frame = None
 
         self.action_spec = ArraySpec(
             shape=(num_envs,),
@@ -92,80 +85,97 @@ class WarpVecCpuBackend:
             meaning="Observation vector per environment",
         )
 
+    def _load_rom_bytes(self) -> bytes:
+        rom_path = Path(self._rom_path)
+        if not rom_path.exists():
+            raise FileNotFoundError(f"ROM file not found: {rom_path}")
+        rom_bytes = rom_path.read_bytes()
+        if len(rom_bytes) > MEM_SIZE:
+            raise ValueError(f"ROM too large: {len(rom_bytes)} bytes")
+        return rom_bytes
+
+    def _load_bootrom_bytes(self) -> bytes:
+        if not BOOTROM_PATH.exists():
+            raise FileNotFoundError(
+                "Boot ROM not found: "
+                f"{BOOTROM_PATH}. Expected repo-local fast boot ROM."
+            )
+        bootrom = BOOTROM_PATH.read_bytes()
+        if len(bootrom) != 0x100:
+            raise ValueError(f"Boot ROM must be 256 bytes, got {len(bootrom)}")
+        return bootrom
+
     def reset(self, seed: int | None = None) -> tuple[NDArrayF32, dict[str, Any]]:
         """Reset all environments.
 
         Args:
-            seed: Optional seed (ignored in stub).
+            seed: Optional seed (ignored in CPU backend).
 
         Returns:
             Tuple of (observations, info).
         """
-        self._initialized = True
-        self._mem = self._wp.zeros(
-            self.num_envs * abi.MEM_SIZE, dtype=self._wp.uint8, device=self._device
-        )
+        rom_bytes = self._load_rom_bytes()
+        bootrom_bytes = self._load_bootrom_bytes()
+
+        mem_np = np.zeros(self.num_envs * MEM_SIZE, dtype=np.uint8)
+        for env_idx in range(self.num_envs):
+            base = env_idx * MEM_SIZE
+            mem_np[base : base + len(rom_bytes)] = np.frombuffer(
+                rom_bytes, dtype=np.uint8
+            )
+            mem_np[base : base + len(bootrom_bytes)] = np.frombuffer(
+                bootrom_bytes, dtype=np.uint8
+            )
+
+        self._mem = self._wp.array(mem_np, dtype=self._wp.uint8, device=self._device)
         self._pc = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint16, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._sp = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint16, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._a = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
-        )
-        self._f = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._b = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._c = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._d = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._e = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._h = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._l = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._f = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
         )
         self._instr_count = self._wp.zeros(
-            self.num_envs, dtype=self._wp.int32, device=self._device
+            self.num_envs, dtype=self._wp.int64, device=self._device
         )
         self._cycle_count = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int64, device=self._device
+        )
+        self._cycle_in_frame = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
 
-        # Deterministic (wrong) reset state for bring-up.
-        self._pc.numpy()[:] = 0x0100
-        self._sp.numpy()[:] = 0xFFFE
-
-        # Load ROM bytes into memory prefix for every environment.
-        mem_np = self._mem.numpy()
-        for env_idx in range(self.num_envs):
-            start = env_idx * abi.MEM_SIZE
-            mem_np[start : start + self._rom_len] = self._rom_u8
-
+        self._initialized = True
         obs = empty_obs(self.num_envs, self._obs_dim)
-        return obs, {"seed": seed, "rom_len": self._rom_len}
+        return obs, {"seed": seed}
 
     def step(
         self, actions: NDArrayI32
     ) -> tuple[NDArrayF32, NDArrayF32, NDArrayBool, NDArrayBool, dict[str, Any]]:
-        """Step all environments forward.
-
-        Args:
-            actions: Actions array, shape (num_envs,).
-
-        Returns:
-            Tuple of (obs, reward, done, trunc, info).
-        """
+        """Step all environments forward."""
         if not self._initialized:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
@@ -175,30 +185,32 @@ class WarpVecCpuBackend:
             bad = int(actions[invalid_mask][0])
             raise ValueError(f"Action {bad} out of range [0, {NUM_ACTIONS})")
 
-        if (
-            self._instr_count is None
-            or self._cycle_count is None
-            or self._pc is None
-            or self._sp is None
-            or self._a is None
-            or self._f is None
-        ):
+        if self._mem is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
         self._wp.launch(
             self._kernel,
             dim=self.num_envs,
-            inputs=[self._instr_count],
+            inputs=[
+                self._mem,
+                self._pc,
+                self._sp,
+                self._a,
+                self._b,
+                self._c,
+                self._d,
+                self._e,
+                self._h,
+                self._l,
+                self._f,
+                self._instr_count,
+                self._cycle_count,
+                self._cycle_in_frame,
+                int(self._frames_per_step),
+            ],
             device=self._device,
         )
         self._wp.synchronize()
-
-        instr_np = self._instr_count.numpy()
-        self._cycle_count.numpy()[:] = instr_np * 4
-        self._pc.numpy()[:] = (0x100 + instr_np) & 0xFFFF
-        self._sp.numpy()[:] = 0xFFFE
-        self._a.numpy()[:] = instr_np & 0xFF
-        self._f.numpy()[:] = ((instr_np & 0xF) << 4) & 0xF0
 
         obs = empty_obs(self.num_envs, self._obs_dim)
         reward = np.zeros((self.num_envs,), dtype=np.float32)
@@ -207,40 +219,52 @@ class WarpVecCpuBackend:
 
         return obs, reward, done, trunc, {}
 
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        """Read memory slice [lo, hi) for a given env."""
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if lo < 0 or hi < 0 or lo > MEM_SIZE or hi > MEM_SIZE or lo > hi:
+            raise ValueError(f"Invalid memory range: lo={lo} hi={hi}")
+        base = env_idx * MEM_SIZE
+        mem_np = self._mem.numpy()
+        return mem_np[base + lo : base + hi].tobytes()
+
+    def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
+        """Write bytes into memory starting at addr for a given env."""
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if addr < 0 or addr + len(data) > MEM_SIZE:
+            raise ValueError(f"Write out of range: addr={addr} len={len(data)}")
+        base = env_idx * MEM_SIZE
+        mem_np = self._mem.numpy()
+        mem_np[base + addr : base + addr + len(data)] = np.frombuffer(
+            data, dtype=np.uint8
+        )
+
     def get_cpu_state(self, env_idx: int) -> CpuState:
         """Get CPU register state for verification."""
         if env_idx < 0 or env_idx >= self.num_envs:
             raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
-        if (
-            not self._initialized
-            or self._pc is None
-            or self._sp is None
-            or self._a is None
-            or self._f is None
-            or self._b is None
-            or self._c is None
-            or self._d is None
-            or self._e is None
-            or self._h is None
-            or self._l is None
-            or self._instr_count is None
-            or self._cycle_count is None
-        ):
+        if not self._initialized or self._pc is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
-        pc = int(self._pc.numpy()[env_idx])
-        sp = int(self._sp.numpy()[env_idx])
-        a = int(self._a.numpy()[env_idx])
-        f = int(self._f.numpy()[env_idx])
-        b = int(self._b.numpy()[env_idx])
-        c = int(self._c.numpy()[env_idx])
-        d = int(self._d.numpy()[env_idx])
-        e = int(self._e.numpy()[env_idx])
-        h = int(self._h.numpy()[env_idx])
-        l = int(self._l.numpy()[env_idx])  # noqa: E741 - canonical register name
+        pc = int(self._pc.numpy()[env_idx]) & 0xFFFF
+        sp = int(self._sp.numpy()[env_idx]) & 0xFFFF
+        a = int(self._a.numpy()[env_idx]) & 0xFF
+        b = int(self._b.numpy()[env_idx]) & 0xFF
+        c = int(self._c.numpy()[env_idx]) & 0xFF
+        d = int(self._d.numpy()[env_idx]) & 0xFF
+        e = int(self._e.numpy()[env_idx]) & 0xFF
+        h = int(self._h.numpy()[env_idx]) & 0xFF
+        l_reg = int(self._l.numpy()[env_idx]) & 0xFF
+        f = int(self._f.numpy()[env_idx]) & 0xF0
+        flags = flags_from_f(f)
         instr_count = int(self._instr_count.numpy()[env_idx])
         cycle_count = int(self._cycle_count.numpy()[env_idx])
-        flags = flags_from_f(f)
 
         return CpuState(
             pc=pc,
@@ -252,42 +276,11 @@ class WarpVecCpuBackend:
             d=d,
             e=e,
             h=h,
-            l=l,
+            l=l_reg,
             flags=flags,
             instr_count=instr_count,
             cycle_count=cycle_count,
         )
-
-    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
-        """Debug helper: read memory bytes in [lo, hi)."""
-        if env_idx < 0 or env_idx >= self.num_envs:
-            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
-        if self._mem is None:
-            raise RuntimeError("Backend not initialized. Call reset() first.")
-        if lo < 0 or hi < 0 or lo > abi.MEM_SIZE or hi > abi.MEM_SIZE or lo > hi:
-            raise ValueError(f"Invalid lo/hi: lo={lo} hi={hi}")
-        mem_np = self._mem.numpy()
-        start = env_idx * abi.MEM_SIZE + lo
-        end = env_idx * abi.MEM_SIZE + hi
-        return mem_np[start:end].tobytes()
-
-    def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
-        """Debug helper: write bytes starting at addr."""
-        if env_idx < 0 or env_idx >= self.num_envs:
-            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
-        if self._mem is None:
-            raise RuntimeError("Backend not initialized. Call reset() first.")
-        if addr < 0 or addr > abi.MEM_SIZE:
-            raise ValueError(f"addr must be in [0, {abi.MEM_SIZE}], got {addr}")
-        end = addr + len(data)
-        if end > abi.MEM_SIZE:
-            raise ValueError(
-                f"write exceeds memory: addr={addr} len={len(data)} end={end} > "
-                f"{abi.MEM_SIZE}"
-            )
-        mem_np = self._mem.numpy()
-        start = env_idx * abi.MEM_SIZE + addr
-        mem_np[start : start + len(data)] = np.frombuffer(data, dtype=np.uint8)
 
     def close(self) -> None:
         """Close the backend and release resources."""
@@ -296,15 +289,16 @@ class WarpVecCpuBackend:
         self._pc = None
         self._sp = None
         self._a = None
-        self._f = None
         self._b = None
         self._c = None
         self._d = None
         self._e = None
         self._h = None
         self._l = None
+        self._f = None
         self._instr_count = None
         self._cycle_count = None
+        self._cycle_in_frame = None
 
 
 class WarpVecBackend(WarpVecCpuBackend):

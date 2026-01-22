@@ -5,20 +5,25 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from gbxcule.backends.warp_vec import WarpVecCpuBackend
+from gbxcule.backends.warp_vec import BOOTROM_PATH, WarpVecCpuBackend
 
 
 def test_reset_loads_rom_prefix() -> None:
-    """reset() loads ROM bytes into mem[0:rom_len] for env 0."""
+    """reset() loads ROM bytes and overlays boot ROM for env 0."""
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
-        rom_bytes = bytes(range(64))
+        rom_bytes = bytes(range(256)) + bytes(range(256))
         rom_path.write_bytes(rom_bytes)
 
         backend = WarpVecCpuBackend(str(rom_path), num_envs=1, obs_dim=32)
         try:
             backend.reset()
-            assert backend.read_memory(0, 0, len(rom_bytes)) == rom_bytes
+            bootrom = BOOTROM_PATH.read_bytes()
+            assert backend.read_memory(0, 0, 0x100) == bootrom
+            assert (
+                backend.read_memory(0, 0x100, 0x100 + len(rom_bytes[0x100:]))
+                == rom_bytes[0x100:]
+            )
         finally:
             backend.close()
 
