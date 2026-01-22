@@ -324,7 +324,7 @@ Bundle contents (JSON-only, per your preference):
   - seeds, action generator name/version
   - mismatch step index + env id
   - git commit SHA (if available)
-  - system info (CPU, GPU name if cuda)
+  - system info (CPU, GPU name/driver, Warp version+provenance)
   - `frames_per_step`, `release_after_frames`, `sync_every`
 
 **Crash-only / idempotence**

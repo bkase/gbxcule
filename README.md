@@ -152,7 +152,7 @@ When verification fails, a repro bundle is written containing:
 
 | File             | Contents                             |
 | ---------------- | ------------------------------------ |
-| `metadata.json`  | ROM SHA, backends, seeds, git commit |
+| `metadata.json`  | ROM SHA, backends, seeds, git commit, GPU/driver, Warp version+provenance |
 | `ref_state.json` | Reference CPU registers at mismatch  |
 | `dut_state.json` | DUT CPU registers at mismatch        |
 | `diff.json`      | Field-by-field differences           |

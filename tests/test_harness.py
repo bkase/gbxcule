@@ -611,6 +611,99 @@ class TestMemRegionParsing:
 
 
 # ---------------------------------------------------------------------------
+# System Info Tests
+# ---------------------------------------------------------------------------
+
+
+class TestSystemInfo:
+    """Tests for system info capture used in artifacts and mismatch bundles."""
+
+    def test_get_system_info_includes_provenance_keys(self) -> None:
+        """get_system_info always includes provenance keys (best-effort values)."""
+        from harness import get_system_info
+
+        info = get_system_info()
+
+        assert "gpu" in info
+        assert "gpu_names" in info
+        assert "driver_version" in info
+        assert "cuda_visible_devices" in info
+        assert "warp" in info
+        assert "warp_dist_name" in info
+        assert "warp_dist_version" in info
+        assert "warp_direct_url" in info
+        assert "warp_wheel_source" in info
+
+    def test_get_system_info_parses_nvidia_smi_output(self) -> None:
+        """GPU name + driver version are parsed from nvidia-smi when present."""
+        import subprocess
+
+        from harness import get_system_info
+
+        def fake_run(
+            cmd: list[str], *args: Any, **kwargs: Any
+        ) -> subprocess.CompletedProcess[str]:
+            if cmd[:1] == ["nvidia-smi"]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=(
+                        "NVIDIA A100-SXM4-80GB, 535.104.05\n"
+                        "NVIDIA A100-SXM4-80GB, 535.104.05\n"
+                    ),
+                    stderr="",
+                )
+            if cmd[:2] == ["git", "rev-parse"]:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="deadbeef\n", stderr=""
+                )
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            info = get_system_info()
+
+        assert info["gpu"] == "NVIDIA A100-SXM4-80GB"
+        assert info["gpu_names"] == ["NVIDIA A100-SXM4-80GB", "NVIDIA A100-SXM4-80GB"]
+        assert info["driver_version"] == "535.104.05"
+        assert info["git_commit"] == "deadbeef"
+
+    def test_get_system_info_reads_pep610_direct_url(self, tmp_path: Path) -> None:
+        """Warp direct_url.json is recorded when present (PEP 610)."""
+        from importlib import metadata as importlib_metadata
+
+        from harness import get_system_info
+
+        direct_url_path = tmp_path / "direct_url.json"
+        direct_url_path.write_text(
+            json.dumps({"url": "https://example.com/warp_lang-1.2.3-cp311.whl"})
+        )
+
+        class FakeDist:
+            version = "1.2.3"
+            metadata = {"Name": "warp-lang"}
+            files = ["warp_lang-1.2.3.dist-info/direct_url.json"]
+
+            def locate_file(self, file: object) -> Path:
+                return direct_url_path
+
+        def fake_distribution(name: str) -> FakeDist:
+            if name == "warp-lang":
+                return FakeDist()
+            raise importlib_metadata.PackageNotFoundError(name)
+
+        with mock.patch(
+            "importlib.metadata.distribution", side_effect=fake_distribution
+        ):
+            info = get_system_info()
+
+        assert info["warp_dist_version"] == "1.2.3"
+        assert (
+            info["warp_direct_url"] == "https://example.com/warp_lang-1.2.3-cp311.whl"
+        )
+        assert info["warp_wheel_source"] == "pep610"
+
+
+# ---------------------------------------------------------------------------
 # Mismatch Bundle Tests
 # ---------------------------------------------------------------------------
 
