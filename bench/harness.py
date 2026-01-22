@@ -41,12 +41,17 @@ def register_backends() -> None:
     from gbxcule.backends.pyboy_single import PyBoySingleBackend
     from gbxcule.backends.pyboy_vec_mp import PyBoyVecMpBackend
     from gbxcule.backends.stub_bad import StubBadBackend
-    from gbxcule.backends.warp_vec import WarpVecBackend, WarpVecCpuBackend
+    from gbxcule.backends.warp_vec import (
+        WarpVecBackend,
+        WarpVecCpuBackend,
+        WarpVecCudaBackend,
+    )
 
     BACKEND_REGISTRY["pyboy_single"] = PyBoySingleBackend
     BACKEND_REGISTRY["pyboy_vec_mp"] = PyBoyVecMpBackend
     BACKEND_REGISTRY["stub_bad"] = StubBadBackend
     BACKEND_REGISTRY["warp_vec_cpu"] = WarpVecCpuBackend
+    BACKEND_REGISTRY["warp_vec_cuda"] = WarpVecCudaBackend
     BACKEND_REGISTRY["warp_vec"] = WarpVecBackend
 
 
@@ -105,7 +110,7 @@ def create_backend(
             obs_dim=obs_dim,
             base_seed=base_seed,
         )
-    elif name in {"warp_vec", "warp_vec_cpu"}:
+    elif name in {"warp_vec", "warp_vec_cpu", "warp_vec_cuda"}:
         return backend_cls(
             rom_path,
             num_envs=num_envs,
