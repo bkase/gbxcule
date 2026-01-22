@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke verify-mismatch check hooks clean
+.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -15,6 +15,16 @@ SRC_DIRS := src bench tools tests
 # Output directories
 ROM_OUT := bench/roms/out
 RUNS_OUT := bench/runs
+
+# M3 GPU gate defaults (override via make VAR=... on DGX)
+M3_VERIFY_STEPS ?= 1024
+M3_COMPARE_EVERY ?= 1
+M3_FRAMES_PER_STEP ?= 1
+M3_MEM_REGION ?= C000:C100
+M3_ENV_COUNTS ?= 1,8,64,512,2048,8192
+M3_BENCH_STEPS ?= 100
+M3_BENCH_WARMUP_STEPS ?= 10
+GPU_SMOKE_VERIFY_STEPS ?= 64
 
 # Default target
 .DEFAULT_GOAL := help
@@ -90,6 +100,20 @@ verify-mismatch: roms ## Exercise mismatch bundle path (expected fail)
 	rm "$$out"
 
 check: lint test smoke ## Run all checks (commit hook gate)
+
+verify-gpu: roms ## M3 must-pass verify (DGX/CUDA)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps $(M3_VERIFY_STEPS) --compare-every $(M3_COMPARE_EVERY) --frames-per-step $(M3_FRAMES_PER_STEP)
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cuda --rom $(ROM_OUT)/MEM_RWB.gb --verify-steps $(M3_VERIFY_STEPS) --compare-every $(M3_COMPARE_EVERY) --frames-per-step $(M3_FRAMES_PER_STEP) --mem-region $(M3_MEM_REGION)
+
+bench-gpu: roms ## M3 scaling sweep (DGX/CUDA)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@$(PY) bench/harness.py --backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP)
+
+check-gpu: roms ## Fast-ish DGX gate (CUDA smoke)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps $(GPU_SMOKE_VERIFY_STEPS) --compare-every $(M3_COMPARE_EVERY) --frames-per-step $(M3_FRAMES_PER_STEP)
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cuda --rom $(ROM_OUT)/MEM_RWB.gb --verify-steps $(GPU_SMOKE_VERIFY_STEPS) --compare-every $(M3_COMPARE_EVERY) --frames-per-step $(M3_FRAMES_PER_STEP) --mem-region $(M3_MEM_REGION)
 
 hooks: ## Install git hooks
 	@git config core.hooksPath .githooks
