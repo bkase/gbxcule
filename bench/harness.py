@@ -861,16 +861,24 @@ def write_mismatch_bundle(
     bundle_name = f"{timestamp}_{rom_path.stem}_{ref_backend}_vs_{dut_backend}"
     final_dir = output_dir / "mismatch" / bundle_name
     temp_dir = output_dir / "mismatch" / f".tmp_{uuid.uuid4()}"
+    rom_filename = "rom.gb"
 
     try:
         # Create temp directory
         temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Embed ROM in bundle for hermetic repros
+        rom_dest = temp_dir / rom_filename
+        shutil.copyfile(rom_path, rom_dest)
+        rom_size = rom_dest.stat().st_size
 
         # Write metadata.json
         metadata = {
             "schema_version": MISMATCH_SCHEMA_VERSION,
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "rom_path": str(rom_path),
+            "rom_filename": rom_filename,
+            "rom_size": rom_size,
             "rom_sha256": rom_sha256,
             "ref_backend": ref_backend,
             "dut_backend": dut_backend,
@@ -917,12 +925,12 @@ set -e
 # Navigate to project root (adjust if needed)
 cd "$(dirname "$0")/../../../.."
 
-# Run verification with action replay
+    # Run verification with action replay
 uv run python bench/harness.py \\
     --verify \\
     --ref-backend {ref_backend} \\
     --dut-backend {dut_backend} \\
-    --rom "{rom_path}" \\
+    --rom "$(dirname "$0")/{rom_filename}" \\
     --verify-steps {verify_steps} \\
     --compare-every {compare_every} \\
     --frames-per-step {frames_per_step} \\

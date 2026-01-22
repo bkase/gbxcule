@@ -577,10 +577,13 @@ class TestMismatchBundle:
         from harness import write_mismatch_bundle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_bytes = b"\x00\x01\x02\x03"
+            rom_path.write_bytes(rom_bytes)
             bundle_path = write_mismatch_bundle(
                 output_dir=Path(tmpdir),
                 timestamp="20260101_120000",
-                rom_path=Path("test.gb"),
+                rom_path=rom_path,
                 rom_sha256="abc123",
                 ref_backend="pyboy_single",
                 dut_backend="warp_vec",
@@ -606,16 +609,21 @@ class TestMismatchBundle:
             assert (bundle_path / "diff.json").exists()
             assert (bundle_path / "actions.jsonl").exists()
             assert (bundle_path / "repro.sh").exists()
+            assert (bundle_path / "rom.gb").exists()
+            assert (bundle_path / "rom.gb").read_bytes() == rom_bytes
 
     def test_mismatch_bundle_metadata_schema(self) -> None:
         """Metadata has correct schema version."""
         from harness import MISMATCH_SCHEMA_VERSION, write_mismatch_bundle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_bytes = b"\x10\x20"
+            rom_path.write_bytes(rom_bytes)
             bundle_path = write_mismatch_bundle(
                 output_dir=Path(tmpdir),
                 timestamp="20260101_120000",
-                rom_path=Path("test.gb"),
+                rom_path=rom_path,
                 rom_sha256="abc123",
                 ref_backend="pyboy_single",
                 dut_backend="warp_vec",
@@ -641,16 +649,20 @@ class TestMismatchBundle:
             assert metadata["mismatch_step"] == 0
             assert metadata["ref_backend"] == "pyboy_single"
             assert metadata["dut_backend"] == "warp_vec"
+            assert metadata["rom_filename"] == "rom.gb"
+            assert metadata["rom_size"] == len(rom_bytes)
 
     def test_repro_sh_uses_uv_and_actions_file(self) -> None:
         """repro.sh uses uv run and --actions-file."""
         from harness import write_mismatch_bundle
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_path.write_bytes(b"\x00")
             bundle_path = write_mismatch_bundle(
                 output_dir=Path(tmpdir),
                 timestamp="20260101_120000",
-                rom_path=Path("test.gb"),
+                rom_path=rom_path,
                 rom_sha256="abc123",
                 ref_backend="pyboy_single",
                 dut_backend="warp_vec",
@@ -675,3 +687,5 @@ class TestMismatchBundle:
             assert "uv run" in repro_content
             assert "--actions-file" in repro_content
             assert "--verify" in repro_content
+            assert "rom.gb" in repro_content
+            assert "test.gb" not in repro_content
