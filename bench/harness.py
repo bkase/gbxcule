@@ -354,6 +354,10 @@ def get_system_info() -> dict[str, Any]:
         "gpu_names": [],
         "driver_version": None,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "warp_dist_name": None,
+        "warp_dist_version": None,
+        "warp_direct_url": None,
+        "warp_wheel_source": "unknown",
     }
 
     # Try to get PyBoy version
@@ -371,6 +375,45 @@ def get_system_info() -> dict[str, Any]:
         info["warp"] = warp.__version__
     except (ImportError, AttributeError):
         info["warp"] = None
+
+    # Try to get Warp distribution + provenance (PEP 610 direct_url.json)
+    try:
+        from importlib import metadata as importlib_metadata
+
+        def _try_get_dist(name: str) -> importlib_metadata.Distribution | None:
+            try:
+                return importlib_metadata.distribution(name)
+            except importlib_metadata.PackageNotFoundError:
+                return None
+
+        warp_dist = (
+            _try_get_dist("warp-lang")
+            or _try_get_dist("warp_lang")
+            or _try_get_dist("warp")
+        )
+
+        if warp_dist is not None:
+            info["warp_dist_name"] = warp_dist.metadata.get("Name") or None
+            info["warp_dist_version"] = warp_dist.version
+
+            direct_url_path = None
+            for file in warp_dist.files or []:
+                if str(file).endswith("direct_url.json"):
+                    direct_url_path = warp_dist.locate_file(file)
+                    break
+
+            if direct_url_path is not None:
+                try:
+                    direct_url_json = json.loads(Path(direct_url_path).read_text())
+                    direct_url = direct_url_json.get("url")
+                except Exception:
+                    direct_url = None
+                if isinstance(direct_url, str) and direct_url.strip():
+                    info["warp_direct_url"] = direct_url
+                    info["warp_wheel_source"] = "pep610"
+    except Exception:
+        # Best-effort only; don't fail artifact writing.
+        pass
 
     # Try to get GPU + driver info
     try:
