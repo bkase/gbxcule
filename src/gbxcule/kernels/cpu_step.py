@@ -27,7 +27,7 @@ CART_RAM_END = 0xC000
 _wp: Any | None = None
 _warp_initialized = False
 _cpu_step_kernel: Callable[..., Any] | None = None
-_warp_warmed = False
+_warp_warmed_devices: set[str] = set()
 
 
 def get_warp() -> Any:  # type: ignore[no-untyped-def]
@@ -232,13 +232,12 @@ def get_cpu_step_kernel():  # type: ignore[no-untyped-def]
     return _cpu_step_kernel
 
 
-def warmup_warp_cpu() -> None:
-    """Warm up Warp on CPU by compiling the CPU kernel once."""
-    global _warp_warmed
-    if _warp_warmed:
+def _warmup_warp_device(device_name: str) -> None:
+    """Warm up Warp on a specific device by compiling the CPU kernel once."""
+    if device_name in _warp_warmed_devices:
         return
     wp = get_warp()
-    device = wp.get_device("cpu")
+    device = wp.get_device(device_name)
     mem = wp.zeros(1 * MEM_SIZE, dtype=wp.uint8, device=device)
     zeros_i32 = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_i64 = wp.zeros(1, dtype=wp.int64, device=device)
@@ -266,4 +265,14 @@ def warmup_warp_cpu() -> None:
         device=device,
     )
     wp.synchronize()
-    _warp_warmed = True
+    _warp_warmed_devices.add(device_name)
+
+
+def warmup_warp_cpu() -> None:
+    """Warm up Warp on CPU by compiling the CPU kernel once."""
+    _warmup_warp_device("cpu")
+
+
+def warmup_warp_cuda(device: str = "cuda:0") -> None:
+    """Warm up Warp on CUDA by compiling the CPU kernel once."""
+    _warmup_warp_device(device)
