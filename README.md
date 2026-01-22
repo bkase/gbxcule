@@ -131,6 +131,21 @@ Bundle: bench/runs/mismatch/<bundle>/
 Repro: bench/runs/mismatch/<bundle>/repro.sh
 ```
 
+## M3 (DGX) Gates
+
+These targets are the **M3 contract** for DGX/CUDA runs and use the explicit
+`warp_vec_cuda` backend:
+
+```bash
+make verify-gpu
+make check-gpu
+make bench-gpu
+```
+
+Defaults are defined in `Makefile` (override via variable prefixes, e.g.
+`M3_VERIFY_STEPS=2048 make verify-gpu`). The scaling gate uses
+`M3_ENV_COUNTS=1,8,64,512,2048,8192` and writes artifacts to `bench/runs/`.
+
 ### Mismatch Bundles
 
 When verification fails, a repro bundle is written containing:
@@ -203,6 +218,9 @@ For RL training, **Total SPS** is what matters - it's how many environment trans
 | `make verify` | Run verification (expected pass)       |
 | `make verify-smoke` | Quick verification smoke          |
 | `make verify-mismatch` | Exercise mismatch bundle path |
+| `make verify-gpu` | M3 must-pass verify (DGX/CUDA)      |
+| `make check-gpu` | Fast-ish DGX gate (CUDA smoke)       |
+| `make bench-gpu` | M3 scaling sweep (DGX/CUDA)          |
 | `make check`  | Run all checks (commit hook gate)      |
 
 ## Documentation
