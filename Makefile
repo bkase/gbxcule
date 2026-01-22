@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke check hooks clean
+.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke verify-mismatch check hooks clean
 
 # Variables
 PY := uv run python
@@ -66,6 +66,28 @@ verify: roms ## Run verification (pyboy_single vs warp_vec_cpu; should pass)
 verify-smoke: roms ## Quick verification smoke (frames_per_step=24)
 	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 16 --compare-every 1 --frames-per-step 24
 	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/MEM_RWB.gb --verify-steps 16 --compare-every 1 --frames-per-step 24 --mem-region C000:C100
+
+verify-mismatch: roms ## Exercise mismatch bundle path (expected fail)
+	@set -eu; \
+	out="$$(mktemp)"; \
+	if $(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend stub_bad --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 1 --compare-every 1 --frames-per-step 1 > "$$out" 2>&1; then \
+		echo "Error: expected mismatch but verify passed" >&2; \
+		cat "$$out" >&2; \
+		rm "$$out"; \
+		exit 1; \
+	fi; \
+	bundle="$$(grep '^Bundle: ' "$$out" | sed 's/^Bundle: //')"; \
+	if [ -z "$$bundle" ]; then \
+		echo "Error: missing bundle path in verify output" >&2; \
+		cat "$$out" >&2; \
+		rm "$$out"; \
+		exit 1; \
+	fi; \
+	test -f "$$bundle/metadata.json"; \
+	test -f "$$bundle/repro.sh"; \
+	test -f "$$bundle/actions.jsonl"; \
+	test -f "$$bundle/rom.gb"; \
+	rm "$$out"
 
 check: lint test smoke ## Run all checks (commit hook gate)
 

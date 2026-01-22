@@ -40,10 +40,12 @@ def register_backends() -> None:
 
     from gbxcule.backends.pyboy_single import PyBoySingleBackend
     from gbxcule.backends.pyboy_vec_mp import PyBoyVecMpBackend
+    from gbxcule.backends.stub_bad import StubBadBackend
     from gbxcule.backends.warp_vec import WarpVecBackend, WarpVecCpuBackend
 
     BACKEND_REGISTRY["pyboy_single"] = PyBoySingleBackend
     BACKEND_REGISTRY["pyboy_vec_mp"] = PyBoyVecMpBackend
+    BACKEND_REGISTRY["stub_bad"] = StubBadBackend
     BACKEND_REGISTRY["warp_vec_cpu"] = WarpVecCpuBackend
     BACKEND_REGISTRY["warp_vec"] = WarpVecBackend
 
@@ -673,7 +675,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dut-backend",
-        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec", "warp_vec_cpu"],
+        choices=[
+            "pyboy_single",
+            "pyboy_vec_mp",
+            "stub_bad",
+            "warp_vec",
+            "warp_vec_cpu",
+        ],
         default="warp_vec",
         help="Device-under-test backend for verification",
     )
