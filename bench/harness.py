@@ -623,6 +623,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Number of warmup steps",
     )
     parser.add_argument(
+        "--sync-every",
+        type=int,
+        default=None,
+        help="Sync interval for CUDA benchmarks (default: 64 on CUDA, None on CPU). "
+        "Use 0 to sync only at end of window.",
+    )
+    parser.add_argument(
         "--stage",
         choices=["emulate_only", "full_step", "reward_only", "obs_only"],
         default="emulate_only",
@@ -734,6 +741,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def resolve_sync_every(sync_every: int | None, device: str) -> int | None:
+    """Resolve sync policy for a given device.
+
+    Defaults to 64 for CUDA when not explicitly provided.
+    """
+    if sync_every is not None and sync_every < 0:
+        raise ValueError("--sync-every must be >= 0")
+    if sync_every is None and device == "cuda":
+        return 64
+    return sync_every
+
+
 def run_scaling_sweep(
     args: argparse.Namespace,
     rom_path: Path,
@@ -799,6 +818,7 @@ def run_scaling_sweep(
             continue
 
         try:
+            args.sync_every = resolve_sync_every(args.sync_every, backend.device)
             results = run_benchmark(
                 backend,
                 steps=args.steps,
@@ -1373,6 +1393,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        args.sync_every = resolve_sync_every(args.sync_every, backend.device)
         # Collect system info
         system_info = get_system_info()
 
