@@ -264,6 +264,8 @@ class WarpVecBaseBackend:
             raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
         if not self._initialized or self._pc is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")
+        if self.device == "cuda":
+            self._wp.synchronize()
 
         pc = int(self._pc.numpy()[env_idx]) & 0xFFFF
         sp = int(self._sp.numpy()[env_idx]) & 0xFFFF
