@@ -9,6 +9,7 @@ description = "GPU-native many-env Game Boy runtime (Warp→CUDA) + benchmark/ve
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "libcst",
     "matplotlib",
     "numpy",
     "pillow",
