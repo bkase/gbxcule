@@ -1,0 +1,38 @@
+"""Smoke tests for warp_vec_cuda backend (CUDA only)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from gbxcule.backends.warp_vec import WarpVecCudaBackend
+
+from .conftest import ROM_PATH
+
+
+def _cuda_available() -> bool:
+    try:
+        import warp as wp
+
+        wp.init()
+        return wp.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
+def test_warp_vec_cuda_smoke() -> None:
+    """CUDA backend can reset, step, and report CPU state."""
+    if not ROM_PATH.exists():
+        pytest.skip(f"Test ROM not found: {ROM_PATH}")
+    backend = WarpVecCudaBackend(str(ROM_PATH), num_envs=1, obs_dim=32)
+    try:
+        backend.reset()
+        actions = np.zeros((1,), dtype=np.int32)
+        for _ in range(2):
+            backend.step(actions)
+        state = backend.get_cpu_state(0)
+        assert state["instr_count"] is not None and state["instr_count"] > 0
+        assert state["cycle_count"] is not None and state["cycle_count"] > 0
+    finally:
+        backend.close()
