@@ -588,7 +588,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Backend selection (required for benchmark mode, ignored in verify mode)
     parser.add_argument(
         "--backend",
-        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec", "warp_vec_cpu"],
+        choices=[
+            "pyboy_single",
+            "pyboy_vec_mp",
+            "warp_vec",
+            "warp_vec_cpu",
+            "warp_vec_cuda",
+        ],
         default=None,
         help="Backend to benchmark (required for benchmark mode)",
     )
@@ -681,6 +687,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "stub_bad",
             "warp_vec",
             "warp_vec_cpu",
+            "warp_vec_cuda",
         ],
         default="warp_vec",
         help="Device-under-test backend for verification",
