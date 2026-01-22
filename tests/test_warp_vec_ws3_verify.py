@@ -56,4 +56,6 @@ def test_verify_alu_loop() -> None:
     reason="Test ROM not found; run `make roms` first.",
 )
 def test_verify_mem_rwb() -> None:
-    _verify_no_mismatch(ROM_DIR / "MEM_RWB.gb")
+    # MEM_RWB increments HL across the full address space; the first divergence
+    # from incorrect ROM write handling shows up after several frames.
+    _verify_no_mismatch(ROM_DIR / "MEM_RWB.gb", steps=64)

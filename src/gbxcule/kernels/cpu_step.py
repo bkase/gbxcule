@@ -20,6 +20,9 @@ OPCODE_INC_HL = 0x23
 OPCODE_ADD_A_B = 0x80
 OPCODE_LD_HL_A = 0x77
 OPCODE_LD_B_HL = 0x46
+ROM_LIMIT = 0x8000
+CART_RAM_START = 0xA000
+CART_RAM_END = 0xC000
 
 _wp: Any | None = None
 _warp_initialized = False
@@ -173,13 +176,26 @@ def get_cpu_step_kernel():  # type: ignore[no-untyped-def]
 
                 elif opcode == OPCODE_LD_HL_A:
                     hl = ((h_i << 8) | l_i) & 0xFFFF
-                    mem[base + hl] = wp.uint8(a_i)
+                    # Cartridge ROM (0x0000-0x7FFF) is read-only on real hardware.
+                    # MEM_RWB intentionally walks HL across the full address space,
+                    # so we must ignore writes into ROM to avoid self-modifying code
+                    # that diverges from PyBoy.
+                    if hl >= ROM_LIMIT and not (
+                        hl >= CART_RAM_START and hl < CART_RAM_END
+                    ):
+                        mem[base + hl] = wp.uint8(a_i)
                     pc_i = (pc_i + 1) & 0xFFFF
                     cycles = 8
 
                 elif opcode == OPCODE_LD_B_HL:
                     hl = ((h_i << 8) | l_i) & 0xFFFF
-                    b_i = wp.int32(mem[base + hl])
+                    # This repo's micro-ROMs are built with "no cart RAM".
+                    # Reads in 0xA000-0xBFFF return open-bus (0xFF);
+                    # writes are ignored.
+                    if hl >= CART_RAM_START and hl < CART_RAM_END:
+                        b_i = 0xFF
+                    else:
+                        b_i = wp.int32(mem[base + hl])
                     pc_i = (pc_i + 1) & 0xFFFF
                     cycles = 8
 
