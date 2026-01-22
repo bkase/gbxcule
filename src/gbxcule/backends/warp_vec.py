@@ -1,4 +1,4 @@
-"""Warp-based backend (CPU vector, M2 correctness)."""
+"""Warp-based backends (CPU + CUDA)."""
 
 from __future__ import annotations
 
@@ -24,16 +24,14 @@ from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
     get_warp,
     warmup_warp_cpu,
+    warmup_warp_cuda,
 )
 
 BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
 
 
-class WarpVecCpuBackend:
-    """Warp-based vectorized backend (CPU)."""
-
-    name: str = "warp_vec_cpu"
-    device: Device = "cpu"
+class WarpVecBaseBackend:
+    """Warp-based vectorized backend (shared base)."""
 
     def __init__(
         self,
@@ -44,8 +42,10 @@ class WarpVecCpuBackend:
         release_after_frames: int = 8,
         obs_dim: int = 32,
         base_seed: int | None = None,
+        device: Device,
+        device_name: str,
     ) -> None:
-        """Initialize the warp_vec CPU backend."""
+        """Initialize the warp_vec backend."""
         self.num_envs = num_envs
         self._obs_dim = obs_dim
         self._rom_path = rom_path
@@ -53,10 +53,13 @@ class WarpVecCpuBackend:
         self._frames_per_step = frames_per_step
         self._release_after_frames = release_after_frames
         self._base_seed = base_seed
+        self.device = device
+        self._device_name = device_name
+        self._sync_after_step = True
 
         self._wp = get_warp()
-        self._device = self._wp.get_device("cpu")
-        warmup_warp_cpu()
+        self._device = self._wp.get_device(self._device_name)
+        self._warmup()
         self._kernel = get_cpu_step_kernel()
 
         self._mem = None
@@ -84,6 +87,16 @@ class WarpVecCpuBackend:
             dtype="float32",
             meaning="Observation vector per environment",
         )
+
+    def _warmup(self) -> None:
+        if self.device == "cpu":
+            warmup_warp_cpu()
+        else:
+            warmup_warp_cuda(self._device_name)
+
+    def _synchronize(self) -> None:
+        if self._sync_after_step:
+            self._wp.synchronize()
 
     def _load_rom_bytes(self) -> bytes:
         rom_path = Path(self._rom_path)
@@ -210,7 +223,7 @@ class WarpVecCpuBackend:
             ],
             device=self._device,
         )
-        self._wp.synchronize()
+        self._synchronize()
 
         obs = empty_obs(self.num_envs, self._obs_dim)
         reward = np.zeros((self.num_envs,), dtype=np.float32)
@@ -299,6 +312,71 @@ class WarpVecCpuBackend:
         self._instr_count = None
         self._cycle_count = None
         self._cycle_in_frame = None
+
+
+class WarpVecCpuBackend(WarpVecBaseBackend):
+    """Warp-based vectorized backend (CPU)."""
+
+    name: str = "warp_vec_cpu"
+
+    def __init__(
+        self,
+        rom_path: str,
+        *,
+        num_envs: int = 1,
+        frames_per_step: int = 24,
+        release_after_frames: int = 8,
+        obs_dim: int = 32,
+        base_seed: int | None = None,
+    ) -> None:
+        super().__init__(
+            rom_path,
+            num_envs=num_envs,
+            frames_per_step=frames_per_step,
+            release_after_frames=release_after_frames,
+            obs_dim=obs_dim,
+            base_seed=base_seed,
+            device="cpu",
+            device_name="cpu",
+        )
+
+
+class WarpVecCudaBackend(WarpVecBaseBackend):
+    """Warp-based vectorized backend (CUDA)."""
+
+    name: str = "warp_vec_cuda"
+
+    def __init__(
+        self,
+        rom_path: str,
+        *,
+        num_envs: int = 1,
+        frames_per_step: int = 24,
+        release_after_frames: int = 8,
+        obs_dim: int = 32,
+        base_seed: int | None = None,
+    ) -> None:
+        super().__init__(
+            rom_path,
+            num_envs=num_envs,
+            frames_per_step=frames_per_step,
+            release_after_frames=release_after_frames,
+            obs_dim=obs_dim,
+            base_seed=base_seed,
+            device="cuda",
+            device_name="cuda:0",
+        )
+        self._sync_after_step = False
+
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        raise NotImplementedError(
+            "CUDA read_memory is not implemented yet (see WS3 slice-copy)."
+        )
+
+    def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
+        raise NotImplementedError(
+            "CUDA write_memory is not implemented yet (debug-only for CPU)."
+        )
 
 
 class WarpVecBackend(WarpVecCpuBackend):
