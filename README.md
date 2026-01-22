@@ -144,7 +144,8 @@ make bench-gpu
 
 Defaults are defined in `Makefile` (override via variable prefixes, e.g.
 `M3_VERIFY_STEPS=2048 make verify-gpu`). The scaling gate uses
-`M3_ENV_COUNTS=1,8,64,512,2048,8192` and writes artifacts to `bench/runs/`.
+`M3_ENV_COUNTS=1,8,64,512,2048,8192` and writes artifacts + report outputs to
+`bench/runs/reports/<timestamp>/`.
 
 ### Mismatch Bundles
 
@@ -174,6 +175,12 @@ All outputs are structured JSON with stable schemas:
 
 ```
 bench/runs/
+├── reports/
+│   └── <timestamp>/
+│       ├── <timestamp>_pyboy_vec_mp_ALU_LOOP__scaling.json
+│       ├── <timestamp>_warp_vec_cuda_ALU_LOOP__scaling.json
+│       ├── summary.md
+│       └── scaling.png
 ├── <timestamp>_<backend>_<rom>.json      # Benchmark results
 ├── <timestamp>__scaling.json              # Scaling sweep results
 └── mismatch/

@@ -24,6 +24,7 @@ M3_MEM_REGION ?= C000:C100
 M3_ENV_COUNTS ?= 1,8,64,512,2048,8192
 M3_BENCH_STEPS ?= 100
 M3_BENCH_WARMUP_STEPS ?= 10
+M3_BENCH_SYNC_EVERY ?= 64
 GPU_SMOKE_VERIFY_STEPS ?= 64
 
 # Default target
@@ -108,7 +109,15 @@ verify-gpu: roms ## M3 must-pass verify (DGX/CUDA)
 
 bench-gpu: roms ## M3 scaling sweep (DGX/CUDA)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
-	@$(PY) bench/harness.py --backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP)
+	@set -eu; \
+	report_dir="$(RUNS_OUT)/reports/$$(date -u +%Y%m%d_%H%M%S)"; \
+	mkdir -p "$$report_dir"; \
+	echo "Report dir: $$report_dir"; \
+	$(PY) bench/harness.py --backend pyboy_vec_mp --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP) --sync-every $(M3_BENCH_SYNC_EVERY) --output-dir "$$report_dir"; \
+	$(PY) bench/harness.py --backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP) --sync-every $(M3_BENCH_SYNC_EVERY) --output-dir "$$report_dir"; \
+	$(PY) bench/analysis/summarize.py --report-dir "$$report_dir" --out "$$report_dir/summary.md"; \
+	$(PY) bench/analysis/plot_scaling.py --report-dir "$$report_dir" --out "$$report_dir/scaling.png"; \
+	echo "Report: $$report_dir"
 
 check-gpu: roms ## Fast-ish DGX gate (CUDA smoke)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
