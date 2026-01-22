@@ -1,9 +1,4 @@
-"""Warp-based backend (CPU-debug stub + GPU).
-
-This module provides a stub implementation of the warp_vec backend for M0.
-The stub returns predictable (wrong) CPU state to enable verify mode testing.
-Real GPU implementation will be added in later stories.
-"""
+"""Warp-based backend (CPU bring-up)."""
 
 from __future__ import annotations
 
@@ -12,25 +7,29 @@ from typing import Any
 import numpy as np
 
 from gbxcule.backends.common import (
+    NUM_ACTIONS,
     ArraySpec,
-    CpuFlags,
     CpuState,
     Device,
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
+    as_i32_actions,
+    empty_obs,
+    flags_from_f,
+)
+from gbxcule.kernels.cpu_step import (
+    get_inc_counter_kernel,
+    get_warp,
+    warmup_warp_cpu,
 )
 
 
-class WarpVecBackend:
-    """Warp-based vectorized backend (stub for M0).
+class WarpVecCpuBackend:
+    """Warp-based vectorized backend (CPU bring-up)."""
 
-    This stub returns predictable (wrong) CPU state for verification testing.
-    The real implementation will use Warp kernels for GPU-accelerated emulation.
-    """
-
-    name: str = "warp_vec"
-    device: Device = "cpu"  # Stub runs on CPU
+    name: str = "warp_vec_cpu"
+    device: Device = "cpu"
 
     def __init__(
         self,
@@ -42,21 +41,20 @@ class WarpVecBackend:
         obs_dim: int = 32,
         base_seed: int | None = None,
     ) -> None:
-        """Initialize the warp_vec stub backend.
-
-        Args:
-            rom_path: Path to ROM file (ignored in stub).
-            num_envs: Number of environments.
-            frames_per_step: Frames per step (ignored in stub).
-            release_after_frames: Frames before button release (ignored in stub).
-            obs_dim: Observation dimension.
-            base_seed: Optional base seed (ignored in stub).
-        """
+        """Initialize the warp_vec CPU backend."""
         self.num_envs = num_envs
         self._obs_dim = obs_dim
         self._rom_path = rom_path
-        self._step_count = 0
         self._initialized = False
+        self._frames_per_step = frames_per_step
+        self._release_after_frames = release_after_frames
+        self._base_seed = base_seed
+
+        self._wp = get_warp()
+        self._device = self._wp.get_device("cpu")
+        warmup_warp_cpu()
+        self._kernel = get_inc_counter_kernel()
+        self._counter = None
 
         self.action_spec = ArraySpec(
             shape=(num_envs,),
@@ -79,9 +77,11 @@ class WarpVecBackend:
             Tuple of (observations, info).
         """
         self._initialized = True
-        self._step_count = 0
-        obs = np.zeros((self.num_envs, self._obs_dim), dtype=np.float32)
-        return obs, {"seed": seed, "stub": True}
+        self._counter = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        obs = empty_obs(self.num_envs, self._obs_dim)
+        return obs, {"seed": seed}
 
     def step(
         self, actions: NDArrayI32
@@ -95,45 +95,51 @@ class WarpVecBackend:
             Tuple of (obs, reward, done, trunc, info).
         """
         if not self._initialized:
-            raise RuntimeError("Backend not initialized - call reset() first")
+            raise RuntimeError("Backend not initialized. Call reset() first.")
 
-        self._step_count += 1
+        actions = as_i32_actions(actions, self.num_envs)
+        invalid_mask = (actions < 0) | (actions >= NUM_ACTIONS)
+        if np.any(invalid_mask):
+            bad = int(actions[invalid_mask][0])
+            raise ValueError(f"Action {bad} out of range [0, {NUM_ACTIONS})")
 
-        # Return zeros for all outputs
-        obs = np.zeros((self.num_envs, self._obs_dim), dtype=np.float32)
+        if self._counter is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+
+        self._wp.launch(
+            self._kernel,
+            dim=self.num_envs,
+            inputs=[self._counter],
+            device=self._device,
+        )
+        self._wp.synchronize()
+
+        obs = empty_obs(self.num_envs, self._obs_dim)
         reward = np.zeros((self.num_envs,), dtype=np.float32)
-        done = np.zeros((self.num_envs,), dtype=bool)
-        trunc = np.zeros((self.num_envs,), dtype=bool)
+        done = np.zeros((self.num_envs,), dtype=np.bool_)
+        trunc = np.zeros((self.num_envs,), dtype=np.bool_)
 
-        return obs, reward, done, trunc, {"step": self._step_count, "stub": True}
+        return obs, reward, done, trunc, {}
 
     def get_cpu_state(self, env_idx: int) -> CpuState:
-        """Get CPU register state for verification.
-
-        The stub returns predictable (wrong) state: all zeros except PC increments
-        with step count. This ensures verification will detect a mismatch.
-
-        Args:
-            env_idx: Environment index.
-
-        Returns:
-            CpuState with stub values.
-
-        Raises:
-            ValueError: If env_idx is out of range.
-        """
+        """Get CPU register state for verification."""
         if env_idx < 0 or env_idx >= self.num_envs:
             raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if not self._initialized or self._counter is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
 
-        # Return predictable (wrong) values
-        # PC increments with step count to make mismatches obvious
-        flags: CpuFlags = {"z": 0, "n": 0, "h": 0, "c": 0}
+        counter = int(self._counter.numpy()[env_idx])
+        pc = (0x100 + counter) & 0xFFFF
+        sp = 0xFFFE
+        a = counter & 0xFF
+        f = ((counter & 0xF) << 4) & 0xF0
+        flags = flags_from_f(f)
 
         return CpuState(
-            pc=self._step_count,  # Obviously wrong - should match actual emulation
-            sp=0xFFFE,
-            a=0,
-            f=0,
+            pc=pc,
+            sp=sp,
+            a=a,
+            f=f,
             b=0,
             c=0,
             d=0,
@@ -141,10 +147,17 @@ class WarpVecBackend:
             h=0,
             l=0,
             flags=flags,
-            instr_count=None,
-            cycle_count=None,
+            instr_count=counter,
+            cycle_count=counter * 4,
         )
 
     def close(self) -> None:
         """Close the backend and release resources."""
         self._initialized = False
+        self._counter = None
+
+
+class WarpVecBackend(WarpVecCpuBackend):
+    """Alias for warp_vec backend name."""
+
+    name: str = "warp_vec"

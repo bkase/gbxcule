@@ -40,10 +40,11 @@ def register_backends() -> None:
 
     from gbxcule.backends.pyboy_single import PyBoySingleBackend
     from gbxcule.backends.pyboy_vec_mp import PyBoyVecMpBackend
-    from gbxcule.backends.warp_vec import WarpVecBackend
+    from gbxcule.backends.warp_vec import WarpVecBackend, WarpVecCpuBackend
 
     BACKEND_REGISTRY["pyboy_single"] = PyBoySingleBackend
     BACKEND_REGISTRY["pyboy_vec_mp"] = PyBoyVecMpBackend
+    BACKEND_REGISTRY["warp_vec_cpu"] = WarpVecCpuBackend
     BACKEND_REGISTRY["warp_vec"] = WarpVecBackend
 
 
@@ -102,7 +103,7 @@ def create_backend(
             obs_dim=obs_dim,
             base_seed=base_seed,
         )
-    elif name == "warp_vec":
+    elif name in {"warp_vec", "warp_vec_cpu"}:
         return backend_cls(
             rom_path,
             num_envs=num_envs,
@@ -529,7 +530,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Backend selection (required for benchmark mode, ignored in verify mode)
     parser.add_argument(
         "--backend",
-        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec"],
+        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec", "warp_vec_cpu"],
         default=None,
         help="Backend to benchmark (required for benchmark mode)",
     )
@@ -616,7 +617,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dut-backend",
-        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec"],
+        choices=["pyboy_single", "pyboy_vec_mp", "warp_vec", "warp_vec_cpu"],
         default="warp_vec",
         help="Device-under-test backend for verification",
     )
