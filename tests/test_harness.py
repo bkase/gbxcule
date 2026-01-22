@@ -565,6 +565,47 @@ class TestStateDiff:
 
 
 # ---------------------------------------------------------------------------
+# Memory Region Parsing Tests
+# ---------------------------------------------------------------------------
+
+
+class TestMemRegionParsing:
+    """Tests for memory region parsing and hashing helpers."""
+
+    def test_parse_mem_region_valid(self) -> None:
+        """parse_mem_region parses hex ranges with or without 0x."""
+        from harness import parse_mem_region
+
+        assert parse_mem_region("C000:C100") == (0xC000, 0xC100)
+        assert parse_mem_region("0xC000:0xC100") == (0xC000, 0xC100)
+
+    def test_parse_mem_region_invalid(self) -> None:
+        """parse_mem_region rejects invalid ranges."""
+        from harness import parse_mem_region
+
+        with pytest.raises(ValueError):
+            parse_mem_region("C000")
+        with pytest.raises(ValueError):
+            parse_mem_region("C100:C000")
+        with pytest.raises(ValueError):
+            parse_mem_region("0x0000:0x10001")
+
+    def test_parse_mem_regions_empty(self) -> None:
+        """parse_mem_regions returns empty list for None/empty."""
+        from harness import parse_mem_regions
+
+        assert parse_mem_regions(None) == []
+        assert parse_mem_regions([]) == []
+
+    def test_hash_memory_deterministic(self) -> None:
+        """hash_memory is deterministic and stable."""
+        from harness import hash_memory
+
+        data = b"\x00\x01\x02\x03"
+        assert hash_memory(data) == hash_memory(data)
+
+
+# ---------------------------------------------------------------------------
 # Mismatch Bundle Tests
 # ---------------------------------------------------------------------------
 
@@ -689,3 +730,56 @@ class TestMismatchBundle:
             assert "--verify" in repro_content
             assert "rom.gb" in repro_content
             assert "test.gb" not in repro_content
+
+    def test_mismatch_bundle_mem_regions_and_dumps(self) -> None:
+        """mismatch bundle records mem regions and writes dumps."""
+        from harness import MEM_HASH_VERSION, write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_path.write_bytes(b"\x00\x01")
+            mem_regions = [(0xC000, 0xC004)]
+            mem_dumps = [(0xC000, 0xC004, b"\x01\x02\x03\x04", b"\x05\x06\x07\x08")]
+
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=rom_path,
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=1,
+                env_idx=0,
+                ref_state={},
+                dut_state={},
+                diff={"memory": [{"lo": 0xC000, "hi": 0xC004}]},
+                mem_regions=mem_regions,
+                mem_hash_version=MEM_HASH_VERSION,
+                mem_dumps=mem_dumps,
+                actions_trace=[],
+                system_info={},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=1,
+            )
+
+            with open(bundle_path / "metadata.json") as f:
+                metadata = json.load(f)
+
+            assert metadata["mem_regions"] == [{"lo": 0xC000, "hi": 0xC004}]
+            assert metadata["mem_hash_version"] == MEM_HASH_VERSION
+
+            ref_dump = bundle_path / "mem_ref_C000_C004.bin"
+            dut_dump = bundle_path / "mem_dut_C000_C004.bin"
+            assert ref_dump.exists()
+            assert dut_dump.exists()
+            assert ref_dump.read_bytes() == b"\x01\x02\x03\x04"
+            assert dut_dump.read_bytes() == b"\x05\x06\x07\x08"
+
+            with open(bundle_path / "repro.sh") as f:
+                repro_content = f.read()
+
+            assert "--mem-region C000:C004" in repro_content

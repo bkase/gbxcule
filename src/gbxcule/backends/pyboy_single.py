@@ -229,6 +229,26 @@ class PyBoySingleBackend:
             cycle_count=None,  # Not available from PyBoy
         )
 
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        """Read a slice of Game Boy memory.
+
+        Args:
+            env_idx: Environment index (must be 0).
+            lo: Lower address (inclusive).
+            hi: Upper address (exclusive).
+
+        Returns:
+            Bytes for the requested memory slice.
+        """
+        if env_idx != 0:
+            raise ValueError(f"env_idx must be 0 for single-env backend, got {env_idx}")
+        if self._pyboy is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if lo < 0 or hi > 0x10000 or lo >= hi:
+            raise ValueError(f"Invalid memory range: {lo:#06x}:{hi:#06x}")
+
+        return bytes(self._pyboy.memory[lo:hi])
+
     def close(self) -> None:
         """Clean up resources."""
         if self._pyboy is not None:

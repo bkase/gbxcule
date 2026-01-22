@@ -187,6 +187,62 @@ def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
 CANONICAL_REGISTER_KEYS = ["pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l"]
 CANONICAL_FLAG_KEYS = ["z", "n", "h", "c"]
 
+# Memory hash configuration
+MEM_HASH_VERSION = "blake2b-128-v1"
+MAX_MEM_DUMP_BYTES = 4096
+
+
+def _parse_hex_u16(text: str) -> int:
+    """Parse a hex string into an integer within [0, 0x10000]."""
+    cleaned = text.strip().lower()
+    if cleaned.startswith("0x"):
+        cleaned = cleaned[2:]
+    if not cleaned:
+        raise ValueError("empty hex value")
+    value = int(cleaned, 16)
+    if value < 0 or value > 0x10000:
+        raise ValueError(f"hex value out of range: {text}")
+    return value
+
+
+def parse_mem_region(region: str) -> tuple[int, int]:
+    """Parse a memory region string of the form LO:HI (hex).
+
+    HI is exclusive, matching Python slice semantics.
+    """
+    if ":" not in region:
+        raise ValueError("mem region must be in LO:HI form")
+    lo_str, hi_str = region.split(":", 1)
+    lo = _parse_hex_u16(lo_str)
+    hi = _parse_hex_u16(hi_str)
+    if lo < 0 or hi > 0x10000 or lo >= hi:
+        raise ValueError(f"invalid memory range: {region}")
+    return lo, hi
+
+
+def parse_mem_regions(regions: list[str] | None) -> list[tuple[int, int]]:
+    """Parse a list of memory region strings."""
+    if not regions:
+        return []
+    return [parse_mem_region(region) for region in regions]
+
+
+def hash_memory(data: bytes) -> str:
+    """Hash memory bytes deterministically."""
+    import hashlib
+
+    return hashlib.blake2b(data, digest_size=16).hexdigest()
+
+
+def _coerce_memory_slice(data: Any, expected_len: int) -> bytes:
+    """Coerce backend memory read into bytes and validate length."""
+    mem_bytes = data if isinstance(data, bytes) else bytes(data)
+    if len(mem_bytes) != expected_len:
+        raise ValueError(
+            f"memory slice length {len(mem_bytes)} != expected {expected_len}"
+        )
+    return mem_bytes
+
 
 def normalize_cpu_state(state: dict[str, Any]) -> dict[str, Any]:
     """Normalize CPU state for comparison (pure function).
@@ -634,6 +690,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Compare states every N steps",
     )
     parser.add_argument(
+        "--mem-region",
+        action="append",
+        default=None,
+        help="Memory region to hash/compare (hex LO:HI, HI exclusive). "
+        "Can be specified multiple times.",
+    )
+    parser.add_argument(
         "--actions-file",
         type=str,
         default=None,
@@ -817,6 +880,10 @@ def write_mismatch_bundle(
     ref_state: dict[str, Any],
     dut_state: dict[str, Any],
     diff: dict[str, Any],
+    mem_regions: list[tuple[int, int]] | None = None,
+    mem_hash_version: str | None = None,
+    mem_dumps: list[tuple[int, int, bytes, bytes]] | None = None,
+    mem_region_flags: list[str] | None = None,
     actions_trace: list[list[int]],
     system_info: dict[str, Any],
     action_gen_name: str,
@@ -842,6 +909,10 @@ def write_mismatch_bundle(
         ref_state: Normalized reference CPU state.
         dut_state: Normalized DUT CPU state.
         diff: State difference dictionary.
+        mem_regions: Optional list of memory regions (lo, hi).
+        mem_hash_version: Hash version label for memory hashing.
+        mem_dumps: Optional list of memory dumps (lo, hi, ref_bytes, dut_bytes).
+        mem_region_flags: Optional list of mem-region strings for repro.
         actions_trace: List of actions up to mismatch.
         system_info: System information dictionary.
         action_gen_name: Action generator name.
@@ -896,6 +967,9 @@ def write_mismatch_bundle(
             },
             "system": system_info,
         }
+        if mem_regions:
+            metadata["mem_regions"] = [{"lo": lo, "hi": hi} for lo, hi in mem_regions]
+            metadata["mem_hash_version"] = mem_hash_version
         with open(temp_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=2)
 
@@ -911,10 +985,25 @@ def write_mismatch_bundle(
         with open(temp_dir / "diff.json", "w") as f:
             json.dump(diff, f, indent=2)
 
+        # Write memory dumps (optional, for small regions)
+        if mem_dumps:
+            for lo, hi, ref_bytes, dut_bytes in mem_dumps:
+                ref_name = f"mem_ref_{lo:04X}_{hi:04X}.bin"
+                dut_name = f"mem_dut_{lo:04X}_{hi:04X}.bin"
+                (temp_dir / ref_name).write_bytes(ref_bytes)
+                (temp_dir / dut_name).write_bytes(dut_bytes)
+
         # Write actions.jsonl
         with open(temp_dir / "actions.jsonl", "w") as f:
             for actions in actions_trace:
                 f.write(json.dumps(actions) + "\n")
+
+        mem_region_args = mem_region_flags or (
+            [f"{lo:04X}:{hi:04X}" for lo, hi in mem_regions] if mem_regions else []
+        )
+        mem_region_lines = "".join(
+            [f"    --mem-region {flag} \\\n" for flag in mem_region_args]
+        )
 
         # Write repro.sh
         repro_script = f"""#!/bin/bash
@@ -936,7 +1025,7 @@ uv run python bench/harness.py \\
     --compare-every {compare_every} \\
     --frames-per-step {frames_per_step} \\
     --release-after-frames {release_after_frames} \\
-    --actions-file "$(dirname "$0")/actions.jsonl"
+{mem_region_lines}    --actions-file "$(dirname "$0")/actions.jsonl"
 """
         repro_path = temp_dir / "repro.sh"
         with open(repro_path, "w") as f:
@@ -993,9 +1082,20 @@ def run_verify(
             print(f"Error loading actions file: {e}", file=sys.stderr)
             return 1
 
+    # Parse memory regions (if any)
+    try:
+        mem_regions = parse_mem_regions(args.mem_region)
+    except ValueError as e:
+        print(f"Error parsing --mem-region: {e}", file=sys.stderr)
+        return 1
+
+    mem_region_flags = [f"{lo:04X}:{hi:04X}" for lo, hi in mem_regions]
+
     print(f"Verification mode: ref={args.ref_backend} vs dut={args.dut_backend}")
     print(f"ROM: {rom_path.name}")
     print(f"Steps: {args.verify_steps}, compare every {args.compare_every}")
+    if mem_regions:
+        print(f"Memory regions: {', '.join(mem_region_flags)}")
     print()
 
     # Use seed for seeded_random generator, None for noop
@@ -1035,6 +1135,21 @@ def run_verify(
         ref_backend.reset(seed=effective_seed)
         dut_backend.reset(seed=effective_seed)
 
+        # Validate memory support if requested
+        if mem_regions:
+            for backend, backend_name in [
+                (ref_backend, args.ref_backend),
+                (dut_backend, args.dut_backend),
+            ]:
+                reader = getattr(backend, "read_memory", None)
+                if not callable(reader):
+                    print(
+                        f"Error: backend '{backend_name}' does not support memory "
+                        "reads required by --mem-region",
+                        file=sys.stderr,
+                    )
+                    return 1
+
         # Action trace for recording
         actions_trace: list[list[int]] = []
 
@@ -1064,6 +1179,41 @@ def run_verify(
                 dut_state = normalize_cpu_state(dut_backend.get_cpu_state(0))
 
                 diff = diff_states(ref_state, dut_state)
+                mem_dumps: list[tuple[int, int, bytes, bytes]] = []
+
+                if mem_regions:
+                    mem_diffs: list[dict[str, Any]] = []
+                    try:
+                        for lo, hi in mem_regions:
+                            expected_len = hi - lo
+                            ref_bytes = _coerce_memory_slice(
+                                ref_backend.read_memory(0, lo, hi), expected_len
+                            )
+                            dut_bytes = _coerce_memory_slice(
+                                dut_backend.read_memory(0, lo, hi), expected_len
+                            )
+                            ref_hash = hash_memory(ref_bytes)
+                            dut_hash = hash_memory(dut_bytes)
+                            if ref_hash != dut_hash:
+                                mem_diffs.append(
+                                    {
+                                        "lo": lo,
+                                        "hi": hi,
+                                        "ref_hash": ref_hash,
+                                        "dut_hash": dut_hash,
+                                    }
+                                )
+                                if expected_len <= MAX_MEM_DUMP_BYTES:
+                                    mem_dumps.append((lo, hi, ref_bytes, dut_bytes))
+                    except Exception as e:
+                        print(f"Error reading memory: {e}", file=sys.stderr)
+                        return 1
+
+                    if mem_diffs:
+                        if diff is None:
+                            diff = {}
+                        diff["memory"] = mem_diffs
+
                 if diff is not None:
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
@@ -1086,6 +1236,10 @@ def run_verify(
                         ref_state=ref_state,
                         dut_state=dut_state,
                         diff=diff,
+                        mem_regions=mem_regions if mem_regions else None,
+                        mem_hash_version=MEM_HASH_VERSION if mem_regions else None,
+                        mem_dumps=mem_dumps if mem_dumps else None,
+                        mem_region_flags=mem_region_flags if mem_regions else None,
                         actions_trace=actions_trace,
                         system_info=system_info,
                         action_gen_name=args.action_gen,

@@ -115,6 +115,7 @@ class Command(Enum):
     RESET = auto()
     STEP = auto()
     GET_CPU_STATE = auto()
+    READ_MEMORY = auto()
     CLOSE = auto()
 
 
@@ -123,6 +124,7 @@ class ResponseType(Enum):
 
     OK = auto()
     STATE = auto()
+    MEMORY = auto()
     ERR = auto()
 
 
@@ -272,6 +274,31 @@ def _worker_main(
                     cycle_count=None,
                 )
                 conn.send(WorkerResponse(ResponseType.STATE, data=state))
+
+            elif msg.cmd == Command.READ_MEMORY:
+                local_idx, lo, hi = msg.data
+
+                if local_idx < 0 or local_idx >= len(pyboys):
+                    conn.send(
+                        WorkerResponse(
+                            ResponseType.ERR,
+                            error=f"Invalid local_idx {local_idx}, "
+                            f"worker has {len(pyboys)} envs",
+                        )
+                    )
+                    continue
+                if lo < 0 or hi > 0x10000 or lo >= hi:
+                    conn.send(
+                        WorkerResponse(
+                            ResponseType.ERR,
+                            error=f"Invalid memory range {lo:#06x}:{hi:#06x}",
+                        )
+                    )
+                    continue
+
+                pb = pyboys[local_idx]
+                mem_slice = bytes(pb.memory[lo:hi])
+                conn.send(WorkerResponse(ResponseType.MEMORY, data=mem_slice))
 
             elif msg.cmd == Command.CLOSE:
                 for pb in pyboys:
@@ -566,6 +593,47 @@ class PyBoyVecMpBackend:
                     raise RuntimeError(f"Worker error: {resp.error}")
 
                 return resp.data
+
+        # Should not reach here
+        raise RuntimeError(f"Could not find worker for env_idx {env_idx}")
+
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        """Read a slice of memory for a specific environment.
+
+        Args:
+            env_idx: Environment index.
+            lo: Lower address (inclusive).
+            hi: Upper address (exclusive).
+
+        Returns:
+            Bytes for the requested memory slice.
+        """
+        if not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if lo < 0 or hi > 0x10000 or lo >= hi:
+            raise ValueError(f"Invalid memory range: {lo:#06x}:{hi:#06x}")
+
+        # Find owning worker and local index
+        for worker_idx, env_indices in enumerate(self._env_partition):
+            if env_idx in env_indices:
+                local_idx = env_indices.index(env_idx)
+                self._conns[worker_idx].send(
+                    WorkerMessage(Command.READ_MEMORY, data=(local_idx, lo, hi))
+                )
+                resp = self._conns[worker_idx].recv()
+
+                if resp.type == ResponseType.ERR:
+                    raise RuntimeError(f"Worker error: {resp.error}")
+
+                if resp.type != ResponseType.MEMORY:
+                    raise RuntimeError(
+                        f"Unexpected response type: {resp.type} (expected MEMORY)"
+                    )
+
+                return bytes(resp.data)
 
         # Should not reach here
         raise RuntimeError(f"Could not find worker for env_idx {env_idx}")

@@ -202,6 +202,19 @@ class VecBackend(Protocol):
         """
         ...
 
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        """Read a slice of memory for a specific environment.
+
+        Args:
+            env_idx: Environment index (0 for single-env backends).
+            lo: Lower address (inclusive).
+            hi: Upper address (exclusive).
+
+        Returns:
+            Bytes for the requested memory slice.
+        """
+        ...
+
     def close(self) -> None:
         """Clean up resources and release emulator instances."""
         ...
