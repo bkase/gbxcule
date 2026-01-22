@@ -196,7 +196,7 @@ CANONICAL_FLAG_KEYS = ["z", "n", "h", "c"]
 
 # Memory hash configuration
 MEM_HASH_VERSION = "blake2b-128-v1"
-MAX_MEM_DUMP_BYTES = 4096
+MAX_MEM_DUMP_BYTES = 1024
 
 
 def _parse_hex_u16(text: str) -> int:
