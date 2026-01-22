@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import sys
 import time
@@ -885,6 +886,9 @@ def run_scaling_sweep(
         "rom_sha256": rom_sha256,
         "stage": args.stage,
         "env_counts": env_counts,
+        "num_workers_cap": (
+            args.num_workers if args.backend == "pyboy_vec_mp" else None
+        ),
         "frames_per_step": args.frames_per_step,
         "release_after_frames": args.release_after_frames,
         "steps": args.steps,
@@ -907,11 +911,17 @@ def run_scaling_sweep(
             continue
 
         try:
+            effective_num_workers: int | None = args.num_workers
+            if args.backend == "pyboy_vec_mp":
+                if effective_num_workers is None:
+                    effective_num_workers = os.cpu_count() or 1
+                effective_num_workers = min(num_envs, effective_num_workers)
+
             backend = create_backend(
                 args.backend,
                 str(rom_path),
                 num_envs=num_envs,
-                num_workers=args.num_workers,
+                num_workers=effective_num_workers,
                 frames_per_step=args.frames_per_step,
                 release_after_frames=args.release_after_frames,
                 base_seed=args.actions_seed,
@@ -938,6 +948,9 @@ def run_scaling_sweep(
             entry = {
                 "num_envs": num_envs,
                 "device": backend.device,
+                "num_workers": effective_num_workers
+                if args.backend == "pyboy_vec_mp"
+                else None,
                 **results,
             }
             results_list.append(entry)
