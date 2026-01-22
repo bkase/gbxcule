@@ -340,6 +340,9 @@ def diff_states(
 
 def get_system_info() -> dict[str, Any]:
     """Collect system information for reproducibility."""
+    import csv
+    import os
+
     import numpy as np
 
     info: dict[str, Any] = {
@@ -347,7 +350,10 @@ def get_system_info() -> dict[str, Any]:
         "python": platform.python_version(),
         "numpy": np.__version__,
         "cpu": platform.processor() or None,
-        "gpu": None,  # Placeholder for CUDA info
+        "gpu": None,
+        "gpu_names": [],
+        "driver_version": None,
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
     }
 
     # Try to get PyBoy version
@@ -365,6 +371,36 @@ def get_system_info() -> dict[str, Any]:
         info["warp"] = warp.__version__
     except (ImportError, AttributeError):
         info["warp"] = None
+
+    # Try to get GPU + driver info
+    try:
+        import io
+        import subprocess
+
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode == 0:
+            gpu_names: list[str] = []
+            driver_version: str | None = None
+            for row in csv.reader(io.StringIO(result.stdout)):
+                if len(row) < 2:
+                    continue
+                name = row[0].strip()
+                version = row[1].strip()
+                if name:
+                    gpu_names.append(name)
+                if version and driver_version is None:
+                    driver_version = version
+            info["gpu_names"] = gpu_names
+            info["gpu"] = gpu_names[0] if gpu_names else None
+            info["driver_version"] = driver_version
+    except Exception:
+        # Best-effort only; don't fail artifact writing.
+        pass
 
     # Try to get git commit SHA
     try:
