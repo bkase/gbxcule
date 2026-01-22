@@ -30,6 +30,13 @@ dev = [
 # This improves lock performance and avoids unsatisfiable branches.
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
 
+[tool.uv.sources]
+# Force CUDA 13 wheels on Linux (DGX Spark is aarch64).
+warp-lang = [
+    { url = "https://github.com/NVIDIA/warp/releases/download/v1.11.0/warp_lang-1.11.0+cu13-py3-none-manylinux_2_34_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { url = "https://github.com/NVIDIA/warp/releases/download/v1.11.0/warp_lang-1.11.0+cu13-py3-none-manylinux_2_28_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+
 [tool.hatch.build.targets.wheel]
 # src-layout packaging: ship the package from src/gbxcule
 packages = ["src/gbxcule"]
