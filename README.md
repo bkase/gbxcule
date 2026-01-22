@@ -91,6 +91,19 @@ make verify
 
 In M0, the DUT (`warp_vec`) is a stub that returns obviously wrong state, so verification always fails. This is intentional - the scaffold exists to catch real bugs once the GPU backend is implemented.
 
+You can optionally hash/compare memory regions in addition to registers:
+
+```bash
+uv run python bench/harness.py \
+  --verify \
+  --ref-backend pyboy_single \
+  --dut-backend warp_vec \
+  --rom bench/roms/out/ALU_LOOP.gb \
+  --verify-steps 4 \
+  --compare-every 1 \
+  --mem-region C000:C100
+```
+
 Example output:
 
 ```
@@ -116,6 +129,8 @@ When verification fails, a repro bundle is written containing:
 | `diff.json`      | Field-by-field differences           |
 | `actions.jsonl`  | Complete action trace for replay     |
 | `repro.sh`       | One-command reproduction script      |
+| `mem_ref_*.bin`  | Optional memory dumps (small regions) |
+| `mem_dut_*.bin`  | Optional memory dumps (small regions) |
 
 To reproduce a mismatch:
 
