@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup fmt lint test roms bench smoke verify check hooks clean
+.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke check hooks clean
 
 # Variables
 PY := uv run python
@@ -59,8 +59,13 @@ bench: roms ## Run baseline benchmarks
 	@$(PY) bench/harness.py --backend pyboy_vec_mp --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10 --num-envs 360 --num-workers 20
 	@$(PY) bench/harness.py --backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10
 
-verify: roms ## Run verification mode (expected to fail in M0 due to DUT stub)
-	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 4 --compare-every 1 || echo "Mismatch expected (DUT is a stub). Check bench/runs/mismatch/ for repro bundle."
+verify: roms ## Run verification (pyboy_single vs warp_vec_cpu; should pass)
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 1024 --compare-every 1 --frames-per-step 1
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/MEM_RWB.gb --verify-steps 1024 --compare-every 1 --frames-per-step 1 --mem-region C000:C100
+
+verify-smoke: roms ## Quick verification smoke (frames_per_step=24)
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 16 --compare-every 1 --frames-per-step 24
+	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/MEM_RWB.gb --verify-steps 16 --compare-every 1 --frames-per-step 24 --mem-region C000:C100
 
 check: lint test smoke ## Run all checks (commit hook gate)
 
