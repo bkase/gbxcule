@@ -367,16 +367,44 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             device_name="cuda:0",
         )
         self._sync_after_step = False
+        self._mem_readback = None
+        self._mem_readback_capacity = 0
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
-        raise NotImplementedError(
-            "CUDA read_memory is not implemented yet (see WS3 slice-copy)."
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if lo < 0 or hi < 0 or lo > MEM_SIZE or hi > MEM_SIZE or lo > hi:
+            raise ValueError(f"Invalid memory range: lo={lo} hi={hi}")
+        count = hi - lo
+        if count == 0:
+            return b""
+        if self._mem_readback is None or self._mem_readback_capacity < count:
+            self._mem_readback = self._wp.empty(
+                count, dtype=self._wp.uint8, device="cpu", pinned=True
+            )
+            self._mem_readback_capacity = count
+        base = env_idx * MEM_SIZE
+        self._wp.copy(
+            self._mem_readback,
+            self._mem,
+            dest_offset=0,
+            src_offset=base + lo,
+            count=count,
         )
+        self._wp.synchronize()
+        return self._mem_readback.numpy()[:count].tobytes()
 
     def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
         raise NotImplementedError(
             "CUDA write_memory is not implemented yet (debug-only for CPU)."
         )
+
+    def close(self) -> None:
+        super().close()
+        self._mem_readback = None
+        self._mem_readback_capacity = 0
 
 
 class WarpVecBackend(WarpVecCpuBackend):
