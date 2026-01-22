@@ -7,6 +7,7 @@ GPU-native many-env Game Boy runtime (Warp/CUDA) + benchmark/verification harnes
 A research project exploring whether GPU-native emulation can accelerate reinforcement learning training loops. The reference oracle is [PyBoy](https://github.com/Baekalfen/PyBoy), a mature Python Game Boy emulator.
 
 The system includes:
+
 - **CPU baselines** (`pyboy_single`, `pyboy_vec_mp`) for honest comparison
 - **Benchmark harness** measuring steps-per-second with proper warmup
 - **Verification scaffold** comparing GPU vs CPU register states step-by-step
@@ -18,11 +19,11 @@ The system includes:
 
 ### What Counts as Success
 
-| Metric | Target |
-|--------|--------|
-| Emulate-only throughput | ≥1.5× vs CPU baseline at scale |
-| With reward extraction | ≥1.2× vs CPU baseline |
-| Correctness | Zero register mismatches vs PyBoy oracle |
+| Metric                  | Target                                   |
+| ----------------------- | ---------------------------------------- |
+| Emulate-only throughput | ≥1.5× vs CPU baseline at scale           |
+| With reward extraction  | ≥1.2× vs CPU baseline                    |
+| Correctness             | Zero register mismatches vs PyBoy oracle |
 
 ## Install (uv-only)
 
@@ -57,6 +58,7 @@ make bench
 ```
 
 Example output:
+
 ```
 Backend: pyboy_single
 ROM: ALU_LOOP.gb
@@ -70,37 +72,13 @@ Artifact: bench/runs/20260121_153157_pyboy_single_ALU_LOOP.json
 
 Backend: pyboy_vec_mp
 ROM: ALU_LOOP.gb
-Envs: 4
+Envs: 360
 Steps: 100 (warmup: 10)
-Time: 0.276s
-Total SPS: 1447.9
-Per-env SPS: 362.0
-Frames/sec: 34749.7
-Artifact: bench/runs/20260121_153158_pyboy_vec_mp_ALU_LOOP.json
-```
-
-### Direct CLI Usage
-
-```bash
-# Single environment
-uv run python bench/harness.py \
-  --backend pyboy_single \
-  --rom bench/roms/out/ALU_LOOP.gb \
-  --steps 1000 --warmup-steps 100
-
-# Multiprocessing (4 envs across 2 workers)
-uv run python bench/harness.py \
-  --backend pyboy_vec_mp \
-  --rom bench/roms/out/ALU_LOOP.gb \
-  --steps 1000 --warmup-steps 100 \
-  --num-envs 4 --num-workers 2
-
-# Scaling sweep
-uv run python bench/harness.py \
-  --backend pyboy_vec_mp \
-  --rom bench/roms/out/ALU_LOOP.gb \
-  --steps 500 --warmup-steps 50 \
-  --env-counts 1,2,4,8
+Time: 3.42s
+Total SPS: 10522.9
+Per-env SPS: 29.2
+Frames/sec: 252548.7
+Artifact: bench/runs/20260122_001005_pyboy_vec_mp_ALU_LOOP.json
 ```
 
 ## Run Verification (Expected to Fail in M0)
@@ -114,6 +92,7 @@ make verify
 In M0, the DUT (`warp_vec`) is a stub that returns obviously wrong state, so verification always fails. This is intentional - the scaffold exists to catch real bugs once the GPU backend is implemented.
 
 Example output:
+
 ```
 Verification mode: ref=pyboy_single vs dut=warp_vec
 ROM: ALU_LOOP.gb
@@ -129,16 +108,17 @@ Repro: bench/runs/mismatch/20260121_153204_ALU_LOOP_pyboy_single_vs_warp_vec/rep
 
 When verification fails, a repro bundle is written containing:
 
-| File | Contents |
-|------|----------|
-| `metadata.json` | ROM SHA, backends, seeds, git commit |
-| `ref_state.json` | Reference CPU registers at mismatch |
-| `dut_state.json` | DUT CPU registers at mismatch |
-| `diff.json` | Field-by-field differences |
-| `actions.jsonl` | Complete action trace for replay |
-| `repro.sh` | One-command reproduction script |
+| File             | Contents                             |
+| ---------------- | ------------------------------------ |
+| `metadata.json`  | ROM SHA, backends, seeds, git commit |
+| `ref_state.json` | Reference CPU registers at mismatch  |
+| `dut_state.json` | DUT CPU registers at mismatch        |
+| `diff.json`      | Field-by-field differences           |
+| `actions.jsonl`  | Complete action trace for replay     |
+| `repro.sh`       | One-command reproduction script      |
 
 To reproduce a mismatch:
+
 ```bash
 bash bench/runs/mismatch/<bundle>/repro.sh
 ```
@@ -180,17 +160,17 @@ For RL training, **Total SPS** is what matters - it's how many environment trans
 
 ## Common Commands
 
-| Command | Description |
-|---------|-------------|
-| `make setup` | Install dependencies via uv |
-| `make hooks` | Install git pre-commit hooks |
-| `make fmt` | Format code and apply safe lint fixes |
-| `make lint` | Check formatting and lint |
-| `make test` | Run unit tests |
-| `make roms` | Generate micro-ROMs |
-| `make bench` | Run baseline benchmarks |
+| Command       | Description                            |
+| ------------- | -------------------------------------- |
+| `make setup`  | Install dependencies via uv            |
+| `make hooks`  | Install git pre-commit hooks           |
+| `make fmt`    | Format code and apply safe lint fixes  |
+| `make lint`   | Check formatting and lint              |
+| `make test`   | Run unit tests                         |
+| `make roms`   | Generate micro-ROMs                    |
+| `make bench`  | Run baseline benchmarks                |
 | `make verify` | Run verification (expected fail in M0) |
-| `make check` | Run all checks (commit hook gate) |
+| `make check`  | Run all checks (commit hook gate)      |
 
 ## Documentation
 
@@ -218,8 +198,8 @@ The hypothesis is that GPU-native Game Boy emulation can beat CPU multiprocessin
 ### First numbers
 
 ```
-pyboy_single:  892 SPS (1 env)
-pyboy_vec_mp: 1448 SPS (4 envs, 2 workers)
+pyboy_single:   890 SPS (1 env)
+pyboy_vec_mp: 10523 SPS (360 envs, 20 workers)
 ```
 
 These are our targets to beat. The GPU backend needs to exceed ~1.5× these numbers at scale (many envs) to validate the hypothesis.

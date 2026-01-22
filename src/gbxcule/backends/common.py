@@ -6,11 +6,16 @@ implementations. Types are pure dataclasses/TypedDicts with no heavy dependencie
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypedDict
+import warnings
 
-import numpy as np
-from numpy.typing import NDArray
+# Suppress noisy SDL2 warning from pyboy (must be before any pyboy import)
+warnings.filterwarnings("ignore", message="Using SDL2 binaries")
+
+from dataclasses import dataclass  # noqa: E402
+from typing import Any, Literal, Protocol, TypedDict  # noqa: E402
+
+import numpy as np  # noqa: E402
+from numpy.typing import NDArray  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Core literals and type aliases
@@ -200,6 +205,27 @@ class VecBackend(Protocol):
     def close(self) -> None:
         """Clean up resources and release emulator instances."""
         ...
+
+
+# ---------------------------------------------------------------------------
+# PyBoy import helper
+# ---------------------------------------------------------------------------
+
+_pyboy_class: type | None = None
+
+
+def get_pyboy_class() -> type:
+    """Import and return the PyBoy class (lazy import).
+
+    Returns:
+        The PyBoy class ready for instantiation.
+    """
+    global _pyboy_class
+    if _pyboy_class is None:
+        from pyboy import PyBoy
+
+        _pyboy_class = PyBoy
+    return _pyboy_class
 
 
 # ---------------------------------------------------------------------------

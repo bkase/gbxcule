@@ -22,6 +22,7 @@ from gbxcule.backends.common import (
     as_i32_actions,
     empty_obs,
     flags_from_f,
+    get_pyboy_class,
 )
 
 
@@ -84,8 +85,7 @@ class PyBoySingleBackend:
 
     def _make_pyboy(self) -> Any:
         """Create a fresh PyBoy instance."""
-        from pyboy import PyBoy
-
+        PyBoy = get_pyboy_class()
         pyboy = PyBoy(
             self._rom_path,
             window="null",

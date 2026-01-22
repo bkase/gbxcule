@@ -28,6 +28,7 @@ from gbxcule.backends.common import (
     as_i32_actions,
     empty_obs,
     flags_from_f,
+    get_pyboy_class,
 )
 from gbxcule.core.signatures import hash64
 
@@ -163,7 +164,7 @@ def _worker_main(
         frames_per_step: Frames per step.
         release_after_frames: Frames before button release.
     """
-    from pyboy import PyBoy
+    PyBoy = get_pyboy_class()
 
     pyboys: list[Any] = []
 
@@ -304,8 +305,8 @@ class PyBoyVecMpBackend:
         self,
         rom_path: str,
         *,
-        num_envs: int = 4,
-        num_workers: int | None = None,
+        num_envs: int = 360,
+        num_workers: int | None = 20,
         frames_per_step: int = 24,
         release_after_frames: int = 8,
         obs_dim: int = 32,
@@ -315,8 +316,8 @@ class PyBoyVecMpBackend:
 
         Args:
             rom_path: Path to the ROM file.
-            num_envs: Number of environments.
-            num_workers: Number of worker processes (defaults to num_envs).
+            num_envs: Number of environments (default: 360).
+            num_workers: Number of worker processes (default: 20).
             frames_per_step: Frames to advance per step call.
             release_after_frames: Frames after which to release button.
             obs_dim: Observation vector dimension.
