@@ -1,0 +1,39 @@
+"""Workstream 2 tests: ROM loading + ABI v0 memory model for warp_vec_cpu."""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+
+from gbxcule.backends.warp_vec import WarpVecCpuBackend
+
+
+def test_reset_loads_rom_prefix() -> None:
+    """reset() loads ROM bytes into mem[0:rom_len] for env 0."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_path = Path(tmpdir) / "test.gb"
+        rom_bytes = bytes(range(64))
+        rom_path.write_bytes(rom_bytes)
+
+        backend = WarpVecCpuBackend(str(rom_path), num_envs=1, obs_dim=32)
+        try:
+            backend.reset()
+            assert backend.read_memory(0, 0, len(rom_bytes)) == rom_bytes
+        finally:
+            backend.close()
+
+
+def test_multi_env_isolation() -> None:
+    """Each env has its own 64KB memory slice."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        rom_path = Path(tmpdir) / "test.gb"
+        rom_path.write_bytes(b"\x00" * 32)
+
+        backend = WarpVecCpuBackend(str(rom_path), num_envs=2, obs_dim=32)
+        try:
+            backend.reset()
+            backend.write_memory(0, 0xC000, b"\xab")
+            assert backend.read_memory(0, 0xC000, 0xC001) == b"\xab"
+            assert backend.read_memory(1, 0xC000, 0xC001) == b"\x00"
+        finally:
+            backend.close()
