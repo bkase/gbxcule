@@ -10,7 +10,7 @@ The system includes:
 
 - **CPU baselines** (`pyboy_single`, `pyboy_vec_mp`) for honest comparison
 - **Benchmark harness** measuring steps-per-second with proper warmup
-- **Verification scaffold** comparing GPU vs CPU register states step-by-step
+- **Verification harness** comparing `warp_vec_cpu` vs `pyboy_single` step-by-step
 - **Micro-ROM test suite** exercising CPU instructions deterministically
 
 ## The Hypothesis
@@ -81,40 +81,54 @@ Frames/sec: 252548.7
 Artifact: bench/runs/20260122_001005_pyboy_vec_mp_ALU_LOOP.json
 ```
 
-## Run Verification (Expected to Fail in M0)
+## Run Verification (Expected to Pass)
 
-The verification mode compares a reference backend (PyBoy) against a device-under-test:
+Verification compares a reference backend (PyBoy) against a device-under-test:
 
 ```bash
 make verify
 ```
 
-In M0, the DUT (`warp_vec`) is a stub that returns obviously wrong state, so verification always fails. This is intentional - the scaffold exists to catch real bugs once the GPU backend is implemented.
+The default `make verify` profile runs `pyboy_single` vs `warp_vec_cpu` on both micro-ROMs and should pass.
 
-You can optionally hash/compare memory regions in addition to registers:
+For a quick sanity pass (RL-ish step quantum):
+
+```bash
+make verify-smoke
+```
+
+To exercise the failure path and confirm mismatch bundles are being written:
+
+```bash
+make verify-mismatch
+```
+
+You can also run the harness directly. Example with memory hashing enabled for MEM_RWB:
 
 ```bash
 uv run python bench/harness.py \
   --verify \
   --ref-backend pyboy_single \
-  --dut-backend warp_vec \
-  --rom bench/roms/out/ALU_LOOP.gb \
-  --verify-steps 4 \
+  --dut-backend warp_vec_cpu \
+  --rom bench/roms/out/MEM_RWB.gb \
+  --verify-steps 1024 \
   --compare-every 1 \
+  --frames-per-step 1 \
   --mem-region C000:C100
 ```
 
-Example output:
+Example mismatch output:
 
 ```
-Verification mode: ref=pyboy_single vs dut=warp_vec
-ROM: ALU_LOOP.gb
-Steps: 4, compare every 1
+Verification mode: ref=pyboy_single vs dut=warp_vec_cpu
+ROM: MEM_RWB.gb
+Steps: 1024, compare every 1
+Memory regions: C000:C100
 
-MISMATCH at step 0
-First differing fields: ['pc', 'a', 'f', 'c', 'e']
-Bundle: bench/runs/mismatch/20260121_153204_ALU_LOOP_pyboy_single_vs_warp_vec
-Repro: bench/runs/mismatch/20260121_153204_ALU_LOOP_pyboy_single_vs_warp_vec/repro.sh
+MISMATCH at step 17
+First differing fields: ['pc', 'a', 'f', 'b', 'h']
+Bundle: bench/runs/mismatch/<bundle>/
+Repro: bench/runs/mismatch/<bundle>/repro.sh
 ```
 
 ### Mismatch Bundles
@@ -129,6 +143,7 @@ When verification fails, a repro bundle is written containing:
 | `diff.json`      | Field-by-field differences           |
 | `actions.jsonl`  | Complete action trace for replay     |
 | `repro.sh`       | One-command reproduction script      |
+| `rom.gb`         | Embedded ROM bytes (hermetic repro)  |
 | `mem_ref_*.bin`  | Optional memory dumps (small regions) |
 | `mem_dut_*.bin`  | Optional memory dumps (small regions) |
 
@@ -153,6 +168,7 @@ bench/runs/
         ├── dut_state.json
         ├── diff.json
         ├── actions.jsonl
+        ├── rom.gb
         └── repro.sh
 ```
 
@@ -184,7 +200,9 @@ For RL training, **Total SPS** is what matters - it's how many environment trans
 | `make test`   | Run unit tests                         |
 | `make roms`   | Generate micro-ROMs                    |
 | `make bench`  | Run baseline benchmarks                |
-| `make verify` | Run verification (expected fail in M0) |
+| `make verify` | Run verification (expected pass)       |
+| `make verify-smoke` | Quick verification smoke          |
+| `make verify-mismatch` | Exercise mismatch bundle path |
 | `make check`  | Run all checks (commit hook gate)      |
 
 ## Documentation
