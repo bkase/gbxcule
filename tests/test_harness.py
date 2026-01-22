@@ -267,6 +267,7 @@ class TestSPSMath:
                 action_gen="noop",
                 actions_seed=None,
                 frames_per_step=24,
+                sync_every=None,
             )
 
         # total_env_steps = 10 * 4 = 40
@@ -286,6 +287,7 @@ class TestSPSMath:
                 action_gen="noop",
                 actions_seed=None,
                 frames_per_step=24,
+                sync_every=None,
             )
 
         # per_env_sps = 10 / 2.0 = 5.0
@@ -303,6 +305,7 @@ class TestSPSMath:
                 action_gen="noop",
                 actions_seed=None,
                 frames_per_step=24,
+                sync_every=None,
             )
 
         # total_sps = 20 / 1.0 = 20.0
@@ -321,6 +324,7 @@ class TestSPSMath:
                 action_gen="noop",
                 actions_seed=None,
                 frames_per_step=24,
+                sync_every=None,
             )
 
         # total_sps = per_env_sps = 5 / 0.5 = 10.0
@@ -340,6 +344,7 @@ class TestSPSMath:
                 action_gen="noop",
                 actions_seed=None,
                 frames_per_step=24,
+                sync_every=None,
             )
 
         # Only 10 measured steps, not 15

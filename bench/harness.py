@@ -412,6 +412,7 @@ def run_benchmark(
     action_gen: str,
     actions_seed: int | None,
     frames_per_step: int,
+    sync_every: int | None,
 ) -> dict[str, Any]:
     """Run a benchmark and return results.
 
@@ -422,6 +423,7 @@ def run_benchmark(
         action_gen: Action generator name ("noop" or "seeded_random").
         actions_seed: Seed for action generation (required for seeded_random).
         frames_per_step: Frames per step (for FPS calculation).
+        sync_every: Sync interval for CUDA benchmarks (0 = end only).
 
     Returns:
         Dictionary with benchmark results.
@@ -441,6 +443,8 @@ def run_benchmark(
         )
         backend.step(actions)
 
+    synchronize_backend(backend)
+
     # Measured run
     start_time = time.perf_counter()
 
@@ -452,7 +456,10 @@ def run_benchmark(
             gen_name=action_gen,
         )
         backend.step(actions)
+        if sync_every is not None and sync_every > 0 and (i + 1) % sync_every == 0:
+            synchronize_backend(backend)
 
+    synchronize_backend(backend)
     elapsed = time.perf_counter() - start_time
 
     # Compute metrics
@@ -472,6 +479,23 @@ def run_benchmark(
         "frames_per_step": frames_per_step,
         "frames_per_sec": frames_per_sec,
     }
+
+
+def synchronize_backend(backend: VecBackend) -> None:
+    """Synchronize device work for accurate timing (CUDA only)."""
+    if backend.device != "cuda":
+        return
+    sync_fn = getattr(backend, "synchronize", None)
+    if callable(sync_fn):
+        sync_fn()
+        return
+    try:
+        import warp as wp
+    except Exception as exc:  # pragma: no cover - CUDA-only path
+        raise RuntimeError(
+            "CUDA backend requires synchronize support for accurate timing."
+        ) from exc
+    wp.synchronize()
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +843,8 @@ def run_scaling_sweep(
 
         try:
             args.sync_every = resolve_sync_every(args.sync_every, backend.device)
+            if sweep_config["sync_every"] is None:
+                sweep_config["sync_every"] = args.sync_every
             results = run_benchmark(
                 backend,
                 steps=args.steps,
@@ -826,6 +852,7 @@ def run_scaling_sweep(
                 action_gen=args.action_gen,
                 actions_seed=effective_seed,
                 frames_per_step=args.frames_per_step,
+                sync_every=args.sync_every,
             )
 
             # Add entry with env_count + results
@@ -1418,7 +1445,7 @@ def main(argv: list[str] | None = None) -> int:
             "action_generator": get_action_gen_metadata(
                 args.action_gen, effective_seed
             ),
-            "sync_every": None,  # For future GPU backends
+            "sync_every": args.sync_every,
         }
 
         # Run benchmark
@@ -1429,6 +1456,7 @@ def main(argv: list[str] | None = None) -> int:
             action_gen=args.action_gen,
             actions_seed=effective_seed,
             frames_per_step=args.frames_per_step,
+            sync_every=args.sync_every,
         )
 
         # Generate run ID
