@@ -15,6 +15,7 @@ from gbxcule.backends.common import (
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
+    Stage,
     action_codec_spec,
     as_i32_actions,
     empty_obs,
@@ -47,6 +48,7 @@ class WarpVecBaseBackend:
         device: Device,
         device_name: str,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
+        stage: Stage = "emulate_only",
     ) -> None:
         """Initialize the warp_vec backend."""
         self.num_envs = num_envs
@@ -63,6 +65,7 @@ class WarpVecBaseBackend:
         self.device = device
         self._device_name = device_name
         self._sync_after_step = True
+        self._stage = stage
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
@@ -70,7 +73,7 @@ class WarpVecBaseBackend:
         self._wp = get_warp()
         self._device = self._wp.get_device(self._device_name)
         self._warmup()
-        self._kernel = get_cpu_step_kernel(obs_dim=self._obs_dim)
+        self._kernel = get_cpu_step_kernel(stage=self._stage, obs_dim=self._obs_dim)
 
         self._mem = None
         self._pc = None
@@ -104,9 +107,13 @@ class WarpVecBaseBackend:
 
     def _warmup(self) -> None:
         if self.device == "cpu":
-            warmup_warp_cpu(obs_dim=self._obs_dim)
+            warmup_warp_cpu(stage=self._stage, obs_dim=self._obs_dim)
         else:
-            warmup_warp_cuda(self._device_name, obs_dim=self._obs_dim)
+            warmup_warp_cuda(
+                self._device_name,
+                stage=self._stage,
+                obs_dim=self._obs_dim,
+            )
 
     def _synchronize(self) -> None:
         if self._sync_after_step:
@@ -366,6 +373,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         obs_dim: int = 32,
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
+        stage: Stage = "emulate_only",
     ) -> None:
         super().__init__(
             rom_path,
@@ -377,6 +385,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             device="cpu",
             device_name="cpu",
             action_codec=action_codec,
+            stage=stage,
         )
 
 
@@ -395,6 +404,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         obs_dim: int = 32,
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
+        stage: Stage = "emulate_only",
     ) -> None:
         super().__init__(
             rom_path,
@@ -406,6 +416,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             device="cuda",
             device_name="cuda:0",
             action_codec=action_codec,
+            stage=stage,
         )
         self._sync_after_step = False
         self._mem_readback = None

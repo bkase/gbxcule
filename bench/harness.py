@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    from gbxcule.backends.common import VecBackend
+    from gbxcule.backends.common import Stage, VecBackend
 
 from gbxcule.backends.common import DEFAULT_ACTION_CODEC_ID
 from gbxcule.core.action_codec import get_action_codec, list_action_codecs
@@ -67,6 +67,7 @@ def create_backend(
     num_workers: int | None = None,
     frames_per_step: int = 24,
     release_after_frames: int = 8,
+    stage: Stage = "emulate_only",
     obs_dim: int = 32,
     base_seed: int | None = None,
     action_codec: str = DEFAULT_ACTION_CODEC_ID,
@@ -80,6 +81,7 @@ def create_backend(
         num_workers: Number of workers (MP backend only).
         frames_per_step: Frames per step.
         release_after_frames: Frames before button release.
+        stage: Execution stage (warp backends only).
         obs_dim: Observation dimension.
         base_seed: Optional base seed.
         action_codec: Action codec id.
@@ -126,6 +128,7 @@ def create_backend(
             num_envs=num_envs,
             frames_per_step=frames_per_step,
             release_after_frames=release_after_frames,
+            stage=stage,
             obs_dim=obs_dim,
             base_seed=base_seed,
             action_codec=action_codec,
@@ -963,6 +966,7 @@ def run_scaling_sweep(
                 num_workers=effective_num_workers,
                 frames_per_step=args.frames_per_step,
                 release_after_frames=args.release_after_frames,
+                stage=args.stage,
                 base_seed=args.actions_seed,
                 action_codec=args.action_codec,
             )
@@ -1314,6 +1318,7 @@ def run_verify(
             num_envs=1,  # Verify uses single env for now
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
+            stage=args.stage,
             base_seed=effective_seed,
             action_codec=args.action_codec,
         )
@@ -1329,6 +1334,7 @@ def run_verify(
             num_envs=1,
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
+            stage=args.stage,
             base_seed=effective_seed,
             action_codec=args.action_codec,
         )
@@ -1555,6 +1561,7 @@ def main(argv: list[str] | None = None) -> int:
             num_workers=args.num_workers,
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
+            stage=args.stage,
             base_seed=args.actions_seed,
             action_codec=args.action_codec,
         )
