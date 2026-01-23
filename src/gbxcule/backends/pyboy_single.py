@@ -13,18 +13,21 @@ from typing import Any
 import numpy as np
 
 from gbxcule.backends.common import (
+    DEFAULT_ACTION_CODEC_ID,
     ArraySpec,
     CpuState,
     Device,
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
-    action_to_button,
+    action_codec_spec,
     as_i32_actions,
     empty_obs,
     flags_from_f,
     get_pyboy_class,
+    resolve_action_codec,
 )
+from gbxcule.core.action_schedule import split_press_release_ticks, validate_schedule
 
 
 class PyBoySingleBackend:
@@ -53,6 +56,7 @@ class PyBoySingleBackend:
         frames_per_step: int = 24,
         release_after_frames: int = 8,
         obs_dim: int = 32,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
         log_level: str = "ERROR",
     ) -> None:
         """Initialize the backend.
@@ -62,19 +66,27 @@ class PyBoySingleBackend:
             frames_per_step: Frames to advance per step call.
             release_after_frames: Frames after which to release button.
             obs_dim: Observation vector dimension.
+            action_codec: Action codec id (e.g., "legacy_v0").
             log_level: PyBoy log level (e.g., "ERROR", "WARNING").
         """
         self._rom_path = rom_path
+        validate_schedule(frames_per_step, release_after_frames)
         self._frames_per_step = frames_per_step
         self._release_after_frames = release_after_frames
         self._obs_dim = obs_dim
         self._log_level = log_level
+        self._action_codec = resolve_action_codec(action_codec)
+        self.action_codec = action_codec_spec(action_codec)
+        self.num_actions = self._action_codec.num_actions
 
         # Specs
         self.action_spec = ArraySpec(
             shape=(self.num_envs,),
             dtype="int32",
-            meaning="action index [0, 9)",
+            meaning=(
+                f"action index [0, {self.num_actions}) "
+                f"({self.action_codec.name}@{self.action_codec.version})"
+            ),
         )
         self.obs_spec = ArraySpec(
             shape=(self.num_envs, obs_dim),
@@ -143,7 +155,7 @@ class PyBoySingleBackend:
         action = int(actions[0])
 
         # Get button name (raises ValueError if out of range)
-        button = action_to_button(action)
+        button = self._action_codec.to_pyboy_button(action)
 
         # Apply action with explicit press/release timing
         if button is not None:
@@ -151,15 +163,17 @@ class PyBoySingleBackend:
             self._pyboy.button_press(button)
 
             # Tick for release_after_frames
-            for _ in range(self._release_after_frames):
+            pressed_ticks, remaining_ticks = split_press_release_ticks(
+                self._frames_per_step, self._release_after_frames
+            )
+            for _ in range(pressed_ticks):
                 self._pyboy.tick(render=False)
 
             # Release button
             self._pyboy.button_release(button)
 
             # Tick remaining frames
-            remaining = self._frames_per_step - self._release_after_frames
-            for _ in range(remaining):
+            for _ in range(remaining_ticks):
                 self._pyboy.tick(render=False)
         else:
             # Noop: just tick all frames
