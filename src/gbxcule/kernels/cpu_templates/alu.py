@@ -43,3 +43,26 @@ def template_add_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
     f_i = make_flags(z, 0, hflag, cflag)
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 4
+
+
+def template_and_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
+    """AND A, d8 template."""
+    val = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+    res = a_i & val
+    a_i = res & 0xFF
+    z = wp.where(a_i == 0, 1, 0)
+    f_i = make_flags(z, 0, 1, 0)
+    pc_i = (pc_i + 2) & 0xFFFF
+    cycles = 8
+
+
+def template_dec_r8(pc_i: int, f_i: int, REG_i: int) -> None:
+    """8-bit DEC template (REG_i placeholder)."""
+    old = REG_i
+    REG_i = (REG_i - 1) & 0xFF
+    z = wp.where(REG_i == 0, 1, 0)
+    hflag = wp.where((old & 0x0F) == 0x00, 1, 0)
+    cflag = (f_i >> 4) & 0x1
+    f_i = make_flags(z, 1, hflag, cflag)
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 4

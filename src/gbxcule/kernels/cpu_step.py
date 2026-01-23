@@ -19,15 +19,20 @@ CYCLES_PER_FRAME = 70_224
 OPCODE_NOP = 0x00
 OPCODE_JP_A16 = 0xC3
 OPCODE_JR_R8 = 0x18
+OPCODE_JR_NZ_R8 = 0x20
+OPCODE_JR_Z_R8 = 0x28
 OPCODE_LD_A_D8 = 0x3E
 OPCODE_LD_B_D8 = 0x06
 OPCODE_LD_HL_D16 = 0x21
 OPCODE_INC_A = 0x3C
 OPCODE_INC_B = 0x04
+OPCODE_DEC_B = 0x05
 OPCODE_INC_HL = 0x23
 OPCODE_ADD_A_B = 0x80
+OPCODE_AND_A_D8 = 0xE6
 OPCODE_LD_HL_A = 0x77
 OPCODE_LD_B_HL = 0x46
+OPCODE_LD_A_HL = 0x7E
 ROM_LIMIT = 0x8000
 CART_RAM_START = 0xA000
 CART_RAM_END = 0xC000
@@ -70,6 +75,8 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         OpcodeTemplate(OPCODE_NOP, misc.template_nop, {}),
         OpcodeTemplate(OPCODE_JP_A16, jumps.template_jp_a16, {}),
         OpcodeTemplate(OPCODE_JR_R8, jumps.template_jr_r8, {}),
+        OpcodeTemplate(OPCODE_JR_NZ_R8, jumps.template_jr_nz_r8, {}),
+        OpcodeTemplate(OPCODE_JR_Z_R8, jumps.template_jr_z_r8, {}),
         OpcodeTemplate(OPCODE_LD_A_D8, loads.template_ld_r8_d8, {"REG_i": "a_i"}),
         OpcodeTemplate(OPCODE_LD_B_D8, loads.template_ld_r8_d8, {"REG_i": "b_i"}),
         OpcodeTemplate(
@@ -79,6 +86,7 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         ),
         OpcodeTemplate(OPCODE_INC_A, alu.template_inc_r8, {"REG_i": "a_i"}),
         OpcodeTemplate(OPCODE_INC_B, alu.template_inc_r8, {"REG_i": "b_i"}),
+        OpcodeTemplate(OPCODE_DEC_B, alu.template_dec_r8, {"REG_i": "b_i"}),
         OpcodeTemplate(
             OPCODE_INC_HL,
             alu.template_inc_r16,
@@ -89,6 +97,7 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
             alu.template_add_a_r8,
             {"REG_i": "b_i"},
         ),
+        OpcodeTemplate(OPCODE_AND_A_D8, alu.template_and_a_d8, {}),
         OpcodeTemplate(
             OPCODE_LD_HL_A,
             loads.template_ld_hl_r8,
@@ -98,6 +107,11 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
             OPCODE_LD_B_HL,
             loads.template_ld_r8_hl,
             {"HREG_i": "h_i", "LREG_i": "l_i", "DST_i": "b_i"},
+        ),
+        OpcodeTemplate(
+            OPCODE_LD_A_HL,
+            loads.template_ld_r8_hl,
+            {"HREG_i": "h_i", "LREG_i": "l_i", "DST_i": "a_i"},
         ),
     ]
     default_template = OpcodeTemplate(0x00, misc.template_default, {})
