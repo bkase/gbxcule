@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup fmt lint test roms bench smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer fmt lint test roms bench bench-cpu-puffer smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -45,6 +45,10 @@ setup: ## Install dependencies via uv
 	@uv sync
 	@mkdir -p $(ROM_OUT) $(RUNS_OUT)
 
+setup-puffer: ## Install pufferlib optional dependencies via uv
+	@uv sync --group puffer
+	@mkdir -p $(ROM_OUT) $(RUNS_OUT)
+
 fmt: ## Format code and apply safe lint fixes
 	@$(RUFF) format $(SRC_DIRS)
 	@$(RUFF) check --fix $(SRC_DIRS) || true
@@ -70,6 +74,9 @@ bench: roms ## Run baseline benchmarks
 	@$(PY) bench/harness.py --backend pyboy_single --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10
 	@$(PY) bench/harness.py --backend pyboy_vec_mp --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10 --num-envs 360 --num-workers 20
 	@$(PY) bench/harness.py --backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --steps 100 --warmup-steps 10
+
+bench-cpu-puffer: roms ## Run pufferlib CPU scaling sweep
+	@$(PY) bench/harness.py --backend pyboy_puffer_vec --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP) --release-after-frames $(M3_RELEASE_AFTER_FRAMES) --puffer-vec-backend puffer_mp_sync
 
 verify: roms ## Run verification (pyboy_single vs warp_vec_cpu; should pass)
 	@$(PY) bench/harness.py --verify --ref-backend pyboy_single --dut-backend warp_vec_cpu --rom $(ROM_OUT)/ALU_LOOP.gb --verify-steps 1024 --compare-every 1 --frames-per-step 1

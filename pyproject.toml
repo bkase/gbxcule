@@ -26,6 +26,9 @@ dev = [
     "ruff",
     "pyright",
 ]
+puffer = [
+    "pufferlib @ git+https://github.com/thatguy11325/PufferLib.git@1.0",
+]
 
 [tool.uv]
 # Resolve lock for the platforms we actually support in dev.
