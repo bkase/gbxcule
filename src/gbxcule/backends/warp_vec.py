@@ -287,6 +287,13 @@ class WarpVecBaseBackend:
 
         return obs, reward, done, trunc, {}
 
+    def get_pc_snapshot(self) -> NDArrayI32:
+        """Return a snapshot of PC values for all environments."""
+        if self._pc is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        self._wp.synchronize()
+        return np.array(self._pc.numpy(), copy=True)
+
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         """Read memory slice [lo, hi) for a given env."""
         if self._mem is None or not self._initialized:

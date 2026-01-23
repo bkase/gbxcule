@@ -162,12 +162,48 @@ def create_backend(
 ACTION_GEN_VERSION = "1.0"
 
 
+def _striped_pattern(action_names: list[str] | None, num_actions: int) -> np.ndarray:
+    if num_actions < 4:
+        raise ValueError("striped generator requires at least 4 actions")
+
+    normalized_names = (
+        [str(name).upper() for name in action_names] if action_names else None
+    )
+
+    if normalized_names:
+        target = ["UP", "DOWN", "LEFT", "RIGHT"]
+        indices: list[int] = []
+        for name in target:
+            if name in normalized_names:
+                indices.append(normalized_names.index(name))
+        if len(indices) == len(target):
+            return np.array(indices, dtype=np.int32)
+
+    candidates: list[int]
+    if normalized_names:
+        candidates = [
+            idx
+            for idx, name in enumerate(normalized_names)
+            if name not in {"NOOP", "NO-OP", "NONE"}
+        ]
+    else:
+        candidates = list(range(num_actions))
+
+    if len(candidates) < 4:
+        candidates = list(range(num_actions))
+    if len(candidates) < 4:
+        raise ValueError("striped generator requires at least 4 actions")
+
+    return np.array(candidates[:4], dtype=np.int32)
+
+
 def generate_actions(
     step_idx: int,
     num_envs: int,
     seed: int | None,
     gen_name: str,
     num_actions: int,
+    action_names: list[str] | None = None,
 ) -> np.ndarray:
     """Generate actions for a single step (pure function).
 
@@ -202,15 +238,19 @@ def generate_actions(
         return rng.integers(0, num_actions, size=(num_envs,), dtype=np.int32)
 
     if gen_name == "striped":
-        if num_actions < 5:
-            raise ValueError("striped generator requires at least 5 actions")
-        pattern = np.array([1, 2, 3, 4], dtype=np.int32)
+        pattern = _striped_pattern(action_names, num_actions)
         return pattern[np.arange(num_envs) % len(pattern)].astype(np.int32)
 
     raise ValueError(f"Unknown action generator: {gen_name}")
 
 
-def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
+def get_action_gen_metadata(
+    gen_name: str,
+    seed: int | None,
+    *,
+    action_names: list[str] | None = None,
+    num_actions: int | None = None,
+) -> dict[str, Any]:
     """Get metadata for action generator (for artifact recording).
 
     Args:
@@ -220,11 +260,19 @@ def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
     Returns:
         Dict with name, version, and seed.
     """
-    return {
+    meta: dict[str, Any] = {
         "name": gen_name,
         "version": ACTION_GEN_VERSION,
         "seed": seed,
     }
+    if gen_name == "striped":
+        if num_actions is None:
+            raise ValueError("striped metadata requires num_actions")
+        pattern = _striped_pattern(action_names, num_actions).tolist()
+        meta["pattern"] = pattern
+        if action_names:
+            meta["pattern_action_names"] = [action_names[i] for i in pattern]
+    return meta
 
 
 def get_action_codec_metadata(codec_id: str) -> dict[str, Any]:
@@ -602,6 +650,7 @@ def run_benchmark(
     frames_per_step: int,
     sync_every: int | None,
     num_actions: int,
+    action_names: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a benchmark and return results.
 
@@ -631,6 +680,7 @@ def run_benchmark(
             seed=actions_seed,
             gen_name=action_gen,
             num_actions=num_actions,
+            action_names=action_names,
         )
         backend.step(actions)
 
@@ -646,6 +696,7 @@ def run_benchmark(
             seed=actions_seed,
             gen_name=action_gen,
             num_actions=num_actions,
+            action_names=action_names,
         )
         backend.step(actions)
         if sync_every is not None and sync_every > 0 and (i + 1) % sync_every == 0:
@@ -670,6 +721,30 @@ def run_benchmark(
         "per_env_sps": per_env_sps,
         "frames_per_step": frames_per_step,
         "frames_per_sec": frames_per_sec,
+    }
+
+
+def get_divergence_receipt(backend: VecBackend) -> dict[str, Any] | None:
+    """Return a cheap divergence receipt if the backend can provide PCs."""
+    snapshot_fn = getattr(backend, "get_pc_snapshot", None)
+    if not callable(snapshot_fn):
+        return None
+
+    pcs = snapshot_fn()
+    pcs_np = np.array(pcs, dtype=np.int32).reshape(-1)
+    if pcs_np.size == 0:
+        return {
+            "metric": "unique_pc_count",
+            "unique_pc_count": 0,
+            "num_envs": 0,
+            "unique_pc_ratio": None,
+        }
+    unique_pc_count = int(np.unique(pcs_np).size)
+    return {
+        "metric": "unique_pc_count",
+        "unique_pc_count": unique_pc_count,
+        "num_envs": int(pcs_np.size),
+        "unique_pc_ratio": unique_pc_count / float(pcs_np.size),
     }
 
 
@@ -1135,7 +1210,12 @@ def run_scaling_sweep(
         "action_schedule": action_schedule_meta,
         "steps": args.steps,
         "warmup_steps": args.warmup_steps,
-        "action_generator": get_action_gen_metadata(args.action_gen, effective_seed),
+        "action_generator": get_action_gen_metadata(
+            args.action_gen,
+            effective_seed,
+            action_names=action_codec_meta["action_names"],
+            num_actions=action_codec_meta["num_actions"],
+        ),
         "action_codec": action_codec_meta,
         "sync_every": None,
     }
@@ -1189,6 +1269,7 @@ def run_scaling_sweep(
                 frames_per_step=args.frames_per_step,
                 sync_every=args.sync_every,
                 num_actions=action_codec_meta["num_actions"],
+                action_names=action_codec_meta["action_names"],
             )
 
             # Add entry with env_count + results
@@ -1200,6 +1281,9 @@ def run_scaling_sweep(
                 else None,
                 **results,
             }
+            receipt = get_divergence_receipt(backend)
+            if receipt is not None:
+                entry["divergence_receipt"] = receipt
             vec_backend = getattr(backend, "vec_backend", None)
             if vec_backend is not None:
                 entry["vec_backend"] = vec_backend
@@ -1586,6 +1670,7 @@ def run_verify(
                     seed=effective_seed,
                     gen_name=args.action_gen,
                     num_actions=action_codec_meta["num_actions"],
+                    action_names=action_codec_meta["action_names"],
                 )
 
             # Record actions
@@ -1817,7 +1902,10 @@ def main(argv: list[str] | None = None) -> int:
             "steps": args.steps,
             "warmup_steps": args.warmup_steps,
             "action_generator": get_action_gen_metadata(
-                args.action_gen, effective_seed
+                args.action_gen,
+                effective_seed,
+                action_names=action_codec_meta["action_names"],
+                num_actions=action_codec_meta["num_actions"],
             ),
             "action_codec": action_codec_meta,
             "sync_every": args.sync_every,
@@ -1833,7 +1921,11 @@ def main(argv: list[str] | None = None) -> int:
             frames_per_step=args.frames_per_step,
             sync_every=args.sync_every,
             num_actions=action_codec_meta["num_actions"],
+            action_names=action_codec_meta["action_names"],
         )
+        receipt = get_divergence_receipt(backend)
+        if receipt is not None:
+            results["divergence_receipt"] = receipt
 
         # Generate run ID
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")

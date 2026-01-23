@@ -26,3 +26,4 @@ roms:
     description: "JOYP-driven divergence with persistent mode + WRAM signature."
     frames_per_step: 24
     release_after_frames: 8
+    action_gen: striped

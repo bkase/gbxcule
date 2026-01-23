@@ -36,7 +36,9 @@ from harness import (  # noqa: E402
 from gbxcule.backends.common import ArraySpec, CpuState, Device
 from gbxcule.core.action_codec import LEGACY_V0_ID, get_action_codec
 
-LEGACY_NUM_ACTIONS = get_action_codec(LEGACY_V0_ID).num_actions
+_LEGACY_CODEC = get_action_codec(LEGACY_V0_ID)
+LEGACY_NUM_ACTIONS = _LEGACY_CODEC.num_actions
+LEGACY_ACTION_NAMES = list(_LEGACY_CODEC.action_names)
 
 # ---------------------------------------------------------------------------
 # Fake Backend for testing
@@ -114,6 +116,7 @@ class TestGenerateActions:
             seed=None,
             gen_name="noop",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         assert actions.shape == (4,)
         assert actions.dtype == np.int32
@@ -127,6 +130,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="noop",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         actions2 = generate_actions(
             step_idx=0,
@@ -134,6 +138,7 @@ class TestGenerateActions:
             seed=99,
             gen_name="noop",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         np.testing.assert_array_equal(actions1, actions2)
 
@@ -145,6 +150,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         actions2 = generate_actions(
             step_idx=5,
@@ -152,6 +158,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         np.testing.assert_array_equal(actions1, actions2)
 
@@ -163,6 +170,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         actions2 = generate_actions(
             step_idx=1,
@@ -170,6 +178,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         # Should be different (extremely high probability)
         assert not np.array_equal(actions1, actions2)
@@ -182,6 +191,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         actions2 = generate_actions(
             step_idx=0,
@@ -189,6 +199,7 @@ class TestGenerateActions:
             seed=99,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         # Should be different (extremely high probability)
         assert not np.array_equal(actions1, actions2)
@@ -202,6 +213,7 @@ class TestGenerateActions:
                 seed=None,
                 gen_name="seeded_random",
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
     def test_seeded_random_action_range(self) -> None:
@@ -212,6 +224,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="seeded_random",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         assert np.all(actions >= 0)
         assert np.all(actions < LEGACY_NUM_ACTIONS)
@@ -225,6 +238,7 @@ class TestGenerateActions:
                 seed=42,
                 gen_name="unknown_gen",
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
     def test_single_env_batch_semantics(self) -> None:
@@ -235,6 +249,7 @@ class TestGenerateActions:
             seed=42,
             gen_name="noop",
             num_actions=LEGACY_NUM_ACTIONS,
+            action_names=LEGACY_ACTION_NAMES,
         )
         assert actions.shape == (1,)
         assert actions.dtype == np.int32
@@ -261,6 +276,16 @@ class TestGetActionGenMetadata:
         """Version string is stable for reproducibility."""
         assert ACTION_GEN_VERSION == "1.0"
 
+    def test_striped_metadata_has_pattern(self) -> None:
+        """striped metadata includes pattern and action names."""
+        meta = get_action_gen_metadata(
+            "striped",
+            None,
+            action_names=LEGACY_ACTION_NAMES,
+            num_actions=LEGACY_NUM_ACTIONS,
+        )
+        assert meta["pattern_action_names"] == ["UP", "DOWN", "LEFT", "RIGHT"]
+
 
 # ---------------------------------------------------------------------------
 # SPS Math Tests (with fake backend + mocked timer)
@@ -286,6 +311,7 @@ class TestSPSMath:
                 frames_per_step=24,
                 sync_every=None,
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
         # total_env_steps = 10 * 4 = 40
@@ -307,6 +333,7 @@ class TestSPSMath:
                 frames_per_step=24,
                 sync_every=None,
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
         # per_env_sps = 10 / 2.0 = 5.0
@@ -326,6 +353,7 @@ class TestSPSMath:
                 frames_per_step=24,
                 sync_every=None,
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
         # total_sps = 20 / 1.0 = 20.0
@@ -346,6 +374,7 @@ class TestSPSMath:
                 frames_per_step=24,
                 sync_every=None,
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
         # total_sps = per_env_sps = 5 / 0.5 = 10.0
@@ -367,6 +396,7 @@ class TestSPSMath:
                 frames_per_step=24,
                 sync_every=None,
                 num_actions=LEGACY_NUM_ACTIONS,
+                action_names=LEGACY_ACTION_NAMES,
             )
 
         # Only 10 measured steps, not 15
