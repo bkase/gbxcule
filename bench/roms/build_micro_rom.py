@@ -177,6 +177,171 @@ def build_mem_rwb() -> bytes:
     return build_rom("MEM_RWB", program)
 
 
+def build_joy_diverge_persist() -> bytes:
+    """Build JOY_DIVERGE_PERSIST.gb - JOYP-driven divergence benchmark.
+
+    This ROM reads JOYP (0xFF00) each outer loop, updates a persistent
+    mode byte in WRAM, and branches into one of four inner loops. Each
+    outer iteration writes a deterministic signature to 0xC000:0xC010.
+    """
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+    jp_fixups: list[tuple[int, str]] = []
+    base_addr = 0x0150
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    def emit_jp(target: str) -> None:
+        pc = len(code)
+        emit(0xC3, 0x00, 0x00)  # JP a16
+        jp_fixups.append((pc, target))
+
+    def ld_a_d8(val: int) -> None:
+        emit(0x3E, val & 0xFF)
+
+    def ld_b_d8(val: int) -> None:
+        emit(0x06, val & 0xFF)
+
+    def ld_hl_d16(addr: int) -> None:
+        emit(0x21, addr & 0xFF, (addr >> 8) & 0xFF)
+
+    def ld_a_hl() -> None:
+        emit(0x7E)
+
+    def ld_b_hl() -> None:
+        emit(0x46)
+
+    def ld_hl_a() -> None:
+        emit(0x77)
+
+    def inc_a() -> None:
+        emit(0x3C)
+
+    def inc_hl() -> None:
+        emit(0x23)
+
+    def dec_b() -> None:
+        emit(0x05)
+
+    def add_a_b() -> None:
+        emit(0x80)
+
+    def and_d8(val: int) -> None:
+        emit(0xE6, val & 0xFF)
+
+    # --- Program ---
+    label("outer")
+    ld_hl_d16(0xFF00)
+    ld_a_hl()
+    and_d8(0x0F)
+    ld_hl_d16(0xC100)
+    ld_b_hl()
+    add_a_b()
+    and_d8(0x03)
+    ld_hl_a()
+    ld_b_hl()
+    dec_b()
+    emit_jr(0x28, "stub1")  # JR Z
+    dec_b()
+    emit_jr(0x28, "stub2")  # JR Z
+    dec_b()
+    emit_jr(0x28, "stub3")  # JR Z
+    emit_jr(0x18, "stub0")  # JR
+
+    label("stub0")
+    emit_jp("loop0")
+    label("stub1")
+    emit_jp("loop1")
+    label("stub2")
+    emit_jp("loop2")
+    label("stub3")
+    emit_jp("loop3")
+
+    label("loop0")
+    ld_b_d8(0x10)
+    label("loop0_inner")
+    inc_a()
+    add_a_b()
+    dec_b()
+    emit_jr(0x20, "loop0_inner")  # JR NZ
+    emit_jp("write_sig")
+
+    label("loop1")
+    ld_hl_d16(0xC000)
+    ld_b_d8(0x10)
+    label("loop1_inner")
+    ld_hl_a()
+    inc_a()
+    inc_hl()
+    dec_b()
+    emit_jr(0x20, "loop1_inner")  # JR NZ
+    emit_jp("write_sig")
+
+    label("loop2")
+    ld_hl_d16(0xC000)
+    ld_b_d8(0x10)
+    label("loop2_inner")
+    ld_hl_a()
+    inc_a()
+    for _ in range(5):
+        inc_hl()
+    dec_b()
+    emit_jr(0x20, "loop2_inner")  # JR NZ
+    emit_jp("write_sig")
+
+    label("loop3")
+    ld_b_d8(0x10)
+    label("loop3_inner")
+    inc_a()
+    and_d8(0x01)
+    emit_jr(0x28, "loop3_skip")  # JR Z
+    inc_a()
+    label("loop3_skip")
+    dec_b()
+    emit_jr(0x20, "loop3_inner")  # JR NZ
+    emit_jp("write_sig")
+
+    label("write_sig")
+    ld_hl_d16(0xC000)
+    ld_b_d8(0x10)
+    label("sig_loop")
+    ld_hl_a()
+    inc_a()
+    inc_hl()
+    dec_b()
+    emit_jr(0x20, "sig_loop")  # JR NZ
+    emit_jp("outer")
+
+    # Resolve JR fixups
+    for pc, target in jr_fixups:
+        if target not in labels:
+            raise ValueError(f"Unknown JR label: {target}")
+        offset = labels[target] - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError(f"JR offset out of range for {target}: {offset}")
+        code[pc + 1] = offset & 0xFF
+
+    # Resolve JP fixups (absolute addresses)
+    for pc, target in jp_fixups:
+        if target not in labels:
+            raise ValueError(f"Unknown JP label: {target}")
+        addr = base_addr + labels[target]
+        code[pc + 1] = addr & 0xFF
+        code[pc + 2] = (addr >> 8) & 0xFF
+
+    return build_rom("JOY_PERSIST", bytes(code))
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -213,6 +378,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
     roms = [
         ("ALU_LOOP.gb", build_alu_loop()),
         ("MEM_RWB.gb", build_mem_rwb()),
+        ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
     ]
 
     results: list[tuple[str, Path, str]] = []
