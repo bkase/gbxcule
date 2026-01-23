@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup setup-puffer fmt lint test roms bench bench-cpu-puffer smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer fmt lint test roms bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -27,6 +27,23 @@ M3_BENCH_WARMUP_STEPS ?= 10
 M3_BENCH_SYNC_EVERY ?= 64
 M3_RELEASE_AFTER_FRAMES ?= 1
 GPU_SMOKE_VERIFY_STEPS ?= 64
+
+# E4 scaling defaults
+E4_ENV_COUNTS ?= 1,8,64,512,2048,8192
+E4_STEPS ?= 200
+E4_WARMUP_STEPS ?= 10
+E4_SYNC_EVERY ?= 64
+E4_FRAMES_PER_STEP ?= 24
+E4_RELEASE_AFTER_FRAMES ?= 8
+E4_STAGE ?= full_step
+E4_BASELINE_BACKEND ?= pyboy_puffer_vec
+E4_DUT_CPU_BACKEND ?= warp_vec_cpu
+E4_DUT_GPU_BACKEND ?= warp_vec_cuda
+E4_PUFFER_VEC_BACKEND ?= puffer_mp_sync
+E4_ACTION_GEN ?= seeded_random
+E4_ACTIONS_SEED ?= 1234
+E4_ACTION_CODEC ?= pokemonred_puffer_v0
+E4_SUITE ?= bench/roms/suite.yaml
 
 # Default target
 .DEFAULT_GOAL := help
@@ -125,6 +142,35 @@ bench-gpu: roms ## M3 scaling sweep (DGX/CUDA)
 	$(PY) bench/harness.py --backend warp_vec_cuda --rom $(ROM_OUT)/ALU_LOOP.gb --env-counts $(M3_ENV_COUNTS) --steps $(M3_BENCH_STEPS) --warmup-steps $(M3_BENCH_WARMUP_STEPS) --frames-per-step $(M3_FRAMES_PER_STEP) --release-after-frames $(M3_RELEASE_AFTER_FRAMES) --sync-every $(M3_BENCH_SYNC_EVERY) --output-dir "$$report_dir"; \
 	$(PY) bench/analysis/summarize.py --report-dir "$$report_dir" --out "$$report_dir/summary.md"; \
 	$(PY) bench/analysis/plot_scaling.py --report-dir "$$report_dir" --out "$$report_dir/scaling.png"; \
+	echo "Report: $$report_dir"
+
+bench-e4-cpu: roms ## E4 scaling sweep (CPU baseline vs warp_vec_cpu)
+	@set -eu; \
+	report_dir="$(RUNS_OUT)/reports/$$(date -u +%Y%m%d_%H%M%S)_e4_cpu"; \
+	mkdir -p "$$report_dir"; \
+	echo "Report dir: $$report_dir"; \
+	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
+	$(PY) bench/harness.py --backend $(E4_DUT_CPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
+	rom_ids="$$( $(PY) - <<'PY'\nimport yaml\nfrom pathlib import Path\nsuite = yaml.safe_load(Path(\"$(E4_SUITE)\").read_text())\nroms = suite.get(\"roms\", []) if isinstance(suite, dict) else []\nids = [rom.get(\"id\") or Path(rom[\"path\"]).stem for rom in roms]\nprint(\" \".join(ids))\nPY\n)"; \
+	for rom_id in $$rom_ids; do \
+		$(PY) bench/analysis/summarize.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/summary.md" --strict; \
+		$(PY) bench/analysis/plot_scaling.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/scaling.png"; \
+	done; \
+	echo "Report: $$report_dir"
+
+bench-e4-gpu: roms ## E4 scaling sweep (DGX/CUDA; puffer baseline vs warp_vec_cuda)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@set -eu; \
+	report_dir="$(RUNS_OUT)/reports/$$(date -u +%Y%m%d_%H%M%S)_e4_gpu"; \
+	mkdir -p "$$report_dir"; \
+	echo "Report dir: $$report_dir"; \
+	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
+	$(PY) bench/harness.py --backend $(E4_DUT_GPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
+	rom_ids="$$( $(PY) - <<'PY'\nimport yaml\nfrom pathlib import Path\nsuite = yaml.safe_load(Path(\"$(E4_SUITE)\").read_text())\nroms = suite.get(\"roms\", []) if isinstance(suite, dict) else []\nids = [rom.get(\"id\") or Path(rom[\"path\"]).stem for rom in roms]\nprint(\" \".join(ids))\nPY\n)"; \
+	for rom_id in $$rom_ids; do \
+		$(PY) bench/analysis/summarize.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/summary.md" --strict; \
+		$(PY) bench/analysis/plot_scaling.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/scaling.png"; \
+	done; \
 	echo "Report: $$report_dir"
 
 check-gpu: roms ## Fast-ish DGX gate (CUDA smoke)
