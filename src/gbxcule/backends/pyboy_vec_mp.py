@@ -18,18 +18,21 @@ from typing import Any
 import numpy as np
 
 from gbxcule.backends.common import (
+    DEFAULT_ACTION_CODEC_ID,
     ArraySpec,
     CpuState,
     Device,
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
-    action_to_button,
+    action_codec_spec,
     as_i32_actions,
     empty_obs,
     flags_from_f,
     get_pyboy_class,
+    resolve_action_codec,
 )
+from gbxcule.core.action_schedule import split_press_release_ticks, validate_schedule
 from gbxcule.core.signatures import hash64
 
 # ---------------------------------------------------------------------------
@@ -52,6 +55,7 @@ class PyBoyMpConfig:
         base_seed: Optional base seed for deterministic seeding.
         headless: Whether to run headless (always True for now).
         obs_dim: Observation vector dimension.
+        action_codec: Action codec id (e.g., "legacy_v0").
     """
 
     num_envs: int
@@ -62,6 +66,7 @@ class PyBoyMpConfig:
     base_seed: int | None = None
     headless: bool = True
     obs_dim: int = 32
+    action_codec: str = DEFAULT_ACTION_CODEC_ID
 
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -85,6 +90,8 @@ class PyBoyMpConfig:
             )
         if not Path(self.rom_path).exists():
             raise ValueError(f"ROM file not found: {self.rom_path}")
+        validate_schedule(self.frames_per_step, self.release_after_frames)
+        resolve_action_codec(self.action_codec)
 
 
 def _compute_rom_sha256(rom_path: str) -> str:
@@ -157,6 +164,7 @@ def _worker_main(
     rom_path: str,
     frames_per_step: int,
     release_after_frames: int,
+    action_codec: str,
 ) -> None:
     """Worker process main loop.
 
@@ -175,6 +183,10 @@ def _worker_main(
         )
 
     pyboys: list[Any] = []
+    codec = resolve_action_codec(action_codec)
+    pressed_ticks, remaining_ticks = split_press_release_ticks(
+        frames_per_step, release_after_frames
+    )
 
     try:
         while True:
@@ -214,15 +226,14 @@ def _worker_main(
 
                 # Step each environment
                 for pb, action in zip(pyboys, actions, strict=True):
-                    button = action_to_button(action)
+                    button = codec.to_pyboy_button(action)
 
                     if button is not None:
                         pb.button_press(button)
-                        for _ in range(release_after_frames):
+                        for _ in range(pressed_ticks):
                             pb.tick(render=False)
                         pb.button_release(button)
-                        remaining = frames_per_step - release_after_frames
-                        for _ in range(remaining):
+                        for _ in range(remaining_ticks):
                             pb.tick(render=False)
                     else:
                         for _ in range(frames_per_step):
@@ -349,6 +360,7 @@ class PyBoyVecMpBackend:
         release_after_frames: int = 8,
         obs_dim: int = 32,
         base_seed: int | None = None,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
     ) -> None:
         """Initialize the backend.
 
@@ -360,6 +372,7 @@ class PyBoyVecMpBackend:
             release_after_frames: Frames after which to release button.
             obs_dim: Observation vector dimension.
             base_seed: Optional base seed for reproducibility.
+            action_codec: Action codec id (e.g., "legacy_v0").
         """
         if num_workers is None:
             num_workers = num_envs
@@ -372,10 +385,14 @@ class PyBoyVecMpBackend:
             rom_path=rom_path,
             base_seed=base_seed,
             obs_dim=obs_dim,
+            action_codec=action_codec,
         )
 
         self.num_envs = num_envs
         self._obs_dim = obs_dim
+        self._action_codec = resolve_action_codec(self._config.action_codec)
+        self.action_codec = action_codec_spec(self._config.action_codec)
+        self.num_actions = self._action_codec.num_actions
 
         # Compute ROM SHA for deterministic seeding
         self._rom_sha = _compute_rom_sha256(rom_path)
@@ -384,7 +401,10 @@ class PyBoyVecMpBackend:
         self.action_spec = ArraySpec(
             shape=(self.num_envs,),
             dtype="int32",
-            meaning="action index [0, 9)",
+            meaning=(
+                f"action index [0, {self.num_actions}) "
+                f"({self.action_codec.name}@{self.action_codec.version})"
+            ),
         )
         self.obs_spec = ArraySpec(
             shape=(self.num_envs, obs_dim),
@@ -433,6 +453,7 @@ class PyBoyVecMpBackend:
                     self._config.rom_path,
                     self._config.frames_per_step,
                     self._config.release_after_frames,
+                    self._config.action_codec,
                 ),
                 daemon=True,
             )
