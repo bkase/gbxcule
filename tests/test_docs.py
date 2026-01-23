@@ -11,7 +11,7 @@ def _get_makefile_targets() -> set[str]:
     # Match target names (lines like "target:" or "target: deps")
     targets = set()
     for line in content.splitlines():
-        match = re.match(r"^([a-zA-Z_-]+):", line)
+        match = re.match(r"^([a-zA-Z0-9_-]+):", line)
         if match:
             targets.add(match.group(1))
     return targets
@@ -23,7 +23,7 @@ def _get_readme_make_commands() -> set[str]:
     content = readme_path.read_text()
     # Match "make <target>" patterns (with word boundary after target)
     targets = set()
-    for match in re.finditer(r"\bmake\s+([a-zA-Z_-]+)\b", content):
+    for match in re.finditer(r"\bmake\s+([a-zA-Z0-9_-]+)\b", content):
         targets.add(match.group(1))
     return targets
 

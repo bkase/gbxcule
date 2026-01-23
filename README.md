@@ -147,6 +147,41 @@ Defaults are defined in `Makefile` (override via variable prefixes, e.g.
 `M3_ENV_COUNTS=1,8,64,512,2048,8192` and writes artifacts + report outputs to
 `bench/runs/reports/<timestamp>/`.
 
+## E4 Scaling (full_step)
+
+E4 runs compute minimal reward/obs on device and use the suite ROMs.
+They are **not** part of the commit gate; run them when you want scaling data.
+
+```bash
+make bench-e4-cpu
+make bench-e4-gpu
+```
+
+Reports are written per ROM under:
+
+```
+bench/runs/reports/<timestamp>_e4_cpu/<ROM_ID>/
+bench/runs/reports/<timestamp>_e4_gpu/<ROM_ID>/
+```
+
+Key overrides (all optional):
+
+```bash
+E4_ENV_COUNTS=1,8,64,512,2048,8192 \
+E4_STEPS=200 \
+E4_WARMUP_STEPS=10 \
+E4_SYNC_EVERY=64 \
+E4_FRAMES_PER_STEP=24 \
+E4_RELEASE_AFTER_FRAMES=8 \
+E4_STAGE=full_step \
+E4_BASELINE_BACKEND=pyboy_puffer_vec \
+E4_PUFFER_VEC_BACKEND=puffer_mp_sync \
+E4_ACTION_GEN=seeded_random \
+E4_ACTIONS_SEED=1234 \
+E4_ACTION_CODEC=pokemonred_puffer_v0 \
+make bench-e4-gpu
+```
+
 ### Mismatch Bundles
 
 When verification fails, a repro bundle is written containing:
