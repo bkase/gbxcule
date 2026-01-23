@@ -69,8 +69,11 @@ def _format_speedup(value: float) -> str:
     return f"{value:.2f}x"
 
 
-def _compare_configs(baseline: ScalingArtifact, dut: ScalingArtifact) -> list[str]:
+def _compare_configs(
+    baseline: ScalingArtifact, dut: ScalingArtifact
+) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
+    strict_warnings: list[str] = []
     base_cfg = baseline.data.get("sweep_config", {})
     dut_cfg = dut.data.get("sweep_config", {})
 
@@ -93,15 +96,20 @@ def _compare_configs(baseline: ScalingArtifact, dut: ScalingArtifact) -> list[st
         if key == "vec_backend" and (base_val is None or dut_val is None):
             continue
         if base_val != dut_val:
-            warnings.append(
-                f"Config mismatch for '{key}': baseline={base_val} dut={dut_val}"
-            )
+            message = f"Config mismatch for '{key}': baseline={base_val} dut={dut_val}"
+            warnings.append(message)
+            strict_warnings.append(message)
 
     base_envs = base_cfg.get("env_counts")
     dut_envs = dut_cfg.get("env_counts")
     if base_envs != dut_envs:
-        warnings.append(f"env_counts differ: baseline={base_envs} dut={dut_envs}")
-    return warnings
+        message = f"env_counts differ: baseline={base_envs} dut={dut_envs}"
+        warnings.append(message)
+        base_set = set(base_envs or [])
+        dut_set = set(dut_envs or [])
+        if not (base_set & dut_set):
+            strict_warnings.append(message)
+    return warnings, strict_warnings
 
 
 def _build_table(
@@ -168,7 +176,7 @@ def _render_summary(
     fmt: str,
     strict: bool,
 ) -> str:
-    warnings = _compare_configs(baseline, dut)
+    warnings, strict_warnings = _compare_configs(baseline, dut)
 
     base_cfg = baseline.data.get("sweep_config", {})
     dut_cfg = dut.data.get("sweep_config", {})
@@ -182,7 +190,7 @@ def _render_summary(
     if missing_dut:
         warnings.append(f"Missing DUT results for envs: {missing_dut}")
 
-    if strict and warnings:
+    if strict and strict_warnings:
         raise SystemExit("Config mismatch detected; rerun without --strict.")
 
     lines = []
