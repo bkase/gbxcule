@@ -7,16 +7,18 @@ from typing import Any
 import numpy as np
 
 from gbxcule.backends.common import (
-    NUM_ACTIONS,
+    DEFAULT_ACTION_CODEC_ID,
     ArraySpec,
     CpuState,
     Device,
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
+    action_codec_spec,
     as_i32_actions,
     empty_obs,
     flags_from_f,
+    resolve_action_codec,
 )
 
 
@@ -35,6 +37,9 @@ class StubBadBackend:
         self._rom_path = rom_path
         self._obs_dim = obs_dim
         self._step_count = 0
+        self._action_codec = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
+        self.action_codec = action_codec_spec(DEFAULT_ACTION_CODEC_ID)
+        self.num_actions = self._action_codec.num_actions
 
         self.action_spec = ArraySpec(
             shape=(self.num_envs,),
@@ -55,10 +60,10 @@ class StubBadBackend:
         self, actions: NDArrayI32
     ) -> tuple[NDArrayF32, NDArrayF32, NDArrayBool, NDArrayBool, dict[str, Any]]:
         actions = as_i32_actions(actions, self.num_envs)
-        invalid = (actions < 0) | (actions >= NUM_ACTIONS)
+        invalid = (actions < 0) | (actions >= self.num_actions)
         if np.any(invalid):
             bad = int(actions[invalid][0])
-            raise ValueError(f"Action {bad} out of range [0, {NUM_ACTIONS})")
+            raise ValueError(f"Action {bad} out of range [0, {self.num_actions})")
 
         self._step_count += 1
         obs = empty_obs(self.num_envs, self._obs_dim)

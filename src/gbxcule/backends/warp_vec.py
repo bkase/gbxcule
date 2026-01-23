@@ -8,16 +8,18 @@ from typing import Any
 import numpy as np
 
 from gbxcule.backends.common import (
-    NUM_ACTIONS,
+    DEFAULT_ACTION_CODEC_ID,
     ArraySpec,
     CpuState,
     Device,
     NDArrayBool,
     NDArrayF32,
     NDArrayI32,
+    action_codec_spec,
     as_i32_actions,
     empty_obs,
     flags_from_f,
+    resolve_action_codec,
 )
 from gbxcule.core.abi import MEM_SIZE
 from gbxcule.kernels.cpu_step import (
@@ -56,6 +58,9 @@ class WarpVecBaseBackend:
         self.device = device
         self._device_name = device_name
         self._sync_after_step = True
+        self._action_codec = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
+        self.action_codec = action_codec_spec(DEFAULT_ACTION_CODEC_ID)
+        self.num_actions = self._action_codec.num_actions
 
         self._wp = get_warp()
         self._device = self._wp.get_device(self._device_name)
@@ -193,10 +198,10 @@ class WarpVecBaseBackend:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
         actions = as_i32_actions(actions, self.num_envs)
-        invalid_mask = (actions < 0) | (actions >= NUM_ACTIONS)
+        invalid_mask = (actions < 0) | (actions >= self.num_actions)
         if np.any(invalid_mask):
             bad = int(actions[invalid_mask][0])
-            raise ValueError(f"Action {bad} out of range [0, {NUM_ACTIONS})")
+            raise ValueError(f"Action {bad} out of range [0, {self.num_actions})")
 
         if self._mem is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")

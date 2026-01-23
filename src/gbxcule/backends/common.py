@@ -17,6 +17,12 @@ from typing import Any, Literal, Protocol, TypedDict  # noqa: E402
 import numpy as np  # noqa: E402
 from numpy.typing import NDArray  # noqa: E402
 
+from gbxcule.core.action_codec import (  # noqa: E402
+    LEGACY_V0_ID,
+    ActionCodecDef,
+    get_action_codec,
+)
+
 # ---------------------------------------------------------------------------
 # Core literals and type aliases
 # ---------------------------------------------------------------------------
@@ -242,10 +248,52 @@ def get_pyboy_class() -> type:
 
 
 # ---------------------------------------------------------------------------
-# Action mapping constants
+# Action codec helpers + legacy mapping constants
 # ---------------------------------------------------------------------------
 
-# Canonical action indices used by all backends
+DEFAULT_ACTION_CODEC_ID = LEGACY_V0_ID
+
+
+@dataclass(frozen=True)
+class ActionCodecSpec:
+    """Serializable metadata for an action codec."""
+
+    id: str
+    name: str
+    version: str
+    num_actions: int
+    action_names: tuple[str, ...]
+
+    def to_json_dict(self) -> dict[str, Any]:
+        """Convert to a JSON-serializable dictionary."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "version": self.version,
+            "num_actions": self.num_actions,
+            "action_names": list(self.action_names),
+        }
+
+
+def resolve_action_codec(codec_id: str | None = None) -> ActionCodecDef:
+    """Resolve an action codec by id (defaults to legacy)."""
+    return get_action_codec(codec_id or DEFAULT_ACTION_CODEC_ID)
+
+
+def action_codec_spec(codec_id: str | None = None) -> ActionCodecSpec:
+    """Build ActionCodecSpec from a codec id."""
+    resolved_id = codec_id or DEFAULT_ACTION_CODEC_ID
+    codec = resolve_action_codec(resolved_id)
+    return ActionCodecSpec(
+        id=resolved_id,
+        name=codec.name,
+        version=codec.version,
+        num_actions=codec.num_actions,
+        action_names=codec.action_names,
+    )
+
+
+# Canonical legacy action indices (kept for compatibility)
 ACTION_NOOP = 0
 ACTION_UP = 1
 ACTION_DOWN = 2
@@ -256,19 +304,12 @@ ACTION_B = 6
 ACTION_START = 7
 ACTION_SELECT = 8
 
-NUM_ACTIONS = 9
+_LEGACY_CODEC = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
+NUM_ACTIONS = _LEGACY_CODEC.num_actions
 
-# Mapping from action index to PyBoy button name
+# Mapping from action index to PyBoy button name (legacy codec)
 ACTION_TO_BUTTON: dict[int, str | None] = {
-    ACTION_NOOP: None,
-    ACTION_UP: "up",
-    ACTION_DOWN: "down",
-    ACTION_LEFT: "left",
-    ACTION_RIGHT: "right",
-    ACTION_A: "a",
-    ACTION_B: "b",
-    ACTION_START: "start",
-    ACTION_SELECT: "select",
+    idx: _LEGACY_CODEC.to_pyboy_button(idx) for idx in range(NUM_ACTIONS)
 }
 
 
