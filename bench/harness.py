@@ -987,6 +987,108 @@ def resolve_sync_every(sync_every: int | None, device: str) -> int | None:
     return sync_every
 
 
+def load_suite(suite_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load a ROM suite YAML file and return defaults + ROM entries."""
+    import yaml
+
+    if not suite_path.exists():
+        raise FileNotFoundError(f"Suite file not found: {suite_path}")
+
+    with suite_path.open() as f:
+        suite = yaml.safe_load(f)
+
+    roms = suite.get("roms") if isinstance(suite, dict) else None
+    if not roms:
+        raise ValueError("Suite file has no ROMs defined")
+
+    defaults = suite.get("defaults", {}) if isinstance(suite, dict) else {}
+
+    validated: list[dict[str, Any]] = []
+    for entry in roms:
+        if not isinstance(entry, dict):
+            raise ValueError("Suite ROM entry must be a mapping")
+        if "path" not in entry:
+            raise ValueError("Suite ROM entry missing 'path'")
+        validated.append(entry)
+
+    return defaults, validated
+
+
+def resolve_suite_value(
+    entry: dict[str, Any],
+    defaults: dict[str, Any],
+    key: str,
+    fallback: Any,
+) -> Any:
+    """Resolve a value for a suite ROM entry with defaults and fallback."""
+    if key in entry:
+        return entry[key]
+    if key in defaults:
+        return defaults[key]
+    return fallback
+
+
+def run_suite_scaling_sweep(
+    args: argparse.Namespace,
+    suite_path: Path,
+    env_counts: list[int],
+    *,
+    defaults: dict[str, Any],
+    roms: list[dict[str, Any]],
+) -> int:
+    """Run scaling sweeps across all ROMs in a suite."""
+    output_root = Path(args.output_dir)
+    overall_rc = 0
+
+    print(f"Running suite scaling sweep: {suite_path}")
+    print(f"ROMs: {len(roms)}")
+    print()
+
+    for entry in roms:
+        rom_id = str(entry.get("id") or Path(entry["path"]).stem)
+        rom_path = suite_path.parent / str(entry["path"])
+
+        if not rom_path.exists():
+            print(f"Error: ROM file not found: {rom_path}", file=sys.stderr)
+            return 1
+
+        rom_args = argparse.Namespace(**vars(args))
+        rom_args.frames_per_step = int(
+            resolve_suite_value(
+                entry, defaults, "frames_per_step", args.frames_per_step
+            )
+        )
+        rom_args.release_after_frames = int(
+            resolve_suite_value(
+                entry, defaults, "release_after_frames", args.release_after_frames
+            )
+        )
+        rom_args.action_gen = resolve_suite_value(
+            entry, defaults, "action_gen", args.action_gen
+        )
+        rom_args.actions_seed = resolve_suite_value(
+            entry, defaults, "actions_seed", args.actions_seed
+        )
+        rom_args.output_dir = str(output_root / rom_id)
+
+        print(f"Suite ROM: {rom_id}")
+        print(
+            "  schedule: "
+            f"{rom_args.frames_per_step} frames/step, "
+            f"release_after_frames={rom_args.release_after_frames}"
+        )
+        if rom_args.action_gen != args.action_gen:
+            print(f"  action_gen override: {rom_args.action_gen}")
+        print(f"  output_dir: {rom_args.output_dir}")
+        print()
+
+        rc = run_scaling_sweep(rom_args, rom_path, env_counts)
+        if rc != 0:
+            overall_rc = rc
+
+    return overall_rc
+
+
 def run_scaling_sweep(
     args: argparse.Namespace,
     rom_path: Path,
@@ -1587,6 +1689,10 @@ def main(argv: list[str] | None = None) -> int:
     """Main entry point."""
     args = parse_args(argv)
 
+    suite_defaults: dict[str, Any] | None = None
+    suite_roms: list[dict[str, Any]] | None = None
+    suite_path: Path | None = None
+
     # Validate ROM path
     if args.rom:
         rom_path = Path(args.rom)
@@ -1594,24 +1700,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Error: ROM file not found: {rom_path}", file=sys.stderr)
             return 1
     elif args.suite:
-        # Suite support - for now just use the first ROM in the suite
-        import yaml
-
         suite_path = Path(args.suite)
-        if not suite_path.exists():
-            print(f"Error: Suite file not found: {suite_path}", file=sys.stderr)
+        try:
+            suite_defaults, suite_roms = load_suite(suite_path)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-        with open(suite_path) as f:
-            suite = yaml.safe_load(f)
-
-        if not suite.get("roms"):
-            print("Error: Suite file has no ROMs defined", file=sys.stderr)
-            return 1
-
-        # Use first ROM in suite
-        first_rom = suite["roms"][0]
-        rom_path = suite_path.parent / first_rom["path"]
+        # Use first ROM in suite for non-sweep modes
+        first_rom = suite_roms[0]
+        rom_path = suite_path.parent / str(first_rom["path"])
         if not rom_path.exists():
             print(f"Error: ROM file not found: {rom_path}", file=sys.stderr)
             return 1
@@ -1637,6 +1735,19 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as e:
             print(f"Error parsing --env-counts: {e}", file=sys.stderr)
             return 1
+
+        if (
+            suite_path is not None
+            and suite_defaults is not None
+            and suite_roms is not None
+        ):
+            return run_suite_scaling_sweep(
+                args,
+                suite_path,
+                env_counts,
+                defaults=suite_defaults,
+                roms=suite_roms,
+            )
 
         return run_scaling_sweep(args, rom_path, env_counts)
 
