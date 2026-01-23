@@ -242,6 +242,8 @@ def build_joy_diverge_persist() -> bytes:
     # --- Program ---
     label("outer")
     ld_hl_d16(0xFF00)
+    ld_a_d8(0x20)
+    ld_hl_a()
     ld_a_hl()
     and_d8(0x0F)
     ld_hl_d16(0xC100)

@@ -1,0 +1,77 @@
+"""JOY_DIVERGE_PERSIST verification and divergence tests."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from bench.harness import diff_states, hash_memory, normalize_cpu_state
+from bench.roms.build_micro_rom import build_joy_diverge_persist
+from gbxcule.backends.pyboy_single import PyBoySingleBackend
+from gbxcule.backends.warp_vec import WarpVecCpuBackend
+
+
+def _write_rom(tmp_path: pytest.TempPathFactory | pytest.TempPath) -> str:
+    rom_path = tmp_path / "JOY_DIVERGE_PERSIST.gb"
+    rom_path.write_bytes(build_joy_diverge_persist())
+    return str(rom_path)
+
+
+def test_verify_joy_diverge_persist_memory_and_state(
+    tmp_path: pytest.TempPath,
+) -> None:
+    rom_path = _write_rom(tmp_path)
+    ref = PyBoySingleBackend(
+        rom_path,
+        frames_per_step=24,
+        release_after_frames=8,
+        obs_dim=32,
+    )
+    dut = WarpVecCpuBackend(
+        rom_path,
+        frames_per_step=24,
+        release_after_frames=8,
+        obs_dim=32,
+    )
+    try:
+        ref.reset()
+        dut.reset()
+        actions_cycle = [1, 2, 3, 4]
+        for step_idx in range(16):
+            action = actions_cycle[step_idx % len(actions_cycle)]
+            actions = np.array([action], dtype=np.int32)
+            ref.step(actions)
+            dut.step(actions)
+            ref_state = normalize_cpu_state(ref.get_cpu_state(0))
+            dut_state = normalize_cpu_state(dut.get_cpu_state(0))
+            diff = diff_states(ref_state, dut_state)
+            assert diff is None, f"Mismatch at step {step_idx}: {diff}"
+            ref_mem = ref.read_memory(0, 0xC000, 0xC010)
+            dut_mem = dut.read_memory(0, 0xC000, 0xC010)
+            assert hash_memory(ref_mem) == hash_memory(dut_mem)
+    finally:
+        ref.close()
+        dut.close()
+
+
+def test_warp_vec_cpu_diverges_across_envs(tmp_path: pytest.TempPath) -> None:
+    rom_path = _write_rom(tmp_path)
+    backend = WarpVecCpuBackend(
+        rom_path,
+        num_envs=4,
+        frames_per_step=24,
+        release_after_frames=8,
+        obs_dim=32,
+    )
+    try:
+        backend.reset()
+        actions = np.array([1, 2, 3, 4], dtype=np.int32)
+        for _ in range(8):
+            backend.step(actions)
+        hashes = []
+        for env_idx in range(4):
+            mem = backend.read_memory(env_idx, 0xC000, 0xC010)
+            hashes.append(hash_memory(mem))
+        assert len(set(hashes)) > 1, "Expected divergence across envs"
+    finally:
+        backend.close()

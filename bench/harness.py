@@ -161,7 +161,7 @@ def generate_actions(
         step_idx: The current step index (0-based).
         num_envs: Number of environments to generate actions for.
         seed: Base seed for random generation. None means noop.
-        gen_name: Generator name ("noop" or "seeded_random").
+        gen_name: Generator name ("noop", "seeded_random", or "striped").
         num_actions: Number of available actions.
 
     Returns:
@@ -184,6 +184,12 @@ def generate_actions(
         step_seed = seed + step_idx
         rng = np.random.default_rng(step_seed)
         return rng.integers(0, num_actions, size=(num_envs,), dtype=np.int32)
+
+    if gen_name == "striped":
+        if num_actions < 5:
+            raise ValueError("striped generator requires at least 5 actions")
+        pattern = np.array([1, 2, 3, 4], dtype=np.int32)
+        return pattern[np.arange(num_envs) % len(pattern)].astype(np.int32)
 
     raise ValueError(f"Unknown action generator: {gen_name}")
 
@@ -531,7 +537,7 @@ def run_benchmark(
         backend: The backend to benchmark.
         steps: Number of steps to measure.
         warmup_steps: Number of warmup steps (not timed).
-        action_gen: Action generator name ("noop" or "seeded_random").
+        action_gen: Action generator name ("noop", "seeded_random", or "striped").
         actions_seed: Seed for action generation (required for seeded_random).
         frames_per_step: Frames per step (for FPS calculation).
         sync_every: Sync interval for CUDA benchmarks (0 = end only).
@@ -812,7 +818,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--action-gen",
-        choices=["noop", "seeded_random"],
+        choices=["noop", "seeded_random", "striped"],
         default="noop",
         help="Action generator type",
     )
