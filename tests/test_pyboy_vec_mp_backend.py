@@ -13,7 +13,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from gbxcule.backends import ACTION_NOOP, ACTION_UP
 from gbxcule.backends.pyboy_vec_mp import PyBoyMpConfig, PyBoyVecMpBackend
 
 from .conftest import ROM_PATH, BackendComplianceTests
@@ -145,7 +144,11 @@ class TestPyBoyVecMpSpecific:
             backend.reset(seed=123)
 
             for _ in range(4):
-                actions = np.array([ACTION_NOOP, ACTION_UP, 5, 7], dtype=np.int32)
+                max_action = max(0, backend.num_actions - 1)
+                actions = np.array(
+                    [0, min(1, max_action), min(2, max_action), max_action],
+                    dtype=np.int32,
+                )
                 obs, _, _, _, _ = backend.step(actions)
                 assert obs.shape == (4, 32)
         finally:
