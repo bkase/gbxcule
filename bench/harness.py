@@ -1103,6 +1103,16 @@ def resolve_suite_value(
     return fallback
 
 
+def resolve_suite_rom_path(suite_path: Path, path_str: str) -> Path:
+    """Resolve a suite ROM path relative to CWD or suite directory."""
+    candidate = Path(path_str)
+    if candidate.is_absolute():
+        return candidate
+    if candidate.exists():
+        return candidate
+    return suite_path.parent / candidate
+
+
 def run_suite_scaling_sweep(
     args: argparse.Namespace,
     suite_path: Path,
@@ -1121,7 +1131,7 @@ def run_suite_scaling_sweep(
 
     for entry in roms:
         rom_id = str(entry.get("id") or Path(entry["path"]).stem)
-        rom_path = suite_path.parent / str(entry["path"])
+        rom_path = resolve_suite_rom_path(suite_path, str(entry["path"]))
 
         if not rom_path.exists():
             print(f"Error: ROM file not found: {rom_path}", file=sys.stderr)
@@ -1794,7 +1804,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Use first ROM in suite for non-sweep modes
         first_rom = suite_roms[0]
-        rom_path = suite_path.parent / str(first_rom["path"])
+        rom_path = resolve_suite_rom_path(suite_path, str(first_rom["path"]))
         if not rom_path.exists():
             print(f"Error: ROM file not found: {rom_path}", file=sys.stderr)
             return 1

@@ -22,6 +22,7 @@ def test_puffer_vec_serial_smoke() -> None:
         str(ROM_PATH),
         num_envs=1,
         frames_per_step=1,
+        release_after_frames=1,
         vec_backend="puffer_serial",
     )
     try:

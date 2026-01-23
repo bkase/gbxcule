@@ -138,6 +138,8 @@ class PyBoyPufferVecBackend:
         self._vecenv = puffer_vector.make(env_creator, **kwargs)
 
     def reset(self, seed: int | None = None) -> tuple[NDArrayF32, dict[str, Any]]:
+        if seed is None:
+            seed = 0
         obs, info = self._vecenv.reset(seed=seed)
         return obs, info if isinstance(info, dict) else {}
 

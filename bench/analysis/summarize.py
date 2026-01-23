@@ -88,10 +88,13 @@ def _compare_configs(baseline: ScalingArtifact, dut: ScalingArtifact) -> list[st
         "sync_every",
     ]
     for key in keys:
-        if base_cfg.get(key) != dut_cfg.get(key):
+        base_val = base_cfg.get(key)
+        dut_val = dut_cfg.get(key)
+        if key == "vec_backend" and (base_val is None or dut_val is None):
+            continue
+        if base_val != dut_val:
             warnings.append(
-                f"Config mismatch for '{key}': baseline={base_cfg.get(key)} "
-                f"dut={dut_cfg.get(key)}"
+                f"Config mismatch for '{key}': baseline={base_val} dut={dut_val}"
             )
 
     base_envs = base_cfg.get("env_counts")

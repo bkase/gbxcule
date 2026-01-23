@@ -28,6 +28,9 @@ dev = [
 ]
 puffer = [
     "pufferlib @ git+https://github.com/thatguy11325/PufferLib.git@1.0",
+    "gymnasium",
+    "psutil",
+    "filelock",
 ]
 
 [tool.uv]
