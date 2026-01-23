@@ -42,6 +42,8 @@ def register_backends() -> None:
     if BACKEND_REGISTRY:
         return  # Already registered
 
+    from gbxcule.backends.pyboy_puffer_single import PyBoyPufferSingleBackend
+    from gbxcule.backends.pyboy_puffer_vec import PyBoyPufferVecBackend
     from gbxcule.backends.pyboy_single import PyBoySingleBackend
     from gbxcule.backends.pyboy_vec_mp import PyBoyVecMpBackend
     from gbxcule.backends.stub_bad import StubBadBackend
@@ -52,6 +54,8 @@ def register_backends() -> None:
     )
 
     BACKEND_REGISTRY["pyboy_single"] = PyBoySingleBackend
+    BACKEND_REGISTRY["pyboy_puffer_single"] = PyBoyPufferSingleBackend
+    BACKEND_REGISTRY["pyboy_puffer_vec"] = PyBoyPufferVecBackend
     BACKEND_REGISTRY["pyboy_vec_mp"] = PyBoyVecMpBackend
     BACKEND_REGISTRY["stub_bad"] = StubBadBackend
     BACKEND_REGISTRY["warp_vec_cpu"] = WarpVecCpuBackend
@@ -71,6 +75,7 @@ def create_backend(
     obs_dim: int = 32,
     base_seed: int | None = None,
     action_codec: str = DEFAULT_ACTION_CODEC_ID,
+    puffer_vec_backend: str = "puffer_mp_sync",
 ) -> VecBackend:
     """Create a backend instance by name.
 
@@ -101,13 +106,24 @@ def create_backend(
 
     backend_cls = BACKEND_REGISTRY[name]
 
-    if name == "pyboy_single":
+    if name == "pyboy_single" or name == "pyboy_puffer_single":
         return backend_cls(
             rom_path,
             frames_per_step=frames_per_step,
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
             action_codec=action_codec,
+        )
+    elif name == "pyboy_puffer_vec":
+        return backend_cls(
+            rom_path,
+            num_envs=num_envs,
+            num_workers=num_workers,
+            frames_per_step=frames_per_step,
+            release_after_frames=release_after_frames,
+            obs_dim=obs_dim,
+            action_codec=action_codec,
+            vec_backend=puffer_vec_backend,
         )
     elif name == "pyboy_vec_mp":
         return backend_cls(
@@ -220,6 +236,18 @@ def get_action_codec_metadata(codec_id: str) -> dict[str, Any]:
         "version": codec.version,
         "num_actions": codec.num_actions,
         "action_names": list(codec.action_names),
+    }
+
+
+def get_action_schedule_metadata(
+    frames_per_step: int, release_after_frames: int
+) -> dict[str, Any]:
+    """Get metadata for action press/release schedule."""
+    tick_split = [max(frames_per_step - 1, 0), 1 if frames_per_step > 0 else 0]
+    return {
+        "frames_per_step": frames_per_step,
+        "release_after_frames": release_after_frames,
+        "tick_split": tick_split,
     }
 
 
@@ -391,6 +419,10 @@ def get_system_info() -> dict[str, Any]:
         "gpu_names": [],
         "driver_version": None,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "pufferlib": None,
+        "pufferlib_dist_name": None,
+        "pufferlib_dist_version": None,
+        "pufferlib_direct_url": None,
         "warp_dist_name": None,
         "warp_dist_version": None,
         "warp_direct_url": None,
@@ -412,6 +444,14 @@ def get_system_info() -> dict[str, Any]:
         info["warp"] = warp.__version__
     except (ImportError, AttributeError):
         info["warp"] = None
+
+    # Try to get PufferLib version
+    try:
+        import pufferlib
+
+        info["pufferlib"] = pufferlib.__version__
+    except (ImportError, AttributeError):
+        info["pufferlib"] = None
 
     # Try to get Warp distribution + provenance (PEP 610 direct_url.json)
     try:
@@ -448,6 +488,38 @@ def get_system_info() -> dict[str, Any]:
                 if isinstance(direct_url, str) and direct_url.strip():
                     info["warp_direct_url"] = direct_url
                     info["warp_wheel_source"] = "pep610"
+    except Exception:
+        # Best-effort only; don't fail artifact writing.
+        pass
+
+    # Try to get PufferLib distribution + provenance (PEP 610 direct_url.json)
+    try:
+        from importlib import metadata as importlib_metadata
+
+        puffer_dist = None
+        try:
+            puffer_dist = importlib_metadata.distribution("pufferlib")
+        except importlib_metadata.PackageNotFoundError:
+            puffer_dist = None
+
+        if puffer_dist is not None:
+            info["pufferlib_dist_name"] = puffer_dist.metadata.get("Name") or None
+            info["pufferlib_dist_version"] = puffer_dist.version
+
+            direct_url_path = None
+            for file in puffer_dist.files or []:
+                if str(file).endswith("direct_url.json"):
+                    direct_url_path = puffer_dist.locate_file(file)
+                    break
+
+            if direct_url_path is not None:
+                try:
+                    direct_url_json = json.loads(Path(direct_url_path).read_text())
+                    direct_url = direct_url_json.get("url")
+                except Exception:
+                    direct_url = None
+                if isinstance(direct_url, str) and direct_url.strip():
+                    info["pufferlib_direct_url"] = direct_url
     except Exception:
         # Best-effort only; don't fail artifact writing.
         pass
@@ -739,6 +811,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--backend",
         choices=[
             "pyboy_single",
+            "pyboy_puffer_single",
+            "pyboy_puffer_vec",
             "pyboy_vec_mp",
             "warp_vec",
             "warp_vec_cpu",
@@ -794,7 +868,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--num-workers",
         type=int,
         default=None,
-        help="Number of workers for MP backend (defaults to num_envs)",
+        help=(
+            "Number of workers for MP backends (defaults to num_envs or "
+            "a divisor for puffer vec)"
+        ),
+    )
+    parser.add_argument(
+        "--puffer-vec-backend",
+        choices=["puffer_mp_sync", "puffer_serial"],
+        default="puffer_mp_sync",
+        help="PufferLib vectorization backend",
     )
     parser.add_argument(
         "--frames-per-step",
@@ -837,7 +920,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ref-backend",
-        choices=["pyboy_single", "pyboy_vec_mp"],
+        choices=["pyboy_single", "pyboy_puffer_single", "pyboy_vec_mp"],
         default="pyboy_single",
         help="Reference backend for verification",
     )
@@ -845,6 +928,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dut-backend",
         choices=[
             "pyboy_single",
+            "pyboy_puffer_single",
             "pyboy_vec_mp",
             "stub_bad",
             "warp_vec",
@@ -925,6 +1009,9 @@ def run_scaling_sweep(
     # Use seed for seeded_random generator, None for noop
     effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
     action_codec_meta = get_action_codec_metadata(args.action_codec)
+    action_schedule_meta = get_action_schedule_metadata(
+        args.frames_per_step, args.release_after_frames
+    )
 
     # Build sweep config (shared across all runs)
     sweep_config = {
@@ -934,10 +1021,16 @@ def run_scaling_sweep(
         "stage": args.stage,
         "env_counts": env_counts,
         "num_workers_cap": (
-            args.num_workers if args.backend == "pyboy_vec_mp" else None
+            args.num_workers
+            if args.backend in {"pyboy_vec_mp", "pyboy_puffer_vec"}
+            else None
+        ),
+        "vec_backend": (
+            args.puffer_vec_backend if args.backend == "pyboy_puffer_vec" else None
         ),
         "frames_per_step": args.frames_per_step,
         "release_after_frames": args.release_after_frames,
+        "action_schedule": action_schedule_meta,
         "steps": args.steps,
         "warmup_steps": args.warmup_steps,
         "action_generator": get_action_gen_metadata(args.action_gen, effective_seed),
@@ -953,9 +1046,9 @@ def run_scaling_sweep(
     print()
 
     for num_envs in env_counts:
-        # pyboy_single only supports 1 env
-        if args.backend == "pyboy_single" and num_envs != 1:
-            print(f"  Skipping num_envs={num_envs} (pyboy_single only supports 1)")
+        # Single-env backends only support 1 env
+        if args.backend in {"pyboy_single", "pyboy_puffer_single"} and num_envs != 1:
+            print(f"  Skipping num_envs={num_envs} ({args.backend} only supports 1)")
             continue
 
         try:
@@ -975,6 +1068,7 @@ def run_scaling_sweep(
                 stage=args.stage,
                 base_seed=args.actions_seed,
                 action_codec=args.action_codec,
+                puffer_vec_backend=args.puffer_vec_backend,
             )
         except Exception as e:
             print(f"  Error creating backend for num_envs={num_envs}: {e}")
@@ -1004,6 +1098,12 @@ def run_scaling_sweep(
                 else None,
                 **results,
             }
+            vec_backend = getattr(backend, "vec_backend", None)
+            if vec_backend is not None:
+                entry["vec_backend"] = vec_backend
+            num_workers_actual = getattr(backend, "num_workers", None)
+            if num_workers_actual is not None:
+                entry["num_workers"] = num_workers_actual
             results_list.append(entry)
 
             print(f"  num_envs={num_envs}: {results['total_sps']:.1f} SPS")
@@ -1570,6 +1670,7 @@ def main(argv: list[str] | None = None) -> int:
             stage=args.stage,
             base_seed=args.actions_seed,
             action_codec=args.action_codec,
+            puffer_vec_backend=args.puffer_vec_backend,
         )
     except Exception as e:
         print(f"Error creating backend: {e}", file=sys.stderr)
@@ -1580,6 +1681,9 @@ def main(argv: list[str] | None = None) -> int:
         # Collect system info
         system_info = get_system_info()
         action_codec_meta = get_action_codec_metadata(args.action_codec)
+        action_schedule_meta = get_action_schedule_metadata(
+            args.frames_per_step, args.release_after_frames
+        )
 
         # Build config
         rom_sha256 = compute_rom_sha256(str(rom_path))
@@ -1594,9 +1698,11 @@ def main(argv: list[str] | None = None) -> int:
             "rom_sha256": rom_sha256,
             "stage": args.stage,
             "num_envs": backend.num_envs,
-            "num_workers": args.num_workers,
+            "num_workers": getattr(backend, "num_workers", args.num_workers),
+            "vec_backend": getattr(backend, "vec_backend", None),
             "frames_per_step": args.frames_per_step,
             "release_after_frames": args.release_after_frames,
+            "action_schedule": action_schedule_meta,
             "steps": args.steps,
             "warmup_steps": args.warmup_steps,
             "action_generator": get_action_gen_metadata(
