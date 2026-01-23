@@ -29,7 +29,8 @@ M3_RELEASE_AFTER_FRAMES ?= 1
 GPU_SMOKE_VERIFY_STEPS ?= 64
 
 # E4 scaling defaults
-E4_ENV_COUNTS ?= 1,8,64,512,2048,8192
+E4_BASELINE_ENV_COUNTS ?= 1,8,64,128
+E4_DUT_ENV_COUNTS ?= 1,8,64,512,2048,8192
 E4_STEPS ?= 200
 E4_WARMUP_STEPS ?= 10
 E4_SYNC_EVERY ?= 64
@@ -152,8 +153,8 @@ bench-e4-cpu: roms ensure-puffer ## E4 scaling sweep (CPU baseline vs warp_vec_c
 	report_dir="$(RUNS_OUT)/reports/$$(date -u +%Y%m%d_%H%M%S)_e4_cpu"; \
 	mkdir -p "$$report_dir"; \
 	echo "Report dir: $$report_dir"; \
-	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
-	$(PY) bench/harness.py --backend $(E4_DUT_CPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
+	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_BASELINE_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
+	$(PY) bench/harness.py --backend $(E4_DUT_CPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_BASELINE_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
 	rom_ids="$$(SUITE_PATH="$(E4_SUITE)" $(PY) -c 'import os,yaml; from pathlib import Path; suite=yaml.safe_load(Path(os.environ["SUITE_PATH"]).read_text()); roms=suite.get("roms", []) if isinstance(suite, dict) else []; ids=[rom.get("id") or Path(rom["path"]).stem for rom in roms]; print(" ".join(ids))')"; \
 	for rom_id in $$rom_ids; do \
 		$(PY) bench/analysis/summarize.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/summary.md" --strict; \
@@ -167,8 +168,8 @@ bench-e4-gpu: roms ensure-puffer ## E4 scaling sweep (DGX/CUDA; puffer baseline 
 	report_dir="$(RUNS_OUT)/reports/$$(date -u +%Y%m%d_%H%M%S)_e4_gpu"; \
 	mkdir -p "$$report_dir"; \
 	echo "Report dir: $$report_dir"; \
-	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
-	$(PY) bench/harness.py --backend $(E4_DUT_GPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
+	$(PY) bench/harness.py --backend $(E4_BASELINE_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_BASELINE_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC) --puffer-vec-backend $(E4_PUFFER_VEC_BACKEND); \
+	$(PY) bench/harness.py --backend $(E4_DUT_GPU_BACKEND) --suite $(E4_SUITE) --env-counts $(E4_DUT_ENV_COUNTS) --steps $(E4_STEPS) --warmup-steps $(E4_WARMUP_STEPS) --frames-per-step $(E4_FRAMES_PER_STEP) --release-after-frames $(E4_RELEASE_AFTER_FRAMES) --stage $(E4_STAGE) --sync-every $(E4_SYNC_EVERY) --output-dir "$$report_dir" --action-gen $(E4_ACTION_GEN) --actions-seed $(E4_ACTIONS_SEED) --action-codec $(E4_ACTION_CODEC); \
 	rom_ids="$$(SUITE_PATH="$(E4_SUITE)" $(PY) -c 'import os,yaml; from pathlib import Path; suite=yaml.safe_load(Path(os.environ["SUITE_PATH"]).read_text()); roms=suite.get("roms", []) if isinstance(suite, dict) else []; ids=[rom.get("id") or Path(rom["path"]).stem for rom in roms]; print(" ".join(ids))')"; \
 	for rom_id in $$rom_ids; do \
 		$(PY) bench/analysis/summarize.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/summary.md" --strict; \

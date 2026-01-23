@@ -167,7 +167,8 @@ bench/runs/reports/<timestamp>_e4_gpu/<ROM_ID>/
 Key overrides (all optional):
 
 ```bash
-E4_ENV_COUNTS=1,8,64,512,2048,8192 \
+E4_BASELINE_ENV_COUNTS=1,8,64,128 \
+E4_DUT_ENV_COUNTS=1,8,64,512,2048,8192 \
 E4_STEPS=200 \
 E4_WARMUP_STEPS=10 \
 E4_SYNC_EVERY=64 \
