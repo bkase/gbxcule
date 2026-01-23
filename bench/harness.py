@@ -25,6 +25,9 @@ import numpy as np
 if TYPE_CHECKING:
     from gbxcule.backends.common import VecBackend
 
+from gbxcule.backends.common import DEFAULT_ACTION_CODEC_ID
+from gbxcule.core.action_codec import get_action_codec, list_action_codecs
+
 # ---------------------------------------------------------------------------
 # Backend Registry
 # ---------------------------------------------------------------------------
@@ -66,6 +69,7 @@ def create_backend(
     release_after_frames: int = 8,
     obs_dim: int = 32,
     base_seed: int | None = None,
+    action_codec: str = DEFAULT_ACTION_CODEC_ID,
 ) -> VecBackend:
     """Create a backend instance by name.
 
@@ -78,6 +82,7 @@ def create_backend(
         release_after_frames: Frames before button release.
         obs_dim: Observation dimension.
         base_seed: Optional base seed.
+        action_codec: Action codec id.
 
     Returns:
         Configured backend instance.
@@ -100,6 +105,7 @@ def create_backend(
             frames_per_step=frames_per_step,
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
+            action_codec=action_codec,
         )
     elif name == "pyboy_vec_mp":
         return backend_cls(
@@ -110,7 +116,10 @@ def create_backend(
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
             base_seed=base_seed,
+            action_codec=action_codec,
         )
+    elif name == "stub_bad":
+        return backend_cls(rom_path, obs_dim=obs_dim, action_codec=action_codec)
     elif name in {"warp_vec", "warp_vec_cpu", "warp_vec_cuda"}:
         return backend_cls(
             rom_path,
@@ -119,6 +128,7 @@ def create_backend(
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
             base_seed=base_seed,
+            action_codec=action_codec,
         )
     else:
         # Generic fallback
@@ -138,6 +148,7 @@ def generate_actions(
     num_envs: int,
     seed: int | None,
     gen_name: str,
+    num_actions: int,
 ) -> np.ndarray:
     """Generate actions for a single step (pure function).
 
@@ -148,6 +159,7 @@ def generate_actions(
         num_envs: Number of environments to generate actions for.
         seed: Base seed for random generation. None means noop.
         gen_name: Generator name ("noop" or "seeded_random").
+        num_actions: Number of available actions.
 
     Returns:
         int32 array of shape (num_envs,) with action indices.
@@ -155,6 +167,9 @@ def generate_actions(
     Raises:
         ValueError: If gen_name is unknown.
     """
+    if num_actions < 1:
+        raise ValueError("num_actions must be >= 1")
+
     if gen_name == "noop":
         return np.zeros((num_envs,), dtype=np.int32)
 
@@ -165,7 +180,7 @@ def generate_actions(
         # Using step_idx in the seed ensures different actions per step
         step_seed = seed + step_idx
         rng = np.random.default_rng(step_seed)
-        return rng.integers(0, 9, size=(num_envs,), dtype=np.int32)
+        return rng.integers(0, num_actions, size=(num_envs,), dtype=np.int32)
 
     raise ValueError(f"Unknown action generator: {gen_name}")
 
@@ -184,6 +199,18 @@ def get_action_gen_metadata(gen_name: str, seed: int | None) -> dict[str, Any]:
         "name": gen_name,
         "version": ACTION_GEN_VERSION,
         "seed": seed,
+    }
+
+
+def get_action_codec_metadata(codec_id: str) -> dict[str, Any]:
+    """Get metadata for action codec (for artifact recording)."""
+    codec = get_action_codec(codec_id)
+    return {
+        "id": codec_id,
+        "name": codec.name,
+        "version": codec.version,
+        "num_actions": codec.num_actions,
+        "action_names": list(codec.action_names),
     }
 
 
@@ -493,6 +520,7 @@ def run_benchmark(
     actions_seed: int | None,
     frames_per_step: int,
     sync_every: int | None,
+    num_actions: int,
 ) -> dict[str, Any]:
     """Run a benchmark and return results.
 
@@ -504,6 +532,7 @@ def run_benchmark(
         actions_seed: Seed for action generation (required for seeded_random).
         frames_per_step: Frames per step (for FPS calculation).
         sync_every: Sync interval for CUDA benchmarks (0 = end only).
+        num_actions: Number of available actions.
 
     Returns:
         Dictionary with benchmark results.
@@ -520,6 +549,7 @@ def run_benchmark(
             num_envs=num_envs,
             seed=actions_seed,
             gen_name=action_gen,
+            num_actions=num_actions,
         )
         backend.step(actions)
 
@@ -534,6 +564,7 @@ def run_benchmark(
             num_envs=num_envs,
             seed=actions_seed,
             gen_name=action_gen,
+            num_actions=num_actions,
         )
         backend.step(actions)
         if sync_every is not None and sync_every > 0 and (i + 1) % sync_every == 0:
@@ -782,6 +813,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="noop",
         help="Action generator type",
     )
+    parser.add_argument(
+        "--action-codec",
+        choices=list_action_codecs(),
+        default=DEFAULT_ACTION_CODEC_ID,
+        help="Action codec id",
+    )
 
     # Verify mode configuration
     parser.add_argument(
@@ -878,6 +915,7 @@ def run_scaling_sweep(
 
     # Use seed for seeded_random generator, None for noop
     effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
+    action_codec_meta = get_action_codec_metadata(args.action_codec)
 
     # Build sweep config (shared across all runs)
     sweep_config = {
@@ -894,6 +932,7 @@ def run_scaling_sweep(
         "steps": args.steps,
         "warmup_steps": args.warmup_steps,
         "action_generator": get_action_gen_metadata(args.action_gen, effective_seed),
+        "action_codec": action_codec_meta,
         "sync_every": None,
     }
 
@@ -925,6 +964,7 @@ def run_scaling_sweep(
                 frames_per_step=args.frames_per_step,
                 release_after_frames=args.release_after_frames,
                 base_seed=args.actions_seed,
+                action_codec=args.action_codec,
             )
         except Exception as e:
             print(f"  Error creating backend for num_envs={num_envs}: {e}")
@@ -942,6 +982,7 @@ def run_scaling_sweep(
                 actions_seed=effective_seed,
                 frames_per_step=args.frames_per_step,
                 sync_every=args.sync_every,
+                num_actions=action_codec_meta["num_actions"],
             )
 
             # Add entry with env_count + results
@@ -1039,6 +1080,7 @@ def write_mismatch_bundle(
     ref_state: dict[str, Any],
     dut_state: dict[str, Any],
     diff: dict[str, Any],
+    action_codec: dict[str, Any],
     mem_regions: list[tuple[int, int]] | None = None,
     mem_hash_version: str | None = None,
     mem_dumps: list[tuple[int, int, bytes, bytes]] | None = None,
@@ -1068,6 +1110,7 @@ def write_mismatch_bundle(
         ref_state: Normalized reference CPU state.
         dut_state: Normalized DUT CPU state.
         diff: State difference dictionary.
+        action_codec: Action codec metadata dict.
         mem_regions: Optional list of memory regions (lo, hi).
         mem_hash_version: Hash version label for memory hashing.
         mem_dumps: Optional list of memory dumps (lo, hi, ref_bytes, dut_bytes).
@@ -1124,6 +1167,7 @@ def write_mismatch_bundle(
                 "version": ACTION_GEN_VERSION,
                 "seed": action_gen_seed,
             },
+            "action_codec": action_codec,
             "system": system_info,
         }
         if mem_regions:
@@ -1184,6 +1228,7 @@ uv run python bench/harness.py \\
     --compare-every {compare_every} \\
     --frames-per-step {frames_per_step} \\
     --release-after-frames {release_after_frames} \\
+    --action-codec {action_codec["id"]} \\
 {mem_region_lines}    --actions-file "$(dirname "$0")/actions.jsonl"
 """
         repro_path = temp_dir / "repro.sh"
@@ -1259,6 +1304,7 @@ def run_verify(
 
     # Use seed for seeded_random generator, None for noop
     effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
+    action_codec_meta = get_action_codec_metadata(args.action_codec)
 
     # Create ref backend
     try:
@@ -1269,6 +1315,7 @@ def run_verify(
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
             base_seed=effective_seed,
+            action_codec=args.action_codec,
         )
     except Exception as e:
         print(f"Error creating ref backend: {e}", file=sys.stderr)
@@ -1283,6 +1330,7 @@ def run_verify(
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
             base_seed=effective_seed,
+            action_codec=args.action_codec,
         )
     except Exception as e:
         ref_backend.close()
@@ -1323,6 +1371,7 @@ def run_verify(
                     num_envs=1,
                     seed=effective_seed,
                     gen_name=args.action_gen,
+                    num_actions=action_codec_meta["num_actions"],
                 )
 
             # Record actions
@@ -1395,6 +1444,7 @@ def run_verify(
                         ref_state=ref_state,
                         dut_state=dut_state,
                         diff=diff,
+                        action_codec=action_codec_meta,
                         mem_regions=mem_regions if mem_regions else None,
                         mem_hash_version=MEM_HASH_VERSION if mem_regions else None,
                         mem_dumps=mem_dumps if mem_dumps else None,
@@ -1506,6 +1556,7 @@ def main(argv: list[str] | None = None) -> int:
             frames_per_step=args.frames_per_step,
             release_after_frames=args.release_after_frames,
             base_seed=args.actions_seed,
+            action_codec=args.action_codec,
         )
     except Exception as e:
         print(f"Error creating backend: {e}", file=sys.stderr)
@@ -1515,6 +1566,7 @@ def main(argv: list[str] | None = None) -> int:
         args.sync_every = resolve_sync_every(args.sync_every, backend.device)
         # Collect system info
         system_info = get_system_info()
+        action_codec_meta = get_action_codec_metadata(args.action_codec)
 
         # Build config
         rom_sha256 = compute_rom_sha256(str(rom_path))
@@ -1537,6 +1589,7 @@ def main(argv: list[str] | None = None) -> int:
             "action_generator": get_action_gen_metadata(
                 args.action_gen, effective_seed
             ),
+            "action_codec": action_codec_meta,
             "sync_every": args.sync_every,
         }
 
@@ -1549,6 +1602,7 @@ def main(argv: list[str] | None = None) -> int:
             actions_seed=effective_seed,
             frames_per_step=args.frames_per_step,
             sync_every=args.sync_every,
+            num_actions=action_codec_meta["num_actions"],
         )
 
         # Generate run ID

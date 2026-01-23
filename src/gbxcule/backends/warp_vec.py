@@ -46,6 +46,7 @@ class WarpVecBaseBackend:
         base_seed: int | None = None,
         device: Device,
         device_name: str,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
     ) -> None:
         """Initialize the warp_vec backend."""
         self.num_envs = num_envs
@@ -58,8 +59,8 @@ class WarpVecBaseBackend:
         self.device = device
         self._device_name = device_name
         self._sync_after_step = True
-        self._action_codec = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
-        self.action_codec = action_codec_spec(DEFAULT_ACTION_CODEC_ID)
+        self._action_codec = resolve_action_codec(action_codec)
+        self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
 
         self._wp = get_warp()
@@ -85,7 +86,7 @@ class WarpVecBaseBackend:
         self.action_spec = ArraySpec(
             shape=(num_envs,),
             dtype="int32",
-            meaning="Action index per environment",
+            meaning=f"action index [0, {self.num_actions})",
         )
         self.obs_spec = ArraySpec(
             shape=(num_envs, obs_dim),
@@ -335,6 +336,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         release_after_frames: int = 8,
         obs_dim: int = 32,
         base_seed: int | None = None,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
     ) -> None:
         super().__init__(
             rom_path,
@@ -345,6 +347,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             base_seed=base_seed,
             device="cpu",
             device_name="cpu",
+            action_codec=action_codec,
         )
 
 
@@ -362,6 +365,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         release_after_frames: int = 8,
         obs_dim: int = 32,
         base_seed: int | None = None,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
     ) -> None:
         super().__init__(
             rom_path,
@@ -372,6 +376,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             base_seed=base_seed,
             device="cuda",
             device_name="cuda:0",
+            action_codec=action_codec,
         )
         self._sync_after_step = False
         self._mem_readback = None

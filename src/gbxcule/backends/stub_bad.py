@@ -33,12 +33,18 @@ class StubBadBackend:
     device: Device = "cpu"
     num_envs: int = 1
 
-    def __init__(self, rom_path: str, *, obs_dim: int = 32) -> None:
+    def __init__(
+        self,
+        rom_path: str,
+        *,
+        obs_dim: int = 32,
+        action_codec: str = DEFAULT_ACTION_CODEC_ID,
+    ) -> None:
         self._rom_path = rom_path
         self._obs_dim = obs_dim
         self._step_count = 0
-        self._action_codec = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
-        self.action_codec = action_codec_spec(DEFAULT_ACTION_CODEC_ID)
+        self._action_codec = resolve_action_codec(action_codec)
+        self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
 
         self.action_spec = ArraySpec(

@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "bench"))
 from harness import (  # noqa: E402
     ACTION_GEN_VERSION,
     generate_actions,
+    get_action_codec_metadata,
     get_action_gen_metadata,
     run_benchmark,
     write_artifact,
@@ -33,6 +34,9 @@ from harness import (  # noqa: E402
 )
 
 from gbxcule.backends.common import ArraySpec, CpuState, Device
+from gbxcule.core.action_codec import LEGACY_V0_ID, get_action_codec
+
+LEGACY_NUM_ACTIONS = get_action_codec(LEGACY_V0_ID).num_actions
 
 # ---------------------------------------------------------------------------
 # Fake Backend for testing
@@ -109,6 +113,7 @@ class TestGenerateActions:
             num_envs=4,
             seed=None,
             gen_name="noop",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         assert actions.shape == (4,)
         assert actions.dtype == np.int32
@@ -121,12 +126,14 @@ class TestGenerateActions:
             num_envs=4,
             seed=42,
             gen_name="noop",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         actions2 = generate_actions(
             step_idx=0,
             num_envs=4,
             seed=99,
             gen_name="noop",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         np.testing.assert_array_equal(actions1, actions2)
 
@@ -137,12 +144,14 @@ class TestGenerateActions:
             num_envs=8,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         actions2 = generate_actions(
             step_idx=5,
             num_envs=8,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         np.testing.assert_array_equal(actions1, actions2)
 
@@ -153,12 +162,14 @@ class TestGenerateActions:
             num_envs=4,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         actions2 = generate_actions(
             step_idx=1,
             num_envs=4,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         # Should be different (extremely high probability)
         assert not np.array_equal(actions1, actions2)
@@ -170,12 +181,14 @@ class TestGenerateActions:
             num_envs=4,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         actions2 = generate_actions(
             step_idx=0,
             num_envs=4,
             seed=99,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         # Should be different (extremely high probability)
         assert not np.array_equal(actions1, actions2)
@@ -188,6 +201,7 @@ class TestGenerateActions:
                 num_envs=4,
                 seed=None,
                 gen_name="seeded_random",
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
     def test_seeded_random_action_range(self) -> None:
@@ -197,9 +211,10 @@ class TestGenerateActions:
             num_envs=100,
             seed=42,
             gen_name="seeded_random",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         assert np.all(actions >= 0)
-        assert np.all(actions < 9)
+        assert np.all(actions < LEGACY_NUM_ACTIONS)
 
     def test_unknown_generator_raises(self) -> None:
         """Unknown generator name raises ValueError."""
@@ -209,6 +224,7 @@ class TestGenerateActions:
                 num_envs=4,
                 seed=42,
                 gen_name="unknown_gen",
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
     def test_single_env_batch_semantics(self) -> None:
@@ -218,6 +234,7 @@ class TestGenerateActions:
             num_envs=1,
             seed=42,
             gen_name="noop",
+            num_actions=LEGACY_NUM_ACTIONS,
         )
         assert actions.shape == (1,)
         assert actions.dtype == np.int32
@@ -268,6 +285,7 @@ class TestSPSMath:
                 actions_seed=None,
                 frames_per_step=24,
                 sync_every=None,
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
         # total_env_steps = 10 * 4 = 40
@@ -288,6 +306,7 @@ class TestSPSMath:
                 actions_seed=None,
                 frames_per_step=24,
                 sync_every=None,
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
         # per_env_sps = 10 / 2.0 = 5.0
@@ -306,6 +325,7 @@ class TestSPSMath:
                 actions_seed=None,
                 frames_per_step=24,
                 sync_every=None,
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
         # total_sps = 20 / 1.0 = 20.0
@@ -325,6 +345,7 @@ class TestSPSMath:
                 actions_seed=None,
                 frames_per_step=24,
                 sync_every=None,
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
         # total_sps = per_env_sps = 5 / 0.5 = 10.0
@@ -345,6 +366,7 @@ class TestSPSMath:
                 actions_seed=None,
                 frames_per_step=24,
                 sync_every=None,
+                num_actions=LEGACY_NUM_ACTIONS,
             )
 
         # Only 10 measured steps, not 15
@@ -731,6 +753,7 @@ class TestMismatchBundle:
                 ref_state={"pc": 0x100},
                 dut_state={"pc": 0x200},
                 diff={"pc": {"ref": 0x100, "dut": 0x200}},
+                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
                 actions_trace=[[0], [0], [0], [0], [0], [0]],
                 system_info={"platform": "test"},
                 action_gen_name="noop",
@@ -771,6 +794,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={},
+                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
                 actions_trace=[],
                 system_info={},
                 action_gen_name="noop",
@@ -810,6 +834,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={},
+                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
                 actions_trace=[],
                 system_info={},
                 action_gen_name="noop",
@@ -851,6 +876,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={"memory": [{"lo": 0xC000, "hi": 0xC004}]},
+                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
                 mem_regions=mem_regions,
                 mem_hash_version=MEM_HASH_VERSION,
                 mem_dumps=mem_dumps,
