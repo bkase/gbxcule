@@ -151,6 +151,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 if frames_done >= frames_to_run:
                     break
 
+        POST_STEP_DISPATCH
+
         pc[i] = pc_i & 0xFFFF
         sp[i] = sp_i & 0xFFFF
         a[i] = a_i & 0xFF
@@ -172,11 +174,13 @@ def build_cpu_step_source(
     opcode_templates: Sequence[OpcodeTemplate],
     default_template: OpcodeTemplate,
     constants: dict[str, int],
+    post_step_body: Sequence[cst.BaseStatement] | None = None,
 ) -> str:
     default_body = _get_template_body(
         default_template.template, default_template.replacements
     )
     dispatch_tree = _build_dispatch_tree(opcode_templates, default_body)
+    post_body = list(post_step_body) if post_step_body is not None else []
 
     skeleton_tree = cst.parse_module(_CPU_STEP_SKELETON.format(**constants))
 
@@ -211,6 +215,15 @@ def build_cpu_step_source(
                 and original.body[0].value.value == "INSTRUCTION_DISPATCH"
             ):
                 return cst.FlattenSentinel([dispatch_tree])
+            if (
+                len(original.body) == 1
+                and isinstance(original.body[0], cst.Expr)
+                and isinstance(original.body[0].value, cst.Name)
+                and original.body[0].value.value == "POST_STEP_DISPATCH"
+            ):
+                if not post_body:
+                    return cst.FlattenSentinel([])
+                return cst.FlattenSentinel(post_body)
             return updated
 
     final_tree = skeleton_tree.visit(Injector())
@@ -221,8 +234,14 @@ def build_cpu_step_kernel(
     opcode_templates: Sequence[OpcodeTemplate],
     default_template: OpcodeTemplate,
     constants: dict[str, int],
+    post_step_body: Sequence[cst.BaseStatement] | None = None,
 ) -> Callable[..., Any]:
-    source = build_cpu_step_source(opcode_templates, default_template, constants)
+    source = build_cpu_step_source(
+        opcode_templates,
+        default_template,
+        constants,
+        post_step_body=post_step_body,
+    )
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
     module_name = f"gbxcule_warp_kernels.cpu_step_{digest}"
     cache_dir = Path(
