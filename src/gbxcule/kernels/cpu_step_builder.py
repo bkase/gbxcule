@@ -49,6 +49,13 @@ def _get_template_body(
     return list(modified_func.body.body)
 
 
+def get_template_body(
+    func_obj: Callable[..., Any], replacements: dict[str, str] | None = None
+) -> list[cst.BaseStatement]:
+    """Public wrapper for extracting a template body."""
+    return _get_template_body(func_obj, replacements or {})
+
+
 def _build_dispatch_tree(
     opcode_templates: Sequence[OpcodeTemplate],
     default_body: list[cst.BaseStatement],
@@ -87,6 +94,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     ROM_LIMIT = {ROM_LIMIT}
     CART_RAM_START = {CART_RAM_START}
     CART_RAM_END = {CART_RAM_END}
+    OBS_DIM = {OBS_DIM}
 
     @wp.func
     def sign8(x: wp.int32) -> wp.int32:
@@ -112,7 +120,12 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         instr_count: wp.array(dtype=wp.int64),
         cycle_count: wp.array(dtype=wp.int64),
         cycle_in_frame: wp.array(dtype=wp.int32),
+        actions: wp.array(dtype=wp.int32),
+        joyp_select: wp.array(dtype=wp.uint8),
+        reward_out: wp.array(dtype=wp.float32),
+        obs_out: wp.array(dtype=wp.float32),
         frames_to_run: wp.int32,
+        release_after_frames: wp.int32,
     ):
         i = wp.tid()
         base = i * MEM_SIZE

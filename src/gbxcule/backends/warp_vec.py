@@ -21,7 +21,7 @@ from gbxcule.backends.common import (
     flags_from_f,
     resolve_action_codec,
 )
-from gbxcule.core.abi import MEM_SIZE
+from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT
 from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
     get_warp,
@@ -51,6 +51,10 @@ class WarpVecBaseBackend:
         """Initialize the warp_vec backend."""
         self.num_envs = num_envs
         self._obs_dim = obs_dim
+        if self._obs_dim != OBS_DIM_DEFAULT:
+            raise ValueError(
+                f"obs_dim {self._obs_dim} unsupported; expected {OBS_DIM_DEFAULT}"
+            )
         self._rom_path = rom_path
         self._initialized = False
         self._frames_per_step = frames_per_step
@@ -66,7 +70,7 @@ class WarpVecBaseBackend:
         self._wp = get_warp()
         self._device = self._wp.get_device(self._device_name)
         self._warmup()
-        self._kernel = get_cpu_step_kernel()
+        self._kernel = get_cpu_step_kernel(obs_dim=self._obs_dim)
 
         self._mem = None
         self._pc = None
@@ -82,6 +86,10 @@ class WarpVecBaseBackend:
         self._instr_count = None
         self._cycle_count = None
         self._cycle_in_frame = None
+        self._actions = None
+        self._joyp_select = None
+        self._reward = None
+        self._obs = None
 
         self.action_spec = ArraySpec(
             shape=(num_envs,),
@@ -96,9 +104,9 @@ class WarpVecBaseBackend:
 
     def _warmup(self) -> None:
         if self.device == "cpu":
-            warmup_warp_cpu()
+            warmup_warp_cpu(obs_dim=self._obs_dim)
         else:
-            warmup_warp_cuda(self._device_name)
+            warmup_warp_cuda(self._device_name, obs_dim=self._obs_dim)
 
     def _synchronize(self) -> None:
         if self._sync_after_step:
@@ -186,6 +194,18 @@ class WarpVecBaseBackend:
         self._cycle_in_frame = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
+        self._actions = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._joyp_select = self._wp.zeros(
+            self.num_envs, dtype=self._wp.uint8, device=self._device
+        )
+        self._reward = self._wp.zeros(
+            self.num_envs, dtype=self._wp.float32, device=self._device
+        )
+        self._obs = self._wp.zeros(
+            self.num_envs * self._obs_dim, dtype=self._wp.float32, device=self._device
+        )
 
         self._initialized = True
         obs = empty_obs(self.num_envs, self._obs_dim)
@@ -204,7 +224,7 @@ class WarpVecBaseBackend:
             bad = int(actions[invalid_mask][0])
             raise ValueError(f"Action {bad} out of range [0, {self.num_actions})")
 
-        if self._mem is None:
+        if self._mem is None or self._actions is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
         self._wp.launch(
@@ -225,7 +245,12 @@ class WarpVecBaseBackend:
                 self._instr_count,
                 self._cycle_count,
                 self._cycle_in_frame,
+                self._actions,
+                self._joyp_select,
+                self._reward,
+                self._obs,
                 int(self._frames_per_step),
+                int(self._release_after_frames),
             ],
             device=self._device,
         )
@@ -320,6 +345,10 @@ class WarpVecBaseBackend:
         self._instr_count = None
         self._cycle_count = None
         self._cycle_in_frame = None
+        self._actions = None
+        self._joyp_select = None
+        self._reward = None
+        self._obs = None
 
 
 class WarpVecCpuBackend(WarpVecBaseBackend):
