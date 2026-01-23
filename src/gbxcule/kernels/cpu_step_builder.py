@@ -96,6 +96,19 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     CART_RAM_END = {CART_RAM_END}
     OBS_DIM = {OBS_DIM}
 
+    ACTION_CODEC_LEGACY = 0
+    ACTION_CODEC_POKERED = 1
+
+    DPAD_RIGHT = 1
+    DPAD_LEFT = 2
+    DPAD_UP = 4
+    DPAD_DOWN = 8
+
+    BUTTON_A = 1
+    BUTTON_B = 2
+    BUTTON_SELECT = 4
+    BUTTON_START = 8
+
     @wp.func
     def sign8(x: wp.int32) -> wp.int32:
         return wp.where(x >= 128, x - 256, x)
@@ -103,6 +116,73 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     @wp.func
     def make_flags(z: wp.int32, n: wp.int32, h: wp.int32, c: wp.int32) -> wp.int32:
         return (z << 7) | (n << 6) | (h << 5) | (c << 4)
+
+    @wp.func
+    def action_dpad_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
+        dpad = wp.int32(0)
+        if codec_id == ACTION_CODEC_LEGACY:
+            if action == 1:
+                dpad = DPAD_UP
+            elif action == 2:
+                dpad = DPAD_DOWN
+            elif action == 3:
+                dpad = DPAD_LEFT
+            elif action == 4:
+                dpad = DPAD_RIGHT
+        else:
+            if action == 3:
+                dpad = DPAD_UP
+            elif action == 4:
+                dpad = DPAD_DOWN
+            elif action == 5:
+                dpad = DPAD_LEFT
+            elif action == 6:
+                dpad = DPAD_RIGHT
+        return dpad
+
+    @wp.func
+    def action_button_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
+        btn = wp.int32(0)
+        if codec_id == ACTION_CODEC_LEGACY:
+            if action == 5:
+                btn = BUTTON_A
+            elif action == 6:
+                btn = BUTTON_B
+            elif action == 7:
+                btn = BUTTON_START
+            elif action == 8:
+                btn = BUTTON_SELECT
+        else:
+            if action == 0:
+                btn = BUTTON_A
+            elif action == 1:
+                btn = BUTTON_B
+            elif action == 2:
+                btn = BUTTON_START
+        return btn
+
+    @wp.func
+    def joyp_read(
+        action: wp.int32,
+        frame_idx: wp.int32,
+        release_after_frames: wp.int32,
+        joyp_sel: wp.int32,
+        codec_id: wp.int32,
+    ) -> wp.int32:
+        sel = joyp_sel & 0x30
+        pressed = wp.int32(frame_idx < release_after_frames)
+        dpad = wp.int32(0)
+        btn = wp.int32(0)
+        if pressed != 0:
+            dpad = action_dpad_mask(action, codec_id)
+            btn = action_button_mask(action, codec_id)
+        low = wp.int32(0x0F)
+        if (sel & 0x10) == 0:
+            low = low & (0x0F ^ dpad)
+        if (sel & 0x20) == 0:
+            low = low & (0x0F ^ btn)
+        low = low & 0x0F
+        return 0xC0 | sel | low
 
     @wp.kernel
     def cpu_step(
@@ -122,6 +202,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         cycle_in_frame: wp.array(dtype=wp.int32),
         actions: wp.array(dtype=wp.int32),
         joyp_select: wp.array(dtype=wp.uint8),
+        action_codec_id: wp.int32,
         reward_out: wp.array(dtype=wp.float32),
         obs_out: wp.array(dtype=wp.float32),
         frames_to_run: wp.int32,

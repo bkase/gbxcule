@@ -23,6 +23,7 @@ from gbxcule.backends.common import (
     resolve_action_codec,
 )
 from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT
+from gbxcule.core.action_codec import action_codec_kernel_id
 from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
     get_warp,
@@ -69,6 +70,7 @@ class WarpVecBaseBackend:
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
+        self._action_codec_kernel_id = action_codec_kernel_id(action_codec)
 
         self._wp = get_warp()
         self._device = self._wp.get_device(self._device_name)
@@ -204,8 +206,9 @@ class WarpVecBaseBackend:
         self._actions = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
-        self._joyp_select = self._wp.zeros(
-            self.num_envs, dtype=self._wp.uint8, device=self._device
+        joyp_init = np.full(self.num_envs, 0x30, dtype=np.uint8)
+        self._joyp_select = self._wp.array(
+            joyp_init, dtype=self._wp.uint8, device=self._device
         )
         self._reward = self._wp.zeros(
             self.num_envs, dtype=self._wp.float32, device=self._device
@@ -234,6 +237,19 @@ class WarpVecBaseBackend:
         if self._mem is None or self._actions is None:
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
+        if hasattr(self._actions, "assign"):
+            self._actions.assign(actions)
+        else:
+            try:
+                host_actions = self._wp.array(
+                    actions, dtype=self._wp.int32, device="cpu"
+                )
+                self._wp.copy(self._actions, host_actions)
+            except Exception:
+                self._actions = self._wp.array(
+                    actions, dtype=self._wp.int32, device=self._device
+                )
+
         self._wp.launch(
             self._kernel,
             dim=self.num_envs,
@@ -254,6 +270,7 @@ class WarpVecBaseBackend:
                 self._cycle_in_frame,
                 self._actions,
                 self._joyp_select,
+                int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
                 int(self._frames_per_step),

@@ -174,6 +174,7 @@ def _warmup_warp_device(
             zeros_i32,
             zeros_i32,
             zeros_u8,
+            0,
             zeros_f32,
             zeros_obs,
             0,

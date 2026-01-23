@@ -175,6 +175,12 @@ _REGISTRY: dict[str, ActionCodecDef] = {
     POKERED_PUFFER_V0_ID: _POKERED_PUFFER_V0,
 }
 
+# Kernel-facing codec ids (stable numeric mapping for Warp kernels)
+KERNEL_CODEC_IDS: dict[str, int] = {
+    LEGACY_V0_ID: 0,
+    POKERED_PUFFER_V0_ID: 1,
+}
+
 
 def get_action_codec(codec_id: str) -> ActionCodecDef:
     """Resolve an action codec by id."""
@@ -187,3 +193,11 @@ def get_action_codec(codec_id: str) -> ActionCodecDef:
 def list_action_codecs() -> tuple[str, ...]:
     """Return the list of registered codec ids."""
     return tuple(_REGISTRY.keys())
+
+
+def action_codec_kernel_id(codec_id: str) -> int:
+    """Return the stable kernel-facing codec id for a codec."""
+    try:
+        return KERNEL_CODEC_IDS[codec_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown action codec: {codec_id}") from exc
