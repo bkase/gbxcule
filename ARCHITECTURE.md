@@ -197,13 +197,13 @@ We treat “types align” as an early check, not as the only correctness mechan
 
 ---
 
-## 6) ABI v0: authoritative device buffers
+## 6) ABI v1: authoritative device buffers
 
-### 6.1 ABI v0 decision (recommended): flat 64KB memory
+### 6.1 ABI v1 decision (recommended): flat 64KB memory
 
-**ABI v0** is defined in `src/gbxcule/core/abi.py` and is authoritative for Warp kernels and any future “native CUDA” kernels.
+**ABI v1** is defined in `src/gbxcule/core/abi.py` and is authoritative for Warp kernels and any future “native CUDA” kernels.
 
-Recommended ABI v0 buffers per env:
+Recommended ABI v1 buffers per env:
 
 **Registers (u16/u8)**
 
@@ -223,6 +223,13 @@ Recommended ABI v0 buffers per env:
 **Memory**
 
 - `mem: u8[65536]` flat 64KB per env.
+
+**Per-step IO (fused kernels)**
+
+- `actions: i32[num_envs]`
+- `joyp_select: u8[num_envs]`
+- `reward_out: f32[num_envs]`
+- `obs_out: f32[num_envs * OBS_DIM_DEFAULT]` (flat; OBS_DIM_DEFAULT = 32 in ABI v1)
 
 Rationale:
 

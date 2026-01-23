@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 0
+ABI_VERSION: Final[int] = 1
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536
+
+# Default observation dimensionality for fused step kernels.
+OBS_DIM_DEFAULT: Final[int] = 32
 
 
 def mem_offset(env_idx: int, addr: int) -> int:
@@ -52,3 +55,41 @@ def mem_slice(env_idx: int, lo: int, hi: int) -> slice:
         raise ValueError(f"lo must be <= hi, got lo={lo} hi={hi}")
     base = env_idx * MEM_SIZE
     return slice(base + lo, base + hi)
+
+
+def obs_offset(env_idx: int, obs_idx: int, obs_dim: int = OBS_DIM_DEFAULT) -> int:
+    """Compute the flat observation offset for (env_idx, obs_idx).
+
+    Args:
+        env_idx: Environment index (0-based).
+        obs_idx: Observation index in [0, obs_dim).
+        obs_dim: Observation dimension (default: OBS_DIM_DEFAULT).
+
+    Returns:
+        Flat offset into a f32[num_envs * obs_dim] buffer.
+    """
+    if env_idx < 0:
+        raise ValueError(f"env_idx must be >= 0, got {env_idx}")
+    if obs_dim <= 0:
+        raise ValueError(f"obs_dim must be > 0, got {obs_dim}")
+    if obs_idx < 0 or obs_idx >= obs_dim:
+        raise ValueError(f"obs_idx must be in [0, {obs_dim}), got {obs_idx}")
+    return env_idx * obs_dim + obs_idx
+
+
+def obs_slice(env_idx: int, obs_dim: int = OBS_DIM_DEFAULT) -> slice:
+    """Compute a slice into a flat observation buffer for one env.
+
+    Args:
+        env_idx: Environment index (0-based).
+        obs_dim: Observation dimension (default: OBS_DIM_DEFAULT).
+
+    Returns:
+        A Python slice suitable for indexing a flat f32 buffer.
+    """
+    if env_idx < 0:
+        raise ValueError(f"env_idx must be >= 0, got {env_idx}")
+    if obs_dim <= 0:
+        raise ValueError(f"obs_dim must be > 0, got {obs_dim}")
+    base = env_idx * obs_dim
+    return slice(base, base + obs_dim)
