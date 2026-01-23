@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-BASELINE_BACKENDS = {"pyboy_vec_mp"}
+BASELINE_BACKENDS = {"pyboy_puffer_vec", "pyboy_vec_mp"}
 DUT_BACKENDS = {"warp_vec_cuda"}
 
 
@@ -77,10 +77,14 @@ def _compare_configs(baseline: ScalingArtifact, dut: ScalingArtifact) -> list[st
     keys = [
         "rom_sha256",
         "frames_per_step",
+        "release_after_frames",
         "steps",
         "warmup_steps",
         "stage",
         "action_generator",
+        "action_codec",
+        "action_schedule",
+        "vec_backend",
         "sync_every",
     ]
     for key in keys:

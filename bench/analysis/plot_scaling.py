@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-BASELINE_BACKENDS = {"pyboy_vec_mp"}
+BASELINE_BACKENDS = {"pyboy_puffer_vec", "pyboy_vec_mp"}
 DUT_BACKENDS = {"warp_vec_cuda"}
 
 
