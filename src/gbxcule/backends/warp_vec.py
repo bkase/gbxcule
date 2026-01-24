@@ -22,7 +22,7 @@ from gbxcule.backends.common import (
     flags_from_f,
     resolve_action_codec,
 )
-from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT
+from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT, SERIAL_MAX
 from gbxcule.core.action_codec import action_codec_kernel_id
 from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
@@ -93,6 +93,9 @@ class WarpVecBaseBackend:
         self._cycle_in_frame = None
         self._actions = None
         self._joyp_select = None
+        self._serial_buf = None
+        self._serial_len = None
+        self._serial_overflow = None
         self._reward = None
         self._obs = None
 
@@ -210,6 +213,15 @@ class WarpVecBaseBackend:
         self._joyp_select = self._wp.array(
             joyp_init, dtype=self._wp.uint8, device=self._device
         )
+        self._serial_buf = self._wp.zeros(
+            self.num_envs * SERIAL_MAX, dtype=self._wp.uint8, device=self._device
+        )
+        self._serial_len = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._serial_overflow = self._wp.zeros(
+            self.num_envs, dtype=self._wp.uint8, device=self._device
+        )
         self._reward = self._wp.zeros(
             self.num_envs, dtype=self._wp.float32, device=self._device
         )
@@ -270,6 +282,9 @@ class WarpVecBaseBackend:
                 self._cycle_in_frame,
                 self._actions,
                 self._joyp_select,
+                self._serial_buf,
+                self._serial_len,
+                self._serial_overflow,
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
@@ -378,6 +393,9 @@ class WarpVecBaseBackend:
         self._cycle_in_frame = None
         self._actions = None
         self._joyp_select = None
+        self._serial_buf = None
+        self._serial_len = None
+        self._serial_overflow = None
         self._reward = None
         self._obs = None
 

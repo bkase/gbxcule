@@ -95,6 +95,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     CART_RAM_START = {CART_RAM_START}
     CART_RAM_END = {CART_RAM_END}
     OBS_DIM = {OBS_DIM}
+    SERIAL_MAX = {SERIAL_MAX}
 
     ACTION_CODEC_LEGACY = 0
     ACTION_CODEC_POKERED = 1
@@ -184,6 +185,72 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         low = low & 0x0F
         return 0xC0 | sel | low
 
+    @wp.func
+    def read8(
+        i: wp.int32,
+        base: wp.int32,
+        addr: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        actions: wp.array(dtype=wp.int32),
+        joyp_select: wp.array(dtype=wp.uint8),
+        frames_done: wp.int32,
+        release_after_frames: wp.int32,
+        action_codec_id: wp.int32,
+    ) -> wp.int32:
+        addr16 = addr & 0xFFFF
+        if addr16 == 0xFF00:
+            action_i = wp.int32(actions[i])
+            joyp_sel = wp.int32(joyp_select[i])
+            return joyp_read(
+                action_i,
+                frames_done,
+                release_after_frames,
+                joyp_sel,
+                action_codec_id,
+            )
+        if addr16 >= CART_RAM_START and addr16 < CART_RAM_END:
+            return 0xFF
+        return wp.int32(mem[base + addr16])
+
+    @wp.func
+    def write8(
+        i: wp.int32,
+        base: wp.int32,
+        addr: wp.int32,
+        val: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        joyp_select: wp.array(dtype=wp.uint8),
+        serial_buf: wp.array(dtype=wp.uint8),
+        serial_len: wp.array(dtype=wp.int32),
+        serial_overflow: wp.array(dtype=wp.uint8),
+    ) -> None:
+        addr16 = addr & 0xFFFF
+        val8 = wp.uint8(val)
+        if addr16 == 0xFF00:
+            joyp_select[i] = val8 & wp.uint8(0x30)
+            return
+        if addr16 == 0xFF01:
+            mem[base + addr16] = val8
+            return
+        if addr16 == 0xFF02:
+            mem[base + addr16] = val8
+            if (val & 0x80) != 0 and (val & 0x01) != 0:
+                sb = wp.int32(mem[base + 0xFF01]) & 0xFF
+                idx = wp.int32(serial_len[i])
+                if idx < SERIAL_MAX:
+                    serial_buf[i * SERIAL_MAX + idx] = wp.uint8(sb)
+                    serial_len[i] = idx + 1
+                else:
+                    serial_overflow[i] = wp.uint8(1)
+                mem[base + addr16] = wp.uint8(val & 0x7F)
+                if_addr = base + 0xFF0F
+                mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x08))
+            return
+        if addr16 >= ROM_LIMIT and not (
+            addr16 >= CART_RAM_START and addr16 < CART_RAM_END
+        ):
+            mem[base + addr16] = val8
+
     @wp.kernel
     def cpu_step(
         mem: wp.array(dtype=wp.uint8),
@@ -202,6 +269,9 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         cycle_in_frame: wp.array(dtype=wp.int32),
         actions: wp.array(dtype=wp.int32),
         joyp_select: wp.array(dtype=wp.uint8),
+        serial_buf: wp.array(dtype=wp.uint8),
+        serial_len: wp.array(dtype=wp.int32),
+        serial_overflow: wp.array(dtype=wp.uint8),
         action_codec_id: wp.int32,
         reward_out: wp.array(dtype=wp.float32),
         obs_out: wp.array(dtype=wp.float32),

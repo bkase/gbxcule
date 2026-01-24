@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gbxcule.backends.common import Stage
-from gbxcule.core.abi import OBS_DIM_DEFAULT
+from gbxcule.core.abi import OBS_DIM_DEFAULT, SERIAL_MAX
 from gbxcule.kernels.cpu_step_builder import (
     OpcodeTemplate,
     build_cpu_step_kernel,
@@ -122,6 +122,7 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "CART_RAM_START": CART_RAM_START,
         "CART_RAM_END": CART_RAM_END,
         "OBS_DIM": obs_dim,
+        "SERIAL_MAX": SERIAL_MAX,
     }
 
     post_step_templates: list[Any] = []
@@ -165,6 +166,8 @@ def _warmup_warp_device(
     zeros_i32 = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_i64 = wp.zeros(1, dtype=wp.int64, device=device)
     zeros_u8 = wp.zeros(1, dtype=wp.uint8, device=device)
+    zeros_serial = wp.zeros(1 * SERIAL_MAX, dtype=wp.uint8, device=device)
+    zeros_serial_len = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_f32 = wp.zeros(1, dtype=wp.float32, device=device)
     zeros_obs = wp.zeros(obs_dim, dtype=wp.float32, device=device)
     kernel = get_cpu_step_kernel(stage=stage, obs_dim=obs_dim)
@@ -187,6 +190,9 @@ def _warmup_warp_device(
             zeros_i64,
             zeros_i32,
             zeros_i32,
+            zeros_u8,
+            zeros_serial,
+            zeros_serial_len,
             zeros_u8,
             0,
             zeros_f32,
