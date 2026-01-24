@@ -1,4 +1,4 @@
-"""ABI v3: Authoritative device buffer layouts.
+"""ABI v4: Authoritative device buffer layouts.
 
 This module defines the canonical layouts for state buffers used by Warp kernels
 and downstream consumers. It is intentionally tiny and pure.
@@ -10,13 +10,17 @@ ABI v2 migration note:
 
 ABI v3 migration note:
 - Added interrupt + timer state buffers (IME/IME delay/HALT, DIV/TIMA edge tracking).
+
+ABI v4 migration note:
+- Added scanline-accurate PPU buffers (scanline cycle + LY), env0 BG latch arrays,
+  and env0 BG shade framebuffer for Milestone D.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 3
+ABI_VERSION: Final[int] = 4
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536
@@ -26,6 +30,13 @@ OBS_DIM_DEFAULT: Final[int] = 32
 
 # Serial capture buffer length per environment (SB/SC debug output).
 SERIAL_MAX: Final[int] = 1024
+
+# Screen geometry (DMG).
+SCREEN_W: Final[int] = 160
+SCREEN_H: Final[int] = 144
+
+# Scanline timing (DMG).
+CYCLES_PER_SCANLINE: Final[int] = 456
 
 
 def mem_offset(env_idx: int, addr: int) -> int:

@@ -58,7 +58,7 @@ def test_import_core_abi() -> None:
     """Test that abi module can be imported."""
     from gbxcule.core.abi import ABI_VERSION
 
-    assert ABI_VERSION == 3
+    assert ABI_VERSION == 4
 
 
 def test_import_kernels() -> None:

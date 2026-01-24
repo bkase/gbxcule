@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gbxcule.backends.common import Stage
-from gbxcule.core.abi import OBS_DIM_DEFAULT, SERIAL_MAX
+from gbxcule.core.abi import OBS_DIM_DEFAULT, SCREEN_H, SERIAL_MAX
 from gbxcule.core.isa_sm83 import iter_cb, iter_unprefixed
 from gbxcule.kernels.cpu_step_builder import (
     OpcodeTemplate,
@@ -279,6 +279,12 @@ def _warmup_warp_device(
     zeros_trap_pc = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_trap_opcode = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_trap_kind = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_scanline_cycle = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_ly = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_lcdc_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_scx_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_scy_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_bgp_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_f32 = wp.zeros(1, dtype=wp.float32, device=device)
     zeros_obs = wp.zeros(obs_dim, dtype=wp.float32, device=device)
     kernel = get_cpu_step_kernel(stage=stage, obs_dim=obs_dim)
@@ -316,6 +322,12 @@ def _warmup_warp_device(
             zeros_i32,
             zeros_i32,
             zeros_i32,
+            zeros_scanline_cycle,
+            zeros_ly,
+            zeros_lcdc_latch,
+            zeros_scx_latch,
+            zeros_scy_latch,
+            zeros_bgp_latch,
             0,
             zeros_f32,
             zeros_obs,

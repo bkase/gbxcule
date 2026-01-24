@@ -22,7 +22,7 @@ from gbxcule.backends.common import (
     flags_from_f,
     resolve_action_codec,
 )
-from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT, SERIAL_MAX
+from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT, SCREEN_H, SCREEN_W, SERIAL_MAX
 from gbxcule.core.action_codec import action_codec_kernel_id
 from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
@@ -107,6 +107,13 @@ class WarpVecBaseBackend:
         self._timer_prev_in = None
         self._tima_reload_pending = None
         self._tima_reload_delay = None
+        self._ppu_scanline_cycle = None
+        self._ppu_ly = None
+        self._bg_lcdc_latch_env0 = None
+        self._bg_scx_latch_env0 = None
+        self._bg_scy_latch_env0 = None
+        self._bg_bgp_latch_env0 = None
+        self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None
 
@@ -266,6 +273,27 @@ class WarpVecBaseBackend:
         self._tima_reload_delay = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
+        self._ppu_scanline_cycle = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._ppu_ly = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._bg_lcdc_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._bg_scx_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._bg_scy_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._bg_bgp_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._frame_bg_shade_env0 = self._wp.zeros(
+            SCREEN_W * SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
         self._reward = self._wp.zeros(
             self.num_envs, dtype=self._wp.float32, device=self._device
         )
@@ -340,6 +368,12 @@ class WarpVecBaseBackend:
                 self._timer_prev_in,
                 self._tima_reload_pending,
                 self._tima_reload_delay,
+                self._ppu_scanline_cycle,
+                self._ppu_ly,
+                self._bg_lcdc_latch_env0,
+                self._bg_scx_latch_env0,
+                self._bg_scy_latch_env0,
+                self._bg_bgp_latch_env0,
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
@@ -500,6 +534,13 @@ class WarpVecBaseBackend:
         self._timer_prev_in = None
         self._tima_reload_pending = None
         self._tima_reload_delay = None
+        self._ppu_scanline_cycle = None
+        self._ppu_ly = None
+        self._bg_lcdc_latch_env0 = None
+        self._bg_scx_latch_env0 = None
+        self._bg_scy_latch_env0 = None
+        self._bg_bgp_latch_env0 = None
+        self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None
 
