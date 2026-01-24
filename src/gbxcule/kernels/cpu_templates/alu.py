@@ -678,6 +678,10 @@ def template_inc_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     hflag = wp.where((old & 0x0F) == 0x0F, 1, 0)
@@ -715,6 +719,10 @@ def template_dec_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     hflag = wp.where((old & 0x0F) == 0x00, 1, 0)

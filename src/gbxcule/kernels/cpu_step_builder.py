@@ -239,11 +239,18 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         serial_buf: wp.array(dtype=wp.uint8),
         serial_len: wp.array(dtype=wp.int32),
         serial_overflow: wp.array(dtype=wp.uint8),
+        div_counter: wp.array(dtype=wp.int32),
+        timer_prev_in: wp.array(dtype=wp.int32),
+        tima_reload_pending: wp.array(dtype=wp.int32),
+        tima_reload_delay: wp.array(dtype=wp.int32),
     ) -> None:
         addr16 = addr & 0xFFFF
         val8 = wp.uint8(val)
         if addr16 == 0xFF00:
             joyp_select[i] = val8 & wp.uint8(0x30)
+            return
+        if addr16 == 0xFF0F:
+            mem[base + addr16] = val8 & wp.uint8(0x1F)
             return
         if addr16 == 0xFF01:
             mem[base + addr16] = val8
@@ -261,6 +268,25 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 mem[base + addr16] = wp.uint8(val & 0x7F)
                 if_addr = base + 0xFF0F
                 mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x08))
+            return
+        if addr16 == 0xFF04:
+            div_counter[i] = 0
+            timer_prev_in[i] = 0
+            tima_reload_pending[i] = 0
+            tima_reload_delay[i] = 0
+            mem[base + addr16] = wp.uint8(0)
+            return
+        if addr16 == 0xFF05:
+            mem[base + addr16] = val8
+            return
+        if addr16 == 0xFF06:
+            mem[base + addr16] = val8
+            return
+        if addr16 == 0xFF07:
+            mem[base + addr16] = val8 & wp.uint8(0x07)
+            return
+        if addr16 == 0xFFFF:
+            mem[base + addr16] = val8 & wp.uint8(0x1F)
             return
         if addr16 >= ROM_LIMIT and not (
             addr16 >= CART_RAM_START and addr16 < CART_RAM_END

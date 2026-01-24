@@ -85,6 +85,10 @@ def template_cb_rlc_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -128,6 +132,10 @@ def template_cb_rrc_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -173,6 +181,10 @@ def template_cb_rl_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -218,6 +230,10 @@ def template_cb_rr_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -261,6 +277,10 @@ def template_cb_sla_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -304,6 +324,10 @@ def template_cb_sra_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -345,6 +369,10 @@ def template_cb_swap_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, 0)
@@ -388,6 +416,10 @@ def template_cb_srl_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -465,6 +497,10 @@ def template_cb_res_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     cycles = 16
 
@@ -506,5 +542,9 @@ def template_cb_set_hl(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     cycles = 16

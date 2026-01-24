@@ -76,6 +76,10 @@ def template_ld_hl_r8(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -134,6 +138,10 @@ def template_ld_hl_d8(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 2) & 0xFFFF
     cycles = 12
@@ -210,6 +218,10 @@ def template_ld_a16_a(pc_i: int, a_i: int, base: int, mem: wp.array) -> None:  #
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 3) & 0xFFFF
     cycles = 16
@@ -279,6 +291,10 @@ def template_ldh_a8_a(pc_i: int, a_i: int, base: int, mem: wp.array) -> None:  #
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 2) & 0xFFFF
     cycles = 12
@@ -326,6 +342,10 @@ def template_ldh_c_a(pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array) ->
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -404,6 +424,10 @@ def template_ld_bc_a(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -424,6 +448,10 @@ def template_ld_de_a(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -444,6 +472,10 @@ def template_ld_hl_inc_a(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     hl = (hl + 1) & 0xFFFF
     HREG_i = (hl >> 8) & 0xFF
@@ -467,6 +499,10 @@ def template_ld_hl_dec_a(
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     hl = (hl - 1) & 0xFFFF
     HREG_i = (hl >> 8) & 0xFF
@@ -558,6 +594,10 @@ def template_ld_a16_sp(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None: 
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     write8(
         i,
@@ -569,6 +609,10 @@ def template_ld_a16_sp(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None: 
         serial_buf,
         serial_len,
         serial_overflow,
+        div_counter,
+        timer_prev_in,
+        tima_reload_pending,
+        tima_reload_delay,
     )
     pc_i = (pc_i + 3) & 0xFFFF
     cycles = 20
