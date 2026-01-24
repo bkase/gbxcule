@@ -36,6 +36,11 @@ from gbxcule.core.cartridge import (
     CART_STATE_RTC_DAYS_HIGH,
     CART_STATE_RTC_DAYS_LOW,
     CART_STATE_RTC_HOURS,
+    CART_STATE_RTC_LATCHED_DAYS_HIGH,
+    CART_STATE_RTC_LATCHED_DAYS_LOW,
+    CART_STATE_RTC_LATCHED_HOURS,
+    CART_STATE_RTC_LATCHED_MINUTES,
+    CART_STATE_RTC_LATCHED_SECONDS,
     CART_STATE_RTC_LAST_CYCLE,
     CART_STATE_RTC_LATCH,
     CART_STATE_RTC_MINUTES,
@@ -285,6 +290,11 @@ class WarpVecBaseBackend:
             cart_state_np[base + CART_STATE_RTC_DAYS_LOW] = 0
             cart_state_np[base + CART_STATE_RTC_DAYS_HIGH] = 0
             cart_state_np[base + CART_STATE_RTC_LAST_CYCLE] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCHED_SECONDS] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCHED_MINUTES] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCHED_HOURS] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCHED_DAYS_LOW] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCHED_DAYS_HIGH] = 0
         self._cart_state = self._wp.array(
             cart_state_np, dtype=self._wp.int32, device=self._device
         )

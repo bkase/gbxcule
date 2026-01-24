@@ -156,6 +156,12 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     CART_STATE_RTC_DAYS_LOW = {CART_STATE_RTC_DAYS_LOW}
     CART_STATE_RTC_DAYS_HIGH = {CART_STATE_RTC_DAYS_HIGH}
     CART_STATE_RTC_LAST_CYCLE = {CART_STATE_RTC_LAST_CYCLE}
+    CART_STATE_RTC_LATCHED_SECONDS = {CART_STATE_RTC_LATCHED_SECONDS}
+    CART_STATE_RTC_LATCHED_MINUTES = {CART_STATE_RTC_LATCHED_MINUTES}
+    CART_STATE_RTC_LATCHED_HOURS = {CART_STATE_RTC_LATCHED_HOURS}
+    CART_STATE_RTC_LATCHED_DAYS_LOW = {CART_STATE_RTC_LATCHED_DAYS_LOW}
+    CART_STATE_RTC_LATCHED_DAYS_HIGH = {CART_STATE_RTC_LATCHED_DAYS_HIGH}
+    RTC_CYCLES_PER_SECOND = {RTC_CYCLES_PER_SECOND}
     MBC_KIND_ROM_ONLY = {MBC_KIND_ROM_ONLY}
     MBC_KIND_MBC1 = {MBC_KIND_MBC1}
     MBC_KIND_MBC3 = {MBC_KIND_MBC3}
@@ -355,6 +361,53 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         timer_prev_in[i] = timer_in(div, tac)
 
     @wp.func
+    def rtc_tick(
+        i: wp.int32,
+        cycles: wp.int32,
+        cart_state: wp.array(dtype=wp.int32),
+    ) -> None:
+        if cycles <= 0:
+            return
+        state_base = i * CART_STATE_STRIDE
+        if cart_state[state_base + CART_STATE_MBC_KIND] != MBC_KIND_MBC3:
+            return
+        days_high = cart_state[state_base + CART_STATE_RTC_DAYS_HIGH]
+        if (days_high & 0x40) != 0:
+            return
+        sub = cart_state[state_base + CART_STATE_RTC_LAST_CYCLE]
+        if sub < 0:
+            sub = 0
+        sub = sub + cycles
+        sec = cart_state[state_base + CART_STATE_RTC_SECONDS] & 0xFF
+        minute = cart_state[state_base + CART_STATE_RTC_MINUTES] & 0x3F
+        hour = cart_state[state_base + CART_STATE_RTC_HOURS] & 0x1F
+        day = ((days_high & 0x01) << 8) | (
+            cart_state[state_base + CART_STATE_RTC_DAYS_LOW] & 0xFF
+        )
+        while sub >= RTC_CYCLES_PER_SECOND:
+            sub = sub - RTC_CYCLES_PER_SECOND
+            sec = sec + 1
+            if sec >= 60:
+                sec = 0
+                minute = minute + 1
+                if minute >= 60:
+                    minute = 0
+                    hour = hour + 1
+                    if hour >= 24:
+                        hour = 0
+                        day = day + 1
+                        if day >= 512:
+                            day = day % 512
+                            days_high = days_high | 0x80
+        cart_state[state_base + CART_STATE_RTC_SECONDS] = sec
+        cart_state[state_base + CART_STATE_RTC_MINUTES] = minute
+        cart_state[state_base + CART_STATE_RTC_HOURS] = hour
+        cart_state[state_base + CART_STATE_RTC_DAYS_LOW] = day & 0xFF
+        days_high = (days_high & 0xC0) | ((day >> 8) & 0x01)
+        cart_state[state_base + CART_STATE_RTC_DAYS_HIGH] = days_high
+        cart_state[state_base + CART_STATE_RTC_LAST_CYCLE] = sub
+
+    @wp.func
     def ppu_update_stat(
         base: wp.int32,
         mem: wp.array(dtype=wp.uint8),
@@ -544,15 +597,41 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             mbc_kind = cart_state[state_base + CART_STATE_MBC_KIND]
             if mbc_kind == MBC_KIND_MBC3:
                 rtc_sel = cart_state[state_base + CART_STATE_RTC_SELECT] & 0x0F
+                latched = cart_state[state_base + CART_STATE_RTC_LATCH] != 0
                 if rtc_sel == 0x08:
+                    if latched:
+                        return (
+                            cart_state[state_base + CART_STATE_RTC_LATCHED_SECONDS]
+                            & 0xFF
+                        )
                     return cart_state[state_base + CART_STATE_RTC_SECONDS] & 0xFF
                 if rtc_sel == 0x09:
+                    if latched:
+                        return (
+                            cart_state[state_base + CART_STATE_RTC_LATCHED_MINUTES]
+                            & 0xFF
+                        )
                     return cart_state[state_base + CART_STATE_RTC_MINUTES] & 0xFF
                 if rtc_sel == 0x0A:
+                    if latched:
+                        return (
+                            cart_state[state_base + CART_STATE_RTC_LATCHED_HOURS]
+                            & 0xFF
+                        )
                     return cart_state[state_base + CART_STATE_RTC_HOURS] & 0xFF
                 if rtc_sel == 0x0B:
+                    if latched:
+                        return (
+                            cart_state[state_base + CART_STATE_RTC_LATCHED_DAYS_LOW]
+                            & 0xFF
+                        )
                     return cart_state[state_base + CART_STATE_RTC_DAYS_LOW] & 0xFF
                 if rtc_sel == 0x0C:
+                    if latched:
+                        return (
+                            cart_state[state_base + CART_STATE_RTC_LATCHED_DAYS_HIGH]
+                            & 0xFF
+                        )
                     return cart_state[state_base + CART_STATE_RTC_DAYS_HIGH] & 0xFF
             ram_bank = wp.int32(0)
             if mbc_kind == MBC_KIND_MBC1:
@@ -732,6 +811,43 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     cart_state[state_base + CART_STATE_RAM_BANK] = bank
                 else:
                     cart_state[state_base + CART_STATE_BANK_MODE] = val & 0x01
+            elif mbc_kind == MBC_KIND_MBC3:
+                if addr16 < 0x2000:
+                    cart_state[state_base + CART_STATE_RAM_ENABLE] = (
+                        1 if (val & 0x0F) == 0x0A else 0
+                    )
+                elif addr16 < 0x4000:
+                    bank = val & 0x7F
+                    if bank == 0:
+                        bank = 1
+                    cart_state[state_base + CART_STATE_ROM_BANK_LO] = bank
+                elif addr16 < 0x6000:
+                    sel = val & 0x0F
+                    cart_state[state_base + CART_STATE_RTC_SELECT] = sel
+                    if sel <= 0x03:
+                        cart_state[state_base + CART_STATE_RAM_BANK] = sel
+                else:
+                    if val == 0:
+                        cart_state[state_base + CART_STATE_RTC_LATCH] = 0
+                    elif val == 1 and cart_state[
+                        state_base + CART_STATE_RTC_LATCH
+                    ] == 0:
+                        cart_state[state_base + CART_STATE_RTC_LATCHED_SECONDS] = (
+                            cart_state[state_base + CART_STATE_RTC_SECONDS]
+                        )
+                        cart_state[state_base + CART_STATE_RTC_LATCHED_MINUTES] = (
+                            cart_state[state_base + CART_STATE_RTC_MINUTES]
+                        )
+                        cart_state[state_base + CART_STATE_RTC_LATCHED_HOURS] = (
+                            cart_state[state_base + CART_STATE_RTC_HOURS]
+                        )
+                        cart_state[state_base + CART_STATE_RTC_LATCHED_DAYS_LOW] = (
+                            cart_state[state_base + CART_STATE_RTC_DAYS_LOW]
+                        )
+                        cart_state[state_base + CART_STATE_RTC_LATCHED_DAYS_HIGH] = (
+                            cart_state[state_base + CART_STATE_RTC_DAYS_HIGH]
+                        )
+                        cart_state[state_base + CART_STATE_RTC_LATCH] = 1
             return
         mem[base + addr16] = val8
 
@@ -999,6 +1115,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         )
 
                 total_cycles = cycles + service_cycles
+                rtc_tick(i, total_cycles, cart_state)
                 cycles_i += wp.int64(total_cycles)
                 cycle_frame += total_cycles
 
@@ -1238,6 +1355,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     )
 
             total_cycles = cycles + service_cycles
+            rtc_tick(i, total_cycles, cart_state)
             cycles_i += wp.int64(total_cycles)
             cycle_frame += total_cycles
 
