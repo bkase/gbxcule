@@ -23,7 +23,7 @@ roms:
 
   - id: TIMER_DIV_BASIC
     path: bench/roms/out/TIMER_DIV_BASIC.gb
-    description: "Samples DIV/TIMA and resets DIV to exercise timer edge/glitch behavior."
+    description: "Samples DIV/TIMA at slow clock with an initial DIV reset."
     frames_per_step: 24
     release_after_frames: 8
 
