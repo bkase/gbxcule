@@ -91,6 +91,10 @@ class WarpVecBaseBackend:
         self._instr_count = None
         self._cycle_count = None
         self._cycle_in_frame = None
+        self._trap_flag = None
+        self._trap_pc = None
+        self._trap_opcode = None
+        self._trap_kind = None
         self._actions = None
         self._joyp_select = None
         self._serial_buf = None
@@ -206,6 +210,18 @@ class WarpVecBaseBackend:
         self._cycle_in_frame = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
+        self._trap_flag = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._trap_pc = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._trap_opcode = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._trap_kind = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
         self._actions = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
@@ -280,6 +296,10 @@ class WarpVecBaseBackend:
                 self._instr_count,
                 self._cycle_count,
                 self._cycle_in_frame,
+                self._trap_flag,
+                self._trap_pc,
+                self._trap_opcode,
+                self._trap_kind,
                 self._actions,
                 self._joyp_select,
                 self._serial_buf,
@@ -387,6 +407,10 @@ class WarpVecBaseBackend:
         flags = flags_from_f(f)
         instr_count = int(self._instr_count.numpy()[env_idx])
         cycle_count = int(self._cycle_count.numpy()[env_idx])
+        trap_flag = int(self._trap_flag.numpy()[env_idx])
+        trap_pc = int(self._trap_pc.numpy()[env_idx]) & 0xFFFF
+        trap_opcode = int(self._trap_opcode.numpy()[env_idx]) & 0xFF
+        trap_kind = int(self._trap_kind.numpy()[env_idx])
 
         return CpuState(
             pc=pc,
@@ -402,6 +426,10 @@ class WarpVecBaseBackend:
             flags=flags,
             instr_count=instr_count,
             cycle_count=cycle_count,
+            trap_flag=trap_flag,
+            trap_pc=trap_pc,
+            trap_opcode=trap_opcode,
+            trap_kind=trap_kind,
         )
 
     def close(self) -> None:
@@ -421,6 +449,10 @@ class WarpVecBaseBackend:
         self._instr_count = None
         self._cycle_count = None
         self._cycle_in_frame = None
+        self._trap_flag = None
+        self._trap_pc = None
+        self._trap_opcode = None
+        self._trap_kind = None
         self._actions = None
         self._joyp_select = None
         self._serial_buf = None

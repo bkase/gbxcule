@@ -150,6 +150,10 @@ class CpuState(TypedDict, total=False):
     flags: CpuFlags  # Decomposed flags
     instr_count: int | None  # Instruction count (optional)
     cycle_count: int | None  # Cycle count (optional)
+    trap_flag: int | None  # Trap active flag (optional)
+    trap_pc: int | None  # Trap PC (optional)
+    trap_opcode: int | None  # Trap opcode (optional)
+    trap_kind: int | None  # Trap kind (optional)
 
 
 # ---------------------------------------------------------------------------

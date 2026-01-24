@@ -56,9 +56,10 @@ def get_template_body(
     return _get_template_body(func_obj, replacements or {})
 
 
-def _build_dispatch_tree(
+def _build_linear_dispatch(
     opcode_templates: Sequence[OpcodeTemplate],
     default_body: list[cst.BaseStatement],
+    opcode_var: str,
 ) -> cst.If:
     current_node: cst.If = cst.If(
         test=cst.Name("True"),
@@ -68,7 +69,7 @@ def _build_dispatch_tree(
     for spec in reversed(opcode_templates):
         body = _get_template_body(spec.template, spec.replacements)
         condition = cst.Comparison(
-            left=cst.Name("opcode"),
+            left=cst.Name(opcode_var),
             comparisons=[
                 cst.ComparisonTarget(
                     operator=cst.Equal(),
@@ -79,6 +80,42 @@ def _build_dispatch_tree(
         current_node = cst.If(
             test=condition,
             body=cst.IndentedBlock(body=body),
+            orelse=cst.Else(body=cst.IndentedBlock(body=[current_node])),
+        )
+
+    return current_node
+
+
+def _build_bucket_dispatch(
+    opcode_templates: Sequence[OpcodeTemplate],
+    default_body: list[cst.BaseStatement],
+    opcode_var: str,
+    opcode_hi_var: str,
+) -> cst.If:
+    buckets: dict[int, list[OpcodeTemplate]] = {}
+    for spec in opcode_templates:
+        buckets.setdefault(spec.opcode >> 4, []).append(spec)
+
+    current_node: cst.If = cst.If(
+        test=cst.Name("True"),
+        body=cst.IndentedBlock(body=default_body),
+    )
+
+    for hi in reversed(sorted(buckets)):
+        bucket = sorted(buckets[hi], key=lambda spec: spec.opcode)
+        inner_dispatch = _build_linear_dispatch(bucket, default_body, opcode_var)
+        condition = cst.Comparison(
+            left=cst.Name(opcode_hi_var),
+            comparisons=[
+                cst.ComparisonTarget(
+                    operator=cst.Equal(),
+                    comparator=cst.Integer(str(hi)),
+                )
+            ],
+        )
+        current_node = cst.If(
+            test=condition,
+            body=cst.IndentedBlock(body=[inner_dispatch]),
             orelse=cst.Else(body=cst.IndentedBlock(body=[current_node])),
         )
 
@@ -267,6 +304,10 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         instr_count: wp.array(dtype=wp.int64),
         cycle_count: wp.array(dtype=wp.int64),
         cycle_in_frame: wp.array(dtype=wp.int32),
+        trap_flag: wp.array(dtype=wp.int32),
+        trap_pc: wp.array(dtype=wp.int32),
+        trap_opcode: wp.array(dtype=wp.int32),
+        trap_kind: wp.array(dtype=wp.int32),
         actions: wp.array(dtype=wp.int32),
         joyp_select: wp.array(dtype=wp.uint8),
         serial_buf: wp.array(dtype=wp.uint8),
@@ -295,14 +336,30 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         instr_i = instr_count[i]
         cycles_i = cycle_count[i]
         cycle_frame = cycle_in_frame[i]
+        trap_i = trap_flag[i]
+        trap_pc_i = trap_pc[i]
+        trap_opcode_i = trap_opcode[i]
+        trap_kind_i = trap_kind[i]
 
         frames_done = wp.int32(0)
 
         while frames_done < frames_to_run:
+            if trap_i != 0:
+                break
             opcode = wp.int32(mem[base + pc_i])
+            opcode_hi = opcode >> 4
             cycles = wp.int32(0)
 
-            INSTRUCTION_DISPATCH
+            if opcode == 0xCB:
+                cb_opcode = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+                cb_opcode_hi = cb_opcode >> 4
+                pc_i = (pc_i + 2) & 0xFFFF
+                CB_DISPATCH
+            else:
+                INSTRUCTION_DISPATCH
+
+            if trap_i != 0:
+                break
 
             f_i = f_i & 0xF0
             instr_i += wp.int64(1)
@@ -330,6 +387,10 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         instr_count[i] = instr_i
         cycle_count[i] = cycles_i
         cycle_in_frame[i] = cycle_frame
+        trap_flag[i] = trap_i
+        trap_pc[i] = trap_pc_i
+        trap_opcode[i] = trap_opcode_i
+        trap_kind[i] = trap_kind_i
     """
 )
 
@@ -338,12 +399,25 @@ def build_cpu_step_source(
     opcode_templates: Sequence[OpcodeTemplate],
     default_template: OpcodeTemplate,
     constants: dict[str, int],
+    *,
+    cb_opcode_templates: Sequence[OpcodeTemplate] | None = None,
+    cb_default_template: OpcodeTemplate | None = None,
     post_step_body: Sequence[cst.BaseStatement] | None = None,
 ) -> str:
     default_body = _get_template_body(
         default_template.template, default_template.replacements
     )
-    dispatch_tree = _build_dispatch_tree(opcode_templates, default_body)
+    dispatch_tree = _build_bucket_dispatch(
+        opcode_templates, default_body, "opcode", "opcode_hi"
+    )
+    cb_templates = cb_opcode_templates or ()
+    cb_default = cb_default_template or default_template
+    cb_default_body = _get_template_body(
+        cb_default.template, cb_default.replacements
+    )
+    cb_dispatch_tree = _build_bucket_dispatch(
+        cb_templates, cb_default_body, "cb_opcode", "cb_opcode_hi"
+    )
     post_body = list(post_step_body) if post_step_body is not None else []
 
     skeleton_tree = cst.parse_module(_CPU_STEP_SKELETON.format(**constants))
@@ -383,6 +457,13 @@ def build_cpu_step_source(
                 len(original.body) == 1
                 and isinstance(original.body[0], cst.Expr)
                 and isinstance(original.body[0].value, cst.Name)
+                and original.body[0].value.value == "CB_DISPATCH"
+            ):
+                return cst.FlattenSentinel([cb_dispatch_tree])
+            if (
+                len(original.body) == 1
+                and isinstance(original.body[0], cst.Expr)
+                and isinstance(original.body[0].value, cst.Name)
                 and original.body[0].value.value == "POST_STEP_DISPATCH"
             ):
                 if not post_body:
@@ -398,12 +479,17 @@ def build_cpu_step_kernel(
     opcode_templates: Sequence[OpcodeTemplate],
     default_template: OpcodeTemplate,
     constants: dict[str, int],
+    *,
+    cb_opcode_templates: Sequence[OpcodeTemplate] | None = None,
+    cb_default_template: OpcodeTemplate | None = None,
     post_step_body: Sequence[cst.BaseStatement] | None = None,
 ) -> Callable[..., Any]:
     source = build_cpu_step_source(
         opcode_templates,
         default_template,
         constants,
+        cb_opcode_templates=cb_opcode_templates,
+        cb_default_template=cb_default_template,
         post_step_body=post_step_body,
     )
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]

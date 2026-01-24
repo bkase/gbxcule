@@ -7,7 +7,7 @@ from typing import Any
 
 from gbxcule.backends.common import Stage
 from gbxcule.core.abi import OBS_DIM_DEFAULT, SERIAL_MAX
-from gbxcule.core.isa_sm83 import iter_unprefixed
+from gbxcule.core.isa_sm83 import iter_cb, iter_unprefixed
 from gbxcule.kernels.cpu_step_builder import (
     OpcodeTemplate,
     build_cpu_step_kernel,
@@ -82,7 +82,19 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         opcode_templates.append(
             OpcodeTemplate(spec.opcode, template, spec.replacements)
         )
-    default_template = OpcodeTemplate(0x00, misc.template_default, {})
+    cb_opcode_templates: list[OpcodeTemplate] = []
+    for spec in iter_cb():
+        if spec.template_key is None:
+            continue
+        template = template_map.get(spec.template_key)
+        if template is None:
+            raise KeyError(f"Missing template for key: {spec.template_key}")
+        cb_opcode_templates.append(
+            OpcodeTemplate(spec.opcode, template, spec.replacements)
+        )
+
+    default_template = OpcodeTemplate(0x00, misc.template_trap_unprefixed, {})
+    cb_default_template = OpcodeTemplate(0x00, misc.template_trap_cb, {})
     constants = {
         "MEM_SIZE": MEM_SIZE,
         "CYCLES_PER_FRAME": CYCLES_PER_FRAME,
@@ -112,6 +124,8 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         opcode_templates,
         default_template,
         constants,
+        cb_opcode_templates=cb_opcode_templates,
+        cb_default_template=cb_default_template,
         post_step_body=post_step_body,
     )
     _cpu_step_kernels[key] = kernel
@@ -136,6 +150,10 @@ def _warmup_warp_device(
     zeros_u8 = wp.zeros(1, dtype=wp.uint8, device=device)
     zeros_serial = wp.zeros(1 * SERIAL_MAX, dtype=wp.uint8, device=device)
     zeros_serial_len = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_trap_flag = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_trap_pc = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_trap_opcode = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_trap_kind = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_f32 = wp.zeros(1, dtype=wp.float32, device=device)
     zeros_obs = wp.zeros(obs_dim, dtype=wp.float32, device=device)
     kernel = get_cpu_step_kernel(stage=stage, obs_dim=obs_dim)
@@ -157,6 +175,11 @@ def _warmup_warp_device(
             zeros_i64,
             zeros_i64,
             zeros_i32,
+            zeros_i32,
+            zeros_trap_flag,
+            zeros_trap_pc,
+            zeros_trap_opcode,
+            zeros_trap_kind,
             zeros_i32,
             zeros_u8,
             zeros_serial,

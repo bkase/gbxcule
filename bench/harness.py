@@ -306,6 +306,7 @@ def get_action_schedule_metadata(
 # Canonical register keys for normalization
 CANONICAL_REGISTER_KEYS = ["pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l"]
 CANONICAL_FLAG_KEYS = ["z", "n", "h", "c"]
+CANONICAL_TRAP_KEYS = ["trap_flag", "trap_pc", "trap_opcode", "trap_kind"]
 
 # Memory hash configuration
 MEM_HASH_VERSION = "blake2b-128-v1"
@@ -400,6 +401,10 @@ def normalize_cpu_state(state: dict[str, Any]) -> dict[str, Any]:
         int(state["cycle_count"]) if state.get("cycle_count") is not None else None
     )
 
+    # Optional trap info (for debug/verify)
+    for key in CANONICAL_TRAP_KEYS:
+        normalized[key] = int(state[key]) if state.get(key) is not None else None
+
     return normalized
 
 
@@ -438,6 +443,13 @@ def diff_states(
 
     # Compare counters (optional, skip if both None)
     for key in ["instr_count", "cycle_count"]:
+        ref_val = ref_state.get(key)
+        dut_val = dut_state.get(key)
+        if ref_val is not None and dut_val is not None and ref_val != dut_val:
+            diffs[key] = {"ref": ref_val, "dut": dut_val}
+
+    # Compare trap info (optional)
+    for key in CANONICAL_TRAP_KEYS:
         ref_val = ref_state.get(key)
         dut_val = dut_state.get(key)
         if ref_val is not None and dut_val is not None and ref_val != dut_val:
