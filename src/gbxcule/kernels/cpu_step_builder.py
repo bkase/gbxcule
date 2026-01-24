@@ -715,6 +715,23 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             cart_ram[ram_index] = val8
             return
         if addr16 < ROM_LIMIT:
+            mbc_kind = cart_state[state_base + CART_STATE_MBC_KIND]
+            if mbc_kind == MBC_KIND_MBC1:
+                if addr16 < 0x2000:
+                    cart_state[state_base + CART_STATE_RAM_ENABLE] = (
+                        1 if (val & 0x0F) == 0x0A else 0
+                    )
+                elif addr16 < 0x4000:
+                    bank = val & 0x1F
+                    if bank == 0:
+                        bank = 1
+                    cart_state[state_base + CART_STATE_ROM_BANK_LO] = bank
+                elif addr16 < 0x6000:
+                    bank = val & 0x03
+                    cart_state[state_base + CART_STATE_ROM_BANK_HI] = bank
+                    cart_state[state_base + CART_STATE_RAM_BANK] = bank
+                else:
+                    cart_state[state_base + CART_STATE_BANK_MODE] = val & 0x01
             return
         mem[base + addr16] = val8
 
