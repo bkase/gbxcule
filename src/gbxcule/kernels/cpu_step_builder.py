@@ -507,6 +507,105 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         while frames_done < frames_to_run:
             if trap_i != 0:
                 break
+            if halted[i] != 0:
+                cycles = wp.int32(4)
+                timer_tick(
+                    i,
+                    base,
+                    cycles,
+                    mem,
+                    div_counter,
+                    timer_prev_in,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
+                pending = (
+                    wp.int32(mem[base + 0xFFFF])
+                    & wp.int32(mem[base + 0xFF0F])
+                    & 0x1F
+                )
+                service_cycles = wp.int32(0)
+                if pending != 0:
+                    halted[i] = 0
+                    if ime[i] != 0:
+                        ime[i] = 0
+                        vector = wp.int32(0x40)
+                        bit = wp.int32(0x01)
+                        if (pending & 0x01) != 0:
+                            vector = wp.int32(0x40)
+                            bit = wp.int32(0x01)
+                        elif (pending & 0x02) != 0:
+                            vector = wp.int32(0x48)
+                            bit = wp.int32(0x02)
+                        elif (pending & 0x04) != 0:
+                            vector = wp.int32(0x50)
+                            bit = wp.int32(0x04)
+                        elif (pending & 0x08) != 0:
+                            vector = wp.int32(0x58)
+                            bit = wp.int32(0x08)
+                        else:
+                            vector = wp.int32(0x60)
+                            bit = wp.int32(0x10)
+                        if_addr = base + 0xFF0F
+                        mem[if_addr] = wp.uint8(
+                            mem[if_addr] & wp.uint8(0xFF ^ bit)
+                        )
+                        ret = pc_i & 0xFFFF
+                        sp_i = (sp_i - 1) & 0xFFFF
+                        write8(
+                            i,
+                            base,
+                            sp_i,
+                            (ret >> 8) & 0xFF,
+                            mem,
+                            joyp_select,
+                            serial_buf,
+                            serial_len,
+                            serial_overflow,
+                            div_counter,
+                            timer_prev_in,
+                            tima_reload_pending,
+                            tima_reload_delay,
+                        )
+                        sp_i = (sp_i - 1) & 0xFFFF
+                        write8(
+                            i,
+                            base,
+                            sp_i,
+                            ret & 0xFF,
+                            mem,
+                            joyp_select,
+                            serial_buf,
+                            serial_len,
+                            serial_overflow,
+                            div_counter,
+                            timer_prev_in,
+                            tima_reload_pending,
+                            tima_reload_delay,
+                        )
+                        pc_i = vector
+                        service_cycles = 20
+                        timer_tick(
+                            i,
+                            base,
+                            service_cycles,
+                            mem,
+                            div_counter,
+                            timer_prev_in,
+                            tima_reload_pending,
+                            tima_reload_delay,
+                        )
+
+                total_cycles = cycles + service_cycles
+                cycles_i += wp.int64(total_cycles)
+                cycle_frame += total_cycles
+
+                while cycle_frame >= CYCLES_PER_FRAME:
+                    cycle_frame -= CYCLES_PER_FRAME
+                    frames_done += 1
+                    if frames_done >= frames_to_run:
+                        break
+                continue
             opcode = wp.int32(mem[base + pc_i])
             opcode_hi = opcode >> 4
             cycles = wp.int32(0)

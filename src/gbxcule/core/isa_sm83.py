@@ -989,6 +989,16 @@ def _add_control_flow_families() -> None:
             group="misc",
         )
     )
+    _add_spec(
+        _spec(
+            opcode=0x76,
+            mnemonic="HALT",
+            length=1,
+            cycles=(4,),
+            template_key="halt",
+            group="misc",
+        )
+    )
 
     # PUSH rr + POP rr
     push_rr = [

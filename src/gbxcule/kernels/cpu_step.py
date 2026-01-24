@@ -71,6 +71,7 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "nop": misc.template_nop,
         "di": misc.template_di,
         "ei": misc.template_ei,
+        "halt": misc.template_halt,
         "jp_a16": jumps.template_jp_a16,
         "jr_r8": jumps.template_jr_r8,
         "jr_nz_r8": jumps.template_jr_nz_r8,

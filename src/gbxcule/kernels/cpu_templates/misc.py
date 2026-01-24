@@ -25,6 +25,13 @@ def template_ei(pc_i: int) -> None:
     cycles = 4
 
 
+def template_halt(pc_i: int) -> None:
+    """HALT template."""
+    halted[i] = 1
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 4
+
+
 def template_default(pc_i: int) -> None:
     """Default template for unknown opcodes."""
     pc_i = (pc_i + 1) & 0xFFFF
