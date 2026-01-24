@@ -1,22 +1,28 @@
-"""ABI v0: Authoritative device buffer layouts.
+"""ABI v2: Authoritative device buffer layouts.
 
 This module defines the canonical layouts for state buffers used by Warp kernels
 and downstream consumers. It is intentionally tiny and pure.
 
 See ARCHITECTURE.md §6 for rationale and versioning policy.
+
+ABI v2 migration note:
+- Added serial output buffers (SERIAL_MAX, serial_buf/serial_len/serial_overflow).
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 1
+ABI_VERSION: Final[int] = 2
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536
 
 # Default observation dimensionality for fused step kernels.
 OBS_DIM_DEFAULT: Final[int] = 32
+
+# Serial capture buffer length per environment (SB/SC debug output).
+SERIAL_MAX: Final[int] = 1024
 
 
 def mem_offset(env_idx: int, addr: int) -> int:

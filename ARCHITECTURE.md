@@ -231,6 +231,12 @@ Recommended ABI v1 buffers per env:
 - `reward_out: f32[num_envs]`
 - `obs_out: f32[num_envs * OBS_DIM_DEFAULT]` (flat; OBS_DIM_DEFAULT = 32 in ABI v1)
 
+**ABI v2 addendum (serial capture)**
+
+- `serial_buf: u8[num_envs * SERIAL_MAX]`
+- `serial_len: i32[num_envs]`
+- `serial_overflow: u8[num_envs]`
+
 Rationale:
 
 - Flat 64KB keeps early kernel work straightforward.
