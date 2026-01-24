@@ -315,6 +315,11 @@ CANONICAL_TRAP_KEYS = ["trap_flag", "trap_pc", "trap_opcode", "trap_kind"]
 # Memory hash configuration
 MEM_HASH_VERSION = "blake2b-128-v1"
 MAX_MEM_DUMP_BYTES = 1024
+FRAME_HASH_HISTORY_LEN = 4
+PPU_DUMP_REGIONS = [
+    ("oam", 0xFE00, 0xFEA0),
+    ("vram", 0x8000, 0xA000),
+]
 
 
 def _parse_hex_u16(text: str) -> int:
@@ -419,13 +424,55 @@ def _read_ppu_regs(backend: Any) -> dict[str, int] | None:
         "SCX": 0xFF43,
         "LY": 0xFF44,
         "LYC": 0xFF45,
+        "WY": 0xFF4A,
+        "WX": 0xFF4B,
         "BGP": 0xFF47,
+        "OBP0": 0xFF48,
+        "OBP1": 0xFF49,
         "IF": 0xFF0F,
     }
     out: dict[str, int] = {}
-    for name, addr in regs.items():
-        out[name] = reader(0, addr, addr + 1)[0]
+    try:
+        for name, addr in regs.items():
+            out[name] = reader(0, addr, addr + 1)[0]
+    except Exception:
+        return None
     return out
+
+
+def _read_ppu_dumps(
+    ref_backend: Any, dut_backend: Any
+) -> tuple[list[dict[str, Any]], list[tuple[str, int, int, bytes, bytes]]] | None:
+    reader_ref = getattr(ref_backend, "read_memory", None)
+    reader_dut = getattr(dut_backend, "read_memory", None)
+    if not callable(reader_ref) or not callable(reader_dut):
+        return None
+    dump_meta: list[dict[str, Any]] = []
+    dump_blobs: list[tuple[str, int, int, bytes, bytes]] = []
+    for name, lo, hi in PPU_DUMP_REGIONS:
+        dump_hi = hi
+        truncated = False
+        if hi - lo > MAX_MEM_DUMP_BYTES:
+            dump_hi = lo + MAX_MEM_DUMP_BYTES
+            truncated = True
+        try:
+            ref_bytes = _coerce_memory_slice(reader_ref(0, lo, dump_hi), dump_hi - lo)
+            dut_bytes = _coerce_memory_slice(reader_dut(0, lo, dump_hi), dump_hi - lo)
+        except Exception:
+            continue
+        dump_meta.append(
+            {
+                "name": name,
+                "lo": lo,
+                "hi": hi,
+                "dump_hi": dump_hi,
+                "truncated": truncated,
+            }
+        )
+        dump_blobs.append((name, lo, dump_hi, ref_bytes, dut_bytes))
+    if not dump_meta:
+        return None
+    return dump_meta, dump_blobs
 
 
 def _write_shade_png(shades: np.ndarray, path: Path) -> None:
@@ -1457,7 +1504,7 @@ def run_scaling_sweep(
 # Mismatch Bundle Schema Version
 # ---------------------------------------------------------------------------
 
-MISMATCH_SCHEMA_VERSION = 1
+MISMATCH_SCHEMA_VERSION = 2
 
 
 def load_actions_trace(actions_file: str) -> list[np.ndarray]:
@@ -1529,6 +1576,10 @@ def write_mismatch_bundle(
     compare_frame: bool = False,
     dump_frame_on_mismatch: bool = False,
     frame_warmup: int = 0,
+    ppu_regs: dict[str, dict[str, int]] | None = None,
+    frame_hash_history: list[dict[str, int]] | None = None,
+    ppu_mem_dump_meta: list[dict[str, Any]] | None = None,
+    ppu_mem_dump_blobs: list[tuple[str, int, int, bytes, bytes]] | None = None,
 ) -> Path:
     """Write a mismatch repro bundle atomically.
 
@@ -1562,6 +1613,10 @@ def write_mismatch_bundle(
         compare_frame: Whether frame hash comparison was enabled.
         dump_frame_on_mismatch: Whether frame PNG dumping was enabled.
         frame_warmup: Frame hash warmup steps.
+        ppu_regs: Optional PPU register snapshots (ref/dut).
+        frame_hash_history: Optional recent frame hashes (ref/dut).
+        ppu_mem_dump_meta: Optional PPU memory dump metadata.
+        ppu_mem_dump_blobs: Optional PPU memory dump blobs.
 
     Returns:
         Path to the final bundle directory.
@@ -1612,6 +1667,12 @@ def write_mismatch_bundle(
             "action_codec": action_codec,
             "system": system_info,
         }
+        if ppu_regs is not None:
+            metadata["ppu_regs"] = ppu_regs
+        if frame_hash_history is not None:
+            metadata["frame_hash_history"] = frame_hash_history
+        if ppu_mem_dump_meta is not None:
+            metadata["ppu_mem_dumps"] = ppu_mem_dump_meta
         if mem_regions:
             metadata["mem_regions"] = [{"lo": lo, "hi": hi} for lo, hi in mem_regions]
             metadata["mem_hash_version"] = mem_hash_version
@@ -1635,6 +1696,12 @@ def write_mismatch_bundle(
             for lo, hi, ref_bytes, dut_bytes in mem_dumps:
                 ref_name = f"mem_ref_{lo:04X}_{hi:04X}.bin"
                 dut_name = f"mem_dut_{lo:04X}_{hi:04X}.bin"
+                (temp_dir / ref_name).write_bytes(ref_bytes)
+                (temp_dir / dut_name).write_bytes(dut_bytes)
+        if ppu_mem_dump_blobs:
+            for name, lo, hi, ref_bytes, dut_bytes in ppu_mem_dump_blobs:
+                ref_name = f"{name}_ref_{lo:04X}_{hi:04X}.bin"
+                dut_name = f"{name}_dut_{lo:04X}_{hi:04X}.bin"
                 (temp_dir / ref_name).write_bytes(ref_bytes)
                 (temp_dir / dut_name).write_bytes(dut_bytes)
 
@@ -1828,6 +1895,7 @@ def run_verify(
 
         # Action trace for recording
         actions_trace: list[list[int]] = []
+        frame_hash_history: list[dict[str, int]] = []
 
         # Verify loop
         for step_idx in range(args.verify_steps):
@@ -1859,6 +1927,11 @@ def run_verify(
                 diff = diff_states(ref_state, dut_state)
                 mem_dumps: list[tuple[int, int, bytes, bytes]] = []
                 frame_shades: tuple[np.ndarray, np.ndarray] | None = None
+                ppu_regs: dict[str, dict[str, int]] | None = None
+                ppu_mem_dump_meta: list[dict[str, Any]] | None = None
+                ppu_mem_dump_blobs: list[tuple[str, int, int, bytes, bytes]] | None = (
+                    None
+                )
 
                 if mem_regions:
                     mem_diffs: list[dict[str, Any]] = []
@@ -1899,6 +1972,15 @@ def run_verify(
                         dut_shades = _frame_shades_from_backend(dut_backend)
                         ref_hash = hash_memory(ref_shades.tobytes())
                         dut_hash = hash_memory(dut_shades.tobytes())
+                        frame_hash_history.append(
+                            {
+                                "step": step_idx,
+                                "ref_hash": ref_hash,
+                                "dut_hash": dut_hash,
+                            }
+                        )
+                        if len(frame_hash_history) > FRAME_HASH_HISTORY_LEN:
+                            frame_hash_history.pop(0)
                         if ref_hash != dut_hash:
                             if diff is None:
                                 diff = {}
@@ -1912,11 +1994,14 @@ def run_verify(
                         return 1
 
                 if diff is not None:
-                    if args.compare_frame:
-                        ppu_ref = _read_ppu_regs(ref_backend)
-                        ppu_dut = _read_ppu_regs(dut_backend)
-                        if ppu_ref is not None and ppu_dut is not None:
-                            diff["ppu_regs"] = {"ref": ppu_ref, "dut": ppu_dut}
+                    ppu_ref = _read_ppu_regs(ref_backend)
+                    ppu_dut = _read_ppu_regs(dut_backend)
+                    if ppu_ref is not None and ppu_dut is not None:
+                        ppu_regs = {"ref": ppu_ref, "dut": ppu_dut}
+                        diff["ppu_regs"] = ppu_regs
+                    ppu_dumps = _read_ppu_dumps(ref_backend, dut_backend)
+                    if ppu_dumps is not None:
+                        ppu_mem_dump_meta, ppu_mem_dump_blobs = ppu_dumps
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
                     print(f"First differing fields: {list(diff.keys())[:5]}")
@@ -1954,6 +2039,12 @@ def run_verify(
                         compare_frame=args.compare_frame,
                         dump_frame_on_mismatch=args.dump_frame_on_mismatch,
                         frame_warmup=args.frame_warmup,
+                        ppu_regs=ppu_regs,
+                        frame_hash_history=(
+                            frame_hash_history if args.compare_frame else None
+                        ),
+                        ppu_mem_dump_meta=ppu_mem_dump_meta,
+                        ppu_mem_dump_blobs=ppu_mem_dump_blobs,
                     )
 
                     if (

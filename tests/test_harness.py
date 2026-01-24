@@ -937,3 +937,63 @@ class TestMismatchBundle:
                 repro_content = f.read()
 
             assert "--mem-region C000:C004" in repro_content
+
+    def test_mismatch_bundle_ppu_metadata_and_dumps(self) -> None:
+        """mismatch bundle records PPU metadata and dump blobs when provided."""
+        from harness import write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_path.write_bytes(b"\xAA\xBB")
+            ppu_regs = {"ref": {"LCDC": 0x91}, "dut": {"LCDC": 0x90}}
+            frame_hash_history = [
+                {"step": 3, "ref_hash": "aaa", "dut_hash": "bbb"},
+                {"step": 4, "ref_hash": "ccc", "dut_hash": "ddd"},
+            ]
+            ppu_mem_dump_meta = [
+                {"name": "oam", "lo": 0xFE00, "hi": 0xFEA0, "dump_hi": 0xFE10, "truncated": True}
+            ]
+            ppu_mem_dump_blobs = [
+                ("oam", 0xFE00, 0xFE10, b"\x01" * 0x10, b"\x02" * 0x10)
+            ]
+
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=rom_path,
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=2,
+                env_idx=0,
+                ref_state={},
+                dut_state={},
+                diff={},
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
+                actions_trace=[],
+                system_info={},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=5,
+                ppu_regs=ppu_regs,
+                frame_hash_history=frame_hash_history,
+                ppu_mem_dump_meta=ppu_mem_dump_meta,
+                ppu_mem_dump_blobs=ppu_mem_dump_blobs,
+            )
+
+            with open(bundle_path / "metadata.json") as f:
+                metadata = json.load(f)
+
+            assert metadata["ppu_regs"] == ppu_regs
+            assert metadata["frame_hash_history"] == frame_hash_history
+            assert metadata["ppu_mem_dumps"] == ppu_mem_dump_meta
+
+            ref_dump = bundle_path / "oam_ref_FE00_FE10.bin"
+            dut_dump = bundle_path / "oam_dut_FE00_FE10.bin"
+            assert ref_dump.exists()
+            assert dut_dump.exists()
+            assert ref_dump.read_bytes() == b"\x01" * 0x10
+            assert dut_dump.read_bytes() == b"\x02" * 0x10
