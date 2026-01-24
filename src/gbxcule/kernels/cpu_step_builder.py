@@ -544,6 +544,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         action_codec_id: wp.int32,
     ) -> wp.int32:
         addr16 = addr & 0xFFFF
+        if addr16 >= 0xE000 and addr16 < 0xFE00:
+            addr16 = addr16 - 0x2000
         state_base = i * CART_STATE_STRIDE
         if addr16 < BOOTROM_SIZE and cart_state[
             state_base + CART_STATE_BOOTROM_ENABLED
@@ -675,6 +677,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         tima_reload_delay: wp.array(dtype=wp.int32),
     ) -> None:
         addr16 = addr & 0xFFFF
+        if addr16 >= 0xE000 and addr16 < 0xFE00:
+            addr16 = addr16 - 0x2000
         val8 = wp.uint8(val)
         state_base = i * CART_STATE_STRIDE
         if addr16 == 0xFF00:
@@ -1023,6 +1027,29 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                                 obj_obp1_latch_env0,
                             )
                         lines = lines - 1
+                    curr_mode = wp.int32(0)
+                    if ppu_ly_i >= SCREEN_H:
+                        curr_mode = 1
+                    elif scanline_cycle_i < 80:
+                        curr_mode = 2
+                    elif scanline_cycle_i < 252:
+                        curr_mode = 3
+                    else:
+                        curr_mode = 0
+                    ppu_update_stat(base, mem, ppu_ly_i, curr_mode)
+                    lyc = wp.int32(mem[base + 0xFF45]) & 0xFF
+                    curr_lyc = wp.int32(0)
+                    if ppu_ly_i == lyc:
+                        curr_lyc = 1
+                    prev_mode0 = wp.int32(1) if curr_mode == 0 else wp.int32(0)
+                    prev_mode1 = wp.int32(1) if curr_mode == 1 else wp.int32(0)
+                    prev_mode2 = wp.int32(1) if curr_mode == 2 else wp.int32(0)
+                    ppu_stat_prev[i] = wp.uint8(
+                        (prev_mode0 & 1)
+                        | ((prev_mode1 & 1) << 1)
+                        | ((prev_mode2 & 1) << 2)
+                        | ((curr_lyc & 1) << 3)
+                    )
                 pending = (
                     wp.int32(mem[base + 0xFFFF])
                     & wp.int32(mem[base + 0xFF0F])
@@ -1113,6 +1140,110 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             tima_reload_pending,
                             tima_reload_delay,
                         )
+                        if service_cycles != 0:
+                            lcdc = wp.int32(mem[base + 0xFF40]) & 0xFF
+                            if (lcdc & 0x80) == 0:
+                                scanline_cycle_i = 0
+                                ppu_ly_i = 0
+                                window_line_i = 0
+                                mem[base + 0xFF44] = wp.uint8(0)
+                                ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
+                                ppu_stat_prev[i] = wp.uint8(0)
+                            else:
+                                total = scanline_cycle_i + service_cycles
+                                lines = total // CYCLES_PER_SCANLINE
+                                scanline_cycle_i = total - lines * CYCLES_PER_SCANLINE
+                                if lines == 0 and scanline_cycle_i == 0:
+                                    ppu_capture_latches_env0(
+                                        i,
+                                        ppu_ly_i,
+                                        window_line_i,
+                                        base,
+                                        mem,
+                                        bg_lcdc_latch_env0,
+                                        bg_scx_latch_env0,
+                                        bg_scy_latch_env0,
+                                        bg_bgp_latch_env0,
+                                        win_wx_latch_env0,
+                                        win_wy_latch_env0,
+                                        win_line_latch_env0,
+                                        obj_obp0_latch_env0,
+                                        obj_obp1_latch_env0,
+                                    )
+                                while lines > 0:
+                                    prev_ly = ppu_ly_i
+                                    if prev_ly < SCREEN_H:
+                                        if (lcdc & 0x20) != 0:
+                                            wy = wp.int32(mem[base + 0xFF4A]) & 0xFF
+                                            if prev_ly >= wy:
+                                                window_line_i = window_line_i + 1
+                                    ppu_ly_i = (ppu_ly_i + 1) % LINES_PER_FRAME
+                                    if ppu_ly_i == 0:
+                                        window_line_i = 0
+                                    mem[base + 0xFF44] = wp.uint8(ppu_ly_i)
+                                    mode = wp.int32(0)
+                                    if ppu_ly_i >= SCREEN_H:
+                                        mode = 1
+                                    ppu_update_stat_irq(
+                                        i,
+                                        base,
+                                        mem,
+                                        ppu_ly_i,
+                                        mode,
+                                        ppu_stat_prev,
+                                    )
+                                    if prev_ly == 143 and ppu_ly_i == 144:
+                                        if_addr = base + 0xFF0F
+                                        mem[if_addr] = wp.uint8(
+                                            mem[if_addr] | wp.uint8(0x01)
+                                        )
+                                    if ppu_ly_i < SCREEN_H:
+                                        ppu_capture_latches_env0(
+                                            i,
+                                            ppu_ly_i,
+                                            window_line_i,
+                                            base,
+                                            mem,
+                                            bg_lcdc_latch_env0,
+                                            bg_scx_latch_env0,
+                                            bg_scy_latch_env0,
+                                            bg_bgp_latch_env0,
+                                            win_wx_latch_env0,
+                                            win_wy_latch_env0,
+                                            win_line_latch_env0,
+                                            obj_obp0_latch_env0,
+                                            obj_obp1_latch_env0,
+                                        )
+                                    lines = lines - 1
+                                curr_mode = wp.int32(0)
+                                if ppu_ly_i >= SCREEN_H:
+                                    curr_mode = 1
+                                elif scanline_cycle_i < 80:
+                                    curr_mode = 2
+                                elif scanline_cycle_i < 252:
+                                    curr_mode = 3
+                                else:
+                                    curr_mode = 0
+                                ppu_update_stat(base, mem, ppu_ly_i, curr_mode)
+                                lyc = wp.int32(mem[base + 0xFF45]) & 0xFF
+                                curr_lyc = wp.int32(0)
+                                if ppu_ly_i == lyc:
+                                    curr_lyc = 1
+                                prev_mode0 = (
+                                    wp.int32(1) if curr_mode == 0 else wp.int32(0)
+                                )
+                                prev_mode1 = (
+                                    wp.int32(1) if curr_mode == 1 else wp.int32(0)
+                                )
+                                prev_mode2 = (
+                                    wp.int32(1) if curr_mode == 2 else wp.int32(0)
+                                )
+                                ppu_stat_prev[i] = wp.uint8(
+                                    (prev_mode0 & 1)
+                                    | ((prev_mode1 & 1) << 1)
+                                    | ((prev_mode2 & 1) << 2)
+                                    | ((curr_lyc & 1) << 3)
+                                )
 
                 total_cycles = cycles + service_cycles
                 rtc_tick(i, total_cycles, cart_state)
@@ -1261,6 +1392,29 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             obj_obp1_latch_env0,
                         )
                     lines = lines - 1
+                curr_mode = wp.int32(0)
+                if ppu_ly_i >= SCREEN_H:
+                    curr_mode = 1
+                elif scanline_cycle_i < 80:
+                    curr_mode = 2
+                elif scanline_cycle_i < 252:
+                    curr_mode = 3
+                else:
+                    curr_mode = 0
+                ppu_update_stat(base, mem, ppu_ly_i, curr_mode)
+                lyc = wp.int32(mem[base + 0xFF45]) & 0xFF
+                curr_lyc = wp.int32(0)
+                if ppu_ly_i == lyc:
+                    curr_lyc = 1
+                prev_mode0 = wp.int32(1) if curr_mode == 0 else wp.int32(0)
+                prev_mode1 = wp.int32(1) if curr_mode == 1 else wp.int32(0)
+                prev_mode2 = wp.int32(1) if curr_mode == 2 else wp.int32(0)
+                ppu_stat_prev[i] = wp.uint8(
+                    (prev_mode0 & 1)
+                    | ((prev_mode1 & 1) << 1)
+                    | ((prev_mode2 & 1) << 2)
+                    | ((curr_lyc & 1) << 3)
+                )
 
             pending = (
                 wp.int32(mem[base + 0xFFFF])
@@ -1353,6 +1507,110 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         tima_reload_pending,
                         tima_reload_delay,
                     )
+                    if service_cycles != 0:
+                        lcdc = wp.int32(mem[base + 0xFF40]) & 0xFF
+                        if (lcdc & 0x80) == 0:
+                            scanline_cycle_i = 0
+                            ppu_ly_i = 0
+                            window_line_i = 0
+                            mem[base + 0xFF44] = wp.uint8(0)
+                            ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
+                            ppu_stat_prev[i] = wp.uint8(0)
+                        else:
+                            total = scanline_cycle_i + service_cycles
+                            lines = total // CYCLES_PER_SCANLINE
+                            scanline_cycle_i = total - lines * CYCLES_PER_SCANLINE
+                            if lines == 0 and scanline_cycle_i == 0:
+                                ppu_capture_latches_env0(
+                                    i,
+                                    ppu_ly_i,
+                                    window_line_i,
+                                    base,
+                                    mem,
+                                    bg_lcdc_latch_env0,
+                                    bg_scx_latch_env0,
+                                    bg_scy_latch_env0,
+                                    bg_bgp_latch_env0,
+                                    win_wx_latch_env0,
+                                    win_wy_latch_env0,
+                                    win_line_latch_env0,
+                                    obj_obp0_latch_env0,
+                                    obj_obp1_latch_env0,
+                                )
+                            while lines > 0:
+                                prev_ly = ppu_ly_i
+                                if prev_ly < SCREEN_H:
+                                    if (lcdc & 0x20) != 0:
+                                        wy = wp.int32(mem[base + 0xFF4A]) & 0xFF
+                                        if prev_ly >= wy:
+                                            window_line_i = window_line_i + 1
+                                ppu_ly_i = (ppu_ly_i + 1) % LINES_PER_FRAME
+                                if ppu_ly_i == 0:
+                                    window_line_i = 0
+                                mem[base + 0xFF44] = wp.uint8(ppu_ly_i)
+                                mode = wp.int32(0)
+                                if ppu_ly_i >= SCREEN_H:
+                                    mode = 1
+                                ppu_update_stat_irq(
+                                    i,
+                                    base,
+                                    mem,
+                                    ppu_ly_i,
+                                    mode,
+                                    ppu_stat_prev,
+                                )
+                                if prev_ly == 143 and ppu_ly_i == 144:
+                                    if_addr = base + 0xFF0F
+                                    mem[if_addr] = wp.uint8(
+                                        mem[if_addr] | wp.uint8(0x01)
+                                    )
+                                if ppu_ly_i < SCREEN_H:
+                                    ppu_capture_latches_env0(
+                                        i,
+                                        ppu_ly_i,
+                                        window_line_i,
+                                        base,
+                                        mem,
+                                        bg_lcdc_latch_env0,
+                                        bg_scx_latch_env0,
+                                        bg_scy_latch_env0,
+                                        bg_bgp_latch_env0,
+                                        win_wx_latch_env0,
+                                        win_wy_latch_env0,
+                                        win_line_latch_env0,
+                                        obj_obp0_latch_env0,
+                                        obj_obp1_latch_env0,
+                                    )
+                                lines = lines - 1
+                            curr_mode = wp.int32(0)
+                            if ppu_ly_i >= SCREEN_H:
+                                curr_mode = 1
+                            elif scanline_cycle_i < 80:
+                                curr_mode = 2
+                            elif scanline_cycle_i < 252:
+                                curr_mode = 3
+                            else:
+                                curr_mode = 0
+                            ppu_update_stat(base, mem, ppu_ly_i, curr_mode)
+                            lyc = wp.int32(mem[base + 0xFF45]) & 0xFF
+                            curr_lyc = wp.int32(0)
+                            if ppu_ly_i == lyc:
+                                curr_lyc = 1
+                            prev_mode0 = (
+                                wp.int32(1) if curr_mode == 0 else wp.int32(0)
+                            )
+                            prev_mode1 = (
+                                wp.int32(1) if curr_mode == 1 else wp.int32(0)
+                            )
+                            prev_mode2 = (
+                                wp.int32(1) if curr_mode == 2 else wp.int32(0)
+                            )
+                            ppu_stat_prev[i] = wp.uint8(
+                                (prev_mode0 & 1)
+                                | ((prev_mode1 & 1) << 1)
+                                | ((prev_mode2 & 1) << 2)
+                                | ((curr_lyc & 1) << 3)
+                            )
 
             total_cycles = cycles + service_cycles
             rtc_tick(i, total_cycles, cart_state)

@@ -161,6 +161,16 @@ def main() -> None:
     pyboy.button_release("start")
     _tick(args.post_start_frames)
 
+    def _screen_is_blank() -> bool:
+        frame = np.asarray(pyboy.screen.image, dtype=np.uint8)
+        return frame.size == 0 or np.all(frame == frame.flat[0])
+
+    # Ensure LCD is on before capturing.
+    for _ in range(args.max_frames):
+        if (pyboy.memory[0xFF40] & 0x80) != 0 and not _screen_is_blank():
+            break
+        _tick(1)
+
     # Screenshot right after game start (before first fall).
     args.screenshot_pre.parent.mkdir(parents=True, exist_ok=True)
     pyboy.screen.image.save(args.screenshot_pre)
@@ -169,6 +179,9 @@ def main() -> None:
     fall_tick: int | None = None
     for _ in range(args.max_frames):
         _tick(1)
+        if (pyboy.memory[0xFF40] & 0x80) == 0 or _screen_is_blank():
+            prev_frame = np.asarray(pyboy.screen.image, dtype=np.uint8)
+            continue
         frame = np.asarray(pyboy.screen.image, dtype=np.uint8)
         if not np.array_equal(frame, prev_frame):
             fall_tick = ticks

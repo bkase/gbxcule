@@ -17,6 +17,15 @@ from typing import TYPE_CHECKING, BinaryIO
 import numpy as np
 
 from gbxcule.core.abi import CYCLES_PER_SCANLINE, MEM_SIZE
+from gbxcule.core.cartridge import (
+    CART_STATE_BANK_MODE,
+    CART_STATE_BOOTROM_ENABLED,
+    CART_STATE_RAM_BANK,
+    CART_STATE_RAM_ENABLE,
+    CART_STATE_ROM_BANK_HI,
+    CART_STATE_ROM_BANK_LO,
+    CART_STATE_STRIDE,
+)
 
 if TYPE_CHECKING:
     from gbxcule.backends.warp_vec import WarpVecBaseBackend
@@ -44,6 +53,7 @@ class PyBoyState:
     """Parsed PyBoy state file (v9 DMG format)."""
 
     version: int
+    bootrom_enabled: int
 
     # CPU registers
     a: int
@@ -62,6 +72,7 @@ class PyBoyState:
     ie: int  # Interrupt Enable (0xFFFF)
     interrupt_queued: int
     if_reg: int  # Interrupt Flag (0xFF0F)
+    cpu_cycles: int
 
     # LCD state
     vram: bytes  # 8192 bytes
@@ -146,78 +157,77 @@ def _skip_sound_state(f: BinaryIO, version: int) -> None:
 
     Sound state size varies by version but we can read field by field.
     """
-    # Main sound controller state
-    _samples_in_buffer = _read_u16(f)
-    _sample_rate = _read_u16(f)
-    _buffer_max = _read_u16(f)
-    _buffer_head_i = _read_u16(f)
-    _samples_per_frame = _read_u16(f)
-    _cycles_per_sample = _read_u64(f)
-    _cycles_target = _read_u64(f)
-    _cycles_512_target = _read_u64(f)
-    _sound_cycles = _read_u64(f)
-    _sound_last_cycles = _read_u64(f)
-    _div_apu_counter = _read_u16(f)
-    _div_apu_value = _read_u8(f)
-    _power = _read_u8(f)
-    _sampling_disabled = _read_u8(f)
+    if version == 13:
+        # Legacy layout: last_cycles, cycles, then channel states.
+        f.read(8)  # last_cycles
+        f.read(8)  # cycles
+        _skip_sweep_channel_state(f)
+        _skip_tone_channel_state(f)
+        _skip_wave_channel_state(f)
+        _skip_noise_channel_state(f)
+        return
 
-    # 8 panning bits
-    f.read(8)
-    _nr50 = _read_u8(f)
+    if version >= 14:
+        # Sound.save_state (v14+)
+        f.read(8)  # audiobuffer_head
+        samples_per_frame = _read_u64(f)
+        f.read(8)  # cycles_per_sample (double)
+        audiobuffer_length = (samples_per_frame + 1) * 2
+        f.read(audiobuffer_length)
+        f.read(1)  # speed_shift
+        f.read(8)  # cycles_target (double)
+        f.read(8)  # cycles_target_512Hz (double)
+        f.read(8)  # cycles_to_interrupt
+        f.read(8)  # cycles
+        f.read(8)  # last_cycles
+        f.read(8)  # div_apu_counter
+        f.read(8)  # div_apu
+        f.read(1)  # poweron
+        f.read(1)  # disable_sampling
+        f.read(8)  # channel enable bits
 
-    # Channel 1 (Sweep)
-    _read_u8(f)  # wave_duty
-    _read_u16(f)  # length_timer
-    _read_u8(f)  # volume_start
-    _read_u8(f)  # envelope_dir
-    _read_u8(f)  # envelope_pace
-    _read_u16(f)  # envelope_counter
-    _read_u16(f)  # sound_period
-    _read_u8(f)  # length_enable
-    _read_u8(f)  # waveframe
-    _read_u8(f)  # volume
-    _read_u8(f)  # sweep_pace
-    _read_u8(f)  # sweep_direction
-    _read_u8(f)  # sweep_magnitude
-    _read_u16(f)  # sweep_timer
-    _read_u16(f)  # shadow_freq
+        _skip_sweep_channel_state(f)
+        _skip_tone_channel_state(f)
+        _skip_wave_channel_state(f)
+        _skip_noise_channel_state(f)
+        return
 
-    # Channel 2 (Tone)
-    _read_u8(f)  # wave_duty
-    _read_u16(f)  # length_timer
-    _read_u8(f)  # volume_start
-    _read_u8(f)  # envelope_dir
-    _read_u8(f)  # envelope_pace
-    _read_u16(f)  # envelope_counter
-    _read_u16(f)  # sound_period
-    _read_u8(f)  # length_enable
-    _read_u8(f)  # waveframe
-    _read_u8(f)  # volume
+    # Fallback for older versions (v9-v12).
+    f.read(SOUND_SIZE_V9)
 
-    # Channel 3 (Wave)
-    f.read(16)  # wave_table
-    _read_u8(f)  # dac_power
-    _read_u16(f)  # length_timer
-    _read_u8(f)  # volume_code
-    _read_u16(f)  # sound_period
-    _read_u8(f)  # length_enable
-    _read_u8(f)  # waveframe
-    _read_u8(f)  # volume_shift
 
-    # Channel 4 (Noise)
-    _read_u16(f)  # length_timer
-    _read_u8(f)  # volume_start
-    _read_u8(f)  # envelope_dir
-    _read_u8(f)  # envelope_pace
-    _read_u16(f)  # envelope_counter
-    _read_u8(f)  # clock_power
-    _read_u8(f)  # clock_width
-    _read_u8(f)  # clock_divider
-    _read_u8(f)  # length_enable
-    _read_u16(f)  # shift_register
-    _read_u16(f)  # lfsr_mask
-    _read_u8(f)  # volume
+def _skip_tone_channel_state(f: BinaryIO) -> None:
+    f.read(2)  # wave_duty, init_length_timer
+    f.read(3)  # envelope_volume, envelope_direction, envelope_pace
+    f.read(2)  # sound_period
+    f.read(1)  # length_enable
+    f.read(1)  # enable
+    f.read(8 * 6)  # lengthtimer, envelopetimer, periodtimer, period, waveframe, volume
+
+
+def _skip_sweep_channel_state(f: BinaryIO) -> None:
+    _skip_tone_channel_state(f)
+    f.read(3)  # sweep_pace, sweep_direction, sweep_magnitude
+    f.read(8)  # sweeptimer
+    f.read(1)  # sweepenable
+    f.read(8)  # shadow
+
+
+def _skip_wave_channel_state(f: BinaryIO) -> None:
+    f.read(16)  # wavetable
+    f.read(1)  # dacpow
+    f.read(1)  # init_length_timer
+    f.read(1)  # volreg
+    f.read(2)  # sound_period
+    f.read(1)  # length_enable
+    f.read(1)  # enable
+    f.read(8 * 5)  # lengthtimer, periodtimer, period, waveframe, volumeshift
+
+
+def _skip_noise_channel_state(f: BinaryIO) -> None:
+    f.read(8)  # init_length_timer..length_enable
+    f.read(1)  # enable
+    f.read(8 * 7)  # lengthtimer, periodtimer, envelopetimer, period, shiftregister, lfsrfeed, volume
 
 
 def load_pyboy_state(path: str | Path) -> PyBoyState:
@@ -251,7 +261,7 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
             f"expected {PYBOY_STATE_VERSION_MIN}-{PYBOY_STATE_VERSION_MAX}"
         )
 
-    _bootrom = _read_u8(f)
+    bootrom_enabled = _read_u8(f)
     _key1 = _read_u8(f)
     _double_speed = _read_u8(f)
     cgb = _read_u8(f)
@@ -277,7 +287,9 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
 
     # v12+ has CPU cycles
     if version >= 12:
-        _cpu_cycles = _read_u64(f)  # Skip - we don't use this
+        cpu_cycles = _read_u64(f)
+    else:
+        cpu_cycles = 0
 
     h = (hl >> 8) & 0xFF
     l_reg = hl & 0xFF
@@ -297,26 +309,22 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     wy = _read_u8(f)
     wx = _read_u8(f)
 
+    # Scanline params (v11+)
+    if version >= 11:
+        scanline_params = f.read(SCANLINE_PARAMS_SIZE)
+    else:
+        scanline_params = bytes(SCANLINE_PARAMS_SIZE)
+
     # LCD timing/mode (v8+)
     _lcd_cgb = _read_u8(f)  # Should be 0 for DMG
-    _lcd_double_speed = _read_u8(f)  # Should be 0 for DMG
-
-    # v11+ has last_cycles
-    if version >= 11:
-        _lcd_last_cycles = _read_u64(f)  # Skip
-
+    _lcd_double_speed = _read_u8(f)  # speed_shift
+    _frame_done = _read_u8(f)
+    _first_frame = _read_u8(f)
+    _reset_flag = _read_u8(f)
+    _lcd_last_cycles = _read_u64(f)
     lcd_clock = _read_u64(f)
     lcd_clock_target = _read_u64(f)
     next_stat_mode = _read_u8(f)
-
-    # Scanline params
-    scanline_params = f.read(SCANLINE_PARAMS_SIZE)
-
-    # v11+ has additional LCD flags
-    if version >= 11:
-        _frame_done = _read_u8(f)
-        _first_frame = _read_u8(f)
-        _reset_flag = _read_u8(f)
 
     # Sound (v8+) - need to skip, but size varies
     # For now, we'll skip to the renderer section by reading field by field
@@ -332,13 +340,13 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     hram = f.read(HRAM_SIZE)
     non_io_ram1 = f.read(NON_IO_RAM1_SIZE)
 
-    # Timer
+    # Timer (PyBoy order)
     div = _read_u8(f)
     tima = _read_u8(f)
-    tma = _read_u8(f)
-    tac = _read_u8(f)
     div_counter = _read_u16(f)
     tima_counter = _read_u16(f)
+    tma = _read_u8(f)
+    tac = _read_u8(f)
 
     # v12+ has timer last_cycles
     if version >= 12:
@@ -355,14 +363,15 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     memorymodel = _read_u8(f)
     # Skip cart RAM if any (we read joypad from end)
 
-    # v15+ has serial state before joypad, but joypad is still at the end
-    # Read joypad from end of file
-    f.seek(-2, 2)  # Seek to 2 bytes before end
+    # Serial state is written last; joypad state is immediately before it.
+    serial_state_size = 36  # Bytes written by Serial.save_state
+    f.seek(-(serial_state_size + 2), 2)
     joypad_directional = _read_u8(f)
     joypad_standard = _read_u8(f)
 
     return PyBoyState(
         version=version,
+        bootrom_enabled=bootrom_enabled,
         a=a,
         f=flags,
         b=b,
@@ -379,6 +388,7 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
         ie=ie,
         interrupt_queued=interrupt_queued,
         if_reg=if_reg,
+        cpu_cycles=cpu_cycles,
         vram=vram,
         oam=oam,
         lcdc=lcdc,
@@ -432,7 +442,7 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
     """Save PyBoy state to an open file handle."""
     # Header
     _write_u8(f, PYBOY_STATE_VERSION_SAVE)
-    _write_u8(f, 0)  # bootrom_enabled = false
+    _write_u8(f, state.bootrom_enabled & 0x01)
     _write_u8(f, 0)  # key1 = 0 (DMG)
     _write_u8(f, 0)  # double_speed = false
     _write_u8(f, 0)  # cgb = false (DMG mode)
@@ -506,10 +516,10 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
     # Timer
     _write_u8(f, state.div)
     _write_u8(f, state.tima)
-    _write_u8(f, state.tma)
-    _write_u8(f, state.tac)
     _write_u16(f, state.div_counter)
     _write_u16(f, state.tima_counter)
+    _write_u8(f, state.tma)
+    _write_u8(f, state.tac)
 
     # Cartridge (minimal - no RAM banks for Tetris)
     _write_u16(f, state.rombank)
@@ -554,6 +564,16 @@ def state_from_warp_backend(
     non_io_ram0 = bytes(mem[base + 0xFEA0 : base + 0xFEA0 + NON_IO_RAM0_SIZE])
     non_io_ram1 = bytes(mem[base + 0xFF4C : base + 0xFF4C + NON_IO_RAM1_SIZE])
 
+    cart_state = backend._cart_state.numpy()
+    cart_base = env_idx * CART_STATE_STRIDE
+    bootrom_enabled = int(cart_state[cart_base + CART_STATE_BOOTROM_ENABLED]) & 0x01
+    rom_bank_lo = int(cart_state[cart_base + CART_STATE_ROM_BANK_LO]) & 0x7F
+    rom_bank_hi = int(cart_state[cart_base + CART_STATE_ROM_BANK_HI]) & 0x03
+    rombank = (rom_bank_hi << 5) | rom_bank_lo
+    rambank = int(cart_state[cart_base + CART_STATE_RAM_BANK]) & 0xFF
+    rambank_enabled = int(cart_state[cart_base + CART_STATE_RAM_ENABLE]) & 0x01
+    memorymodel = int(cart_state[cart_base + CART_STATE_BANK_MODE]) & 0x01
+
     # Extract CPU registers
     a = int(backend._a.numpy()[env_idx]) & 0xFF
     f = int(backend._f.numpy()[env_idx]) & 0xF0  # Lower 4 bits always 0
@@ -567,6 +587,7 @@ def state_from_warp_backend(
     pc = int(backend._pc.numpy()[env_idx]) & 0xFFFF
     ime = int(backend._ime.numpy()[env_idx]) & 0x01
     halted = int(backend._halted.numpy()[env_idx]) & 0x01
+    cpu_cycles = int(backend._cycle_count.numpy()[env_idx])
 
     # Interrupts from memory
     ie = mem[base + 0xFFFF]
@@ -591,8 +612,10 @@ def state_from_warp_backend(
     tma = mem[base + 0xFF06]
     tac = mem[base + 0xFF07]
 
-    # Timer internal state
-    div_counter = int(backend._div_counter.numpy()[env_idx]) & 0xFFFF
+    # Timer internal state (full 16-bit divider)
+    div_counter_full = int(backend._div_counter.numpy()[env_idx]) & 0xFFFF
+    div_counter = div_counter_full & 0xFF
+    div = (div_counter_full >> 8) & 0xFF
 
     # PPU timing - compute lcd_clock from scanline state
     ppu_scanline_cycle = int(backend._ppu_scanline_cycle.numpy()[env_idx])
@@ -622,6 +645,7 @@ def state_from_warp_backend(
 
     return PyBoyState(
         version=PYBOY_STATE_VERSION_SAVE,
+        bootrom_enabled=bootrom_enabled,
         a=a,
         f=f,
         b=b,
@@ -638,6 +662,7 @@ def state_from_warp_backend(
         ie=ie,
         interrupt_queued=0,
         if_reg=if_reg,
+        cpu_cycles=cpu_cycles,
         vram=vram,
         oam=oam,
         lcdc=lcdc,
@@ -666,10 +691,10 @@ def state_from_warp_backend(
         tac=tac,
         div_counter=div_counter,
         tima_counter=0,  # Warp doesn't track TIMA counter separately
-        rombank=0,
-        rambank=0,
-        rambank_enabled=0,
-        memorymodel=0,
+        rombank=rombank,
+        rambank=rambank,
+        rambank_enabled=rambank_enabled,
+        memorymodel=memorymodel,
         joypad_directional=0x0F,  # All released
         joypad_standard=0x0F,  # All released
     )
@@ -702,11 +727,23 @@ def apply_state_to_warp_backend(
     backend._sp.numpy()[env_idx] = state.sp
     backend._pc.numpy()[env_idx] = state.pc
     backend._ime.numpy()[env_idx] = state.ime
+    backend._ime_delay.numpy()[env_idx] = 0
     backend._halted.numpy()[env_idx] = state.halted
 
     # Memory
     mem = backend._mem.numpy()
     base = env_idx * MEM_SIZE
+    cart_state = backend._cart_state.numpy()
+    cart_base = env_idx * CART_STATE_STRIDE
+
+    cart_state[cart_base + CART_STATE_BOOTROM_ENABLED] = (
+        1 if state.bootrom_enabled != 0 else 0
+    )
+    cart_state[cart_base + CART_STATE_ROM_BANK_LO] = state.rombank & 0x7F
+    cart_state[cart_base + CART_STATE_ROM_BANK_HI] = (state.rombank >> 5) & 0x03
+    cart_state[cart_base + CART_STATE_RAM_BANK] = state.rambank & 0xFF
+    cart_state[cart_base + CART_STATE_RAM_ENABLE] = state.rambank_enabled & 0x01
+    cart_state[cart_base + CART_STATE_BANK_MODE] = state.memorymodel & 0x01
 
     # VRAM (0x8000-0x9FFF)
     mem[base + 0x8000 : base + 0x8000 + VRAM_SIZE] = np.frombuffer(
@@ -732,6 +769,8 @@ def apply_state_to_warp_backend(
     mem[base + 0xFF00 : base + 0xFF00 + IO_PORTS_SIZE] = np.frombuffer(
         state.io_ports, dtype=np.uint8
     )
+    # Joypad select bits are tracked separately in Warp.
+    backend._joyp_select.numpy()[env_idx] = mem[base + 0xFF00] & 0x30
 
     # Non-IO RAM regions
     mem[base + 0xFEA0 : base + 0xFEA0 + NON_IO_RAM0_SIZE] = np.frombuffer(
@@ -765,11 +804,44 @@ def apply_state_to_warp_backend(
     mem[base + 0xFF07] = state.tac
 
     # Timer internal state
-    backend._div_counter.numpy()[env_idx] = state.div_counter
+    div_counter_full = ((int(state.div) & 0xFF) << 8) | (int(state.div_counter) & 0xFF)
+    backend._div_counter.numpy()[env_idx] = div_counter_full
+    # Align timer edge tracking to current DIV/TAC state.
+    tac = int(state.tac)
+    if (tac & 0x04) == 0:
+        timer_prev_in = 0
+    else:
+        sel = tac & 0x03
+        if sel == 0:
+            bit = 9
+        elif sel == 1:
+            bit = 3
+        elif sel == 2:
+            bit = 5
+        else:
+            bit = 7
+        timer_prev_in = (div_counter_full >> bit) & 0x1
+    backend._timer_prev_in.numpy()[env_idx] = timer_prev_in
+    backend._tima_reload_pending.numpy()[env_idx] = 0
+    backend._tima_reload_delay.numpy()[env_idx] = 0
 
     # PPU state
     backend._ppu_ly.numpy()[env_idx] = state.ly
-    backend._ppu_scanline_cycle.numpy()[env_idx] = state.lcd_clock % CYCLES_PER_SCANLINE
+    lcdc_on = (state.lcdc & 0x80) != 0
+    if lcdc_on:
+        scanline_cycle = int(state.lcd_clock % CYCLES_PER_SCANLINE)
+    else:
+        scanline_cycle = 0
+    backend._ppu_scanline_cycle.numpy()[env_idx] = scanline_cycle
+
+    cycles_per_frame = CYCLES_PER_SCANLINE * 154
+    if state.cpu_cycles != 0:
+        cycle_count = int(state.cpu_cycles)
+    else:
+        cycle_count = int(state.lcd_clock)
+    cycle_in_frame = int(state.lcd_clock % cycles_per_frame) if lcdc_on else 0
+    backend._cycle_count.numpy()[env_idx] = cycle_count
+    backend._cycle_in_frame.numpy()[env_idx] = cycle_in_frame
 
     # PPU window line counter (estimate from WY and LY)
     if state.ly >= state.wy:
@@ -777,5 +849,12 @@ def apply_state_to_warp_backend(
     else:
         backend._ppu_window_line.numpy()[env_idx] = 0
 
-    # STAT previous state for edge triggering
-    backend._ppu_stat_prev.numpy()[env_idx] = state.stat & 0x07
+    # STAT previous state for edge triggering (mode0/mode1/mode2/lyc flags)
+    mode = int(state.stat) & 0x03
+    prev_mode0 = 1 if mode == 0 else 0
+    prev_mode1 = 1 if mode == 1 else 0
+    prev_mode2 = 1 if mode == 2 else 0
+    prev_lyc = 1 if int(state.ly) == int(state.lyc) else 0
+    backend._ppu_stat_prev.numpy()[env_idx] = (
+        prev_mode0 | (prev_mode1 << 1) | (prev_mode2 << 2) | (prev_lyc << 3)
+    )

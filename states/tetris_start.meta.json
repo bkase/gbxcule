@@ -1,8 +1,8 @@
 {
   "rom": "tetris.gb",
   "bootrom": "bench/roms/bootrom_fast_dmg.bin",
-  "ticks_total": 579,
-  "fall_tick": 579,
+  "ticks_total": 585,
+  "fall_tick": 585,
   "boot_frames": 120,
   "menu_frames": 60,
   "post_start_frames": 30,
