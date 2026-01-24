@@ -39,3 +39,9 @@ roms:
     description: "ALU + flags coverage loop (reg/HL/imm ops, DAA/CPL/SCF/CCF)."
     frames_per_step: 24
     release_after_frames: 8
+
+  - id: ALU16_SP
+    path: bench/roms/out/ALU16_SP.gb
+    description: "16-bit ALU + SP coverage loop (ADD HL,rr; INC/DEC rr; ADD SP,e8)."
+    frames_per_step: 24
+    release_after_frames: 8

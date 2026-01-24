@@ -542,6 +542,46 @@ def build_alu_flags() -> bytes:
     return build_rom("ALU_FLAGS", program)
 
 
+def build_alu16_sp() -> bytes:
+    """Build ALU16_SP.gb - 16-bit ALU + SP instruction coverage loop."""
+    program = bytes(
+        [
+            0x21,
+            0x00,
+            0x10,  # LD HL,0x1000
+            0x01,
+            0x34,
+            0x12,  # LD BC,0x1234
+            0x11,
+            0x78,
+            0x56,  # LD DE,0x5678
+            0x31,
+            0xF0,
+            0xFF,  # LD SP,0xFFF0
+            0x09,  # ADD HL,BC
+            0x19,  # ADD HL,DE
+            0x29,  # ADD HL,HL
+            0x39,  # ADD HL,SP
+            0x03,  # INC BC
+            0x0B,  # DEC BC
+            0x13,  # INC DE
+            0x1B,  # DEC DE
+            0x23,  # INC HL
+            0x2B,  # DEC HL
+            0x33,  # INC SP
+            0x3B,  # DEC SP
+            0xE8,
+            0xFE,  # ADD SP,-2
+            0xF8,
+            0x05,  # LD HL,SP+5
+            0xC3,
+            0x50,
+            0x01,  # JP 0x0150
+        ]
+    )
+    return build_rom("ALU16_SP", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -582,6 +622,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
         ("LOADS_BASIC.gb", build_loads_basic()),
         ("ALU_FLAGS.gb", build_alu_flags()),
+        ("ALU16_SP.gb", build_alu16_sp()),
     ]
 
     results: list[tuple[str, Path, str]] = []

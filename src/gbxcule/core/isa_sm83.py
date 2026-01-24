@@ -692,6 +692,104 @@ def _add_alu_families() -> None:
 _add_alu_families()
 
 
+def _add_alu16_families() -> None:
+    # ADD HL, rr
+    add_hl = [
+        (0x09, "BC", ("b_i", "c_i"), "add_hl_r16"),
+        (0x19, "DE", ("d_i", "e_i"), "add_hl_r16"),
+        (0x29, "HL", ("h_i", "l_i"), "add_hl_r16"),
+        (0x39, "SP", None, "add_hl_sp"),
+    ]
+    for opcode, reg, regs, template_key in add_hl:
+        replacements = {"HREG_i": "h_i", "LREG_i": "l_i"}
+        if regs:
+            replacements.update({"SRC_HREG_i": regs[0], "SRC_LREG_i": regs[1]})
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"ADD HL,{reg}",
+                length=1,
+                cycles=(8,),
+                template_key=template_key,
+                replacements=replacements,
+                group="alu16",
+            )
+        )
+
+    # INC rr
+    inc_rr = [
+        (0x03, "BC", ("b_i", "c_i"), "inc_r16"),
+        (0x13, "DE", ("d_i", "e_i"), "inc_r16"),
+        (0x23, "HL", ("h_i", "l_i"), "inc_r16"),
+        (0x33, "SP", None, "inc_sp"),
+    ]
+    for opcode, reg, regs, template_key in inc_rr:
+        replacements = {}
+        if regs:
+            replacements = {"HREG_i": regs[0], "LREG_i": regs[1]}
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"INC {reg}",
+                length=1,
+                cycles=(8,),
+                template_key=template_key,
+                replacements=replacements,
+                group="alu16",
+            )
+        )
+
+    # DEC rr
+    dec_rr = [
+        (0x0B, "BC", ("b_i", "c_i"), "dec_r16"),
+        (0x1B, "DE", ("d_i", "e_i"), "dec_r16"),
+        (0x2B, "HL", ("h_i", "l_i"), "dec_r16"),
+        (0x3B, "SP", None, "dec_sp"),
+    ]
+    for opcode, reg, regs, template_key in dec_rr:
+        replacements = {}
+        if regs:
+            replacements = {"HREG_i": regs[0], "LREG_i": regs[1]}
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"DEC {reg}",
+                length=1,
+                cycles=(8,),
+                template_key=template_key,
+                replacements=replacements,
+                group="alu16",
+            )
+        )
+
+    # ADD SP, e8
+    _add_spec(
+        _spec(
+            opcode=0xE8,
+            mnemonic="ADD SP,e8",
+            length=2,
+            cycles=(16,),
+            template_key="add_sp_e8",
+            group="alu16",
+        )
+    )
+
+    # LD HL, SP+e8
+    _add_spec(
+        _spec(
+            opcode=0xF8,
+            mnemonic="LD HL,SP+e8",
+            length=2,
+            cycles=(12,),
+            template_key="ld_hl_sp_e8",
+            group="alu16",
+        )
+    )
+
+
+_add_alu16_families()
+
+
 UNPREFIXED_SPECS = _build_table("OP", _UNPREFIXED_OVERRIDES)
 CB_SPECS = _build_table("CB", {})
 

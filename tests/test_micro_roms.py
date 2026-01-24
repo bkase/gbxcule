@@ -17,6 +17,7 @@ import pytest
 from bench.roms.build_micro_rom import (
     build_all,
     build_alu_flags,
+    build_alu16_sp,
     build_alu_loop,
     build_joy_diverge_persist,
     build_loads_basic,
@@ -36,7 +37,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 6
+    assert len(results) == 7
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -69,6 +70,10 @@ def test_roms_are_deterministic() -> None:
     alu_flags1 = build_alu_flags()
     alu_flags2 = build_alu_flags()
     assert alu_flags1 == alu_flags2, "ALU_FLAGS is not deterministic"
+
+    alu16_1 = build_alu16_sp()
+    alu16_2 = build_alu16_sp()
+    assert alu16_1 == alu16_2, "ALU16_SP is not deterministic"
 
 
 def test_sha256_is_deterministic() -> None:
@@ -145,6 +150,16 @@ def test_alu_flags_header_checksum() -> None:
     )
 
 
+def test_alu16_sp_header_checksum() -> None:
+    """ALU16_SP has valid header checksum."""
+    rom = build_alu16_sp()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
 def test_alu_loop_global_checksum() -> None:
     """ALU_LOOP has valid global checksum."""
     rom = build_alu_loop()
@@ -198,6 +213,16 @@ def test_loads_basic_global_checksum() -> None:
 def test_alu_flags_global_checksum() -> None:
     """ALU_FLAGS has valid global checksum."""
     rom = build_alu_flags()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_alu16_sp_global_checksum() -> None:
+    """ALU16_SP has valid global checksum."""
+    rom = build_alu16_sp()
     stored = (rom[0x014E] << 8) | rom[0x014F]
     computed = compute_global_checksum(rom)
     assert stored == computed, (
@@ -304,6 +329,22 @@ def test_pyboy_headless_alu_flags(rom_dir: Path) -> None:
     from pyboy import PyBoy
 
     rom_path = rom_dir / "ALU_FLAGS.gb"
+    assert rom_path.exists()
+
+    pyboy = PyBoy(str(rom_path), window="null", sound_emulated=False)
+    pyboy.set_emulation_speed(0)
+
+    for _ in range(120):
+        pyboy.tick(render=False)
+
+    pyboy.stop(save=False)
+
+
+def test_pyboy_headless_alu16_sp(rom_dir: Path) -> None:
+    """PyBoy can run ALU16_SP headless without crashing."""
+    from pyboy import PyBoy
+
+    rom_path = rom_dir / "ALU16_SP.gb"
     assert rom_path.exists()
 
     pyboy = PyBoy(str(rom_path), window="null", sound_emulated=False)

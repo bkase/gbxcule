@@ -75,3 +75,11 @@ def test_verify_loads_basic() -> None:
 )
 def test_verify_alu_flags() -> None:
     _verify_no_mismatch(ROM_DIR / "ALU_FLAGS.gb", steps=64)
+
+
+@pytest.mark.skipif(
+    not (ROM_DIR / "ALU16_SP.gb").exists(),
+    reason="Test ROM not found; run `make roms` first.",
+)
+def test_verify_alu16_sp() -> None:
+    _verify_no_mismatch(ROM_DIR / "ALU16_SP.gb", steps=64)

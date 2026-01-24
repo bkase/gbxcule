@@ -32,6 +32,30 @@ def template_inc_r16(pc_i: int, HREG_i: int, LREG_i: int) -> None:
     cycles = 8
 
 
+def template_dec_r16(pc_i: int, HREG_i: int, LREG_i: int) -> None:
+    """16-bit DEC template (HREG_i/LREG_i placeholders)."""
+    reg16 = ((HREG_i << 8) | LREG_i) & 0xFFFF
+    reg16 = (reg16 - 1) & 0xFFFF
+    HREG_i = (reg16 >> 8) & 0xFF
+    LREG_i = reg16 & 0xFF
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 8
+
+
+def template_inc_sp(pc_i: int, sp_i: int) -> None:
+    """INC SP template."""
+    sp_i = (sp_i + 1) & 0xFFFF
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 8
+
+
+def template_dec_sp(pc_i: int, sp_i: int) -> None:
+    """DEC SP template."""
+    sp_i = (sp_i - 1) & 0xFFFF
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 8
+
+
 def template_add_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
     """ADD A, r8 template (REG_i placeholder)."""
     sum_ab = a_i + REG_i
@@ -43,6 +67,100 @@ def template_add_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
     f_i = make_flags(z, 0, hflag, cflag)
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 4
+
+
+def template_add_hl_r16(
+    pc_i: int,
+    f_i: int,
+    HREG_i: int,
+    LREG_i: int,
+    SRC_HREG_i: int,
+    SRC_LREG_i: int,
+) -> None:
+    """ADD HL, rr template (SRC_HREG_i/SRC_LREG_i placeholders)."""
+    hl = ((HREG_i << 8) | LREG_i) & 0xFFFF
+    rr = ((SRC_HREG_i << 8) | SRC_LREG_i) & 0xFFFF
+    sum_hl = hl + rr
+    hflag = wp.where(((hl & 0x0FFF) + (rr & 0x0FFF)) > 0x0FFF, 1, 0)
+    cflag = wp.where(sum_hl > 0xFFFF, 1, 0)
+    z = (f_i >> 7) & 0x1
+    HREG_i = (sum_hl >> 8) & 0xFF
+    LREG_i = sum_hl & 0xFF
+    f_i = make_flags(z, 0, hflag, cflag)
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 8
+
+
+def template_add_hl_sp(
+    pc_i: int,
+    f_i: int,
+    HREG_i: int,
+    LREG_i: int,
+    sp_i: int,
+) -> None:
+    """ADD HL, SP template."""
+    hl = ((HREG_i << 8) | LREG_i) & 0xFFFF
+    sum_hl = hl + sp_i
+    hflag = wp.where(((hl & 0x0FFF) + (sp_i & 0x0FFF)) > 0x0FFF, 1, 0)
+    cflag = wp.where(sum_hl > 0xFFFF, 1, 0)
+    z = (f_i >> 7) & 0x1
+    HREG_i = (sum_hl >> 8) & 0xFF
+    LREG_i = sum_hl & 0xFF
+    f_i = make_flags(z, 0, hflag, cflag)
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 8
+
+
+def template_add_sp_e8(
+    pc_i: int, sp_i: int, f_i: int, base: int, mem: wp.array
+) -> None:  # type: ignore[name-defined]
+    """ADD SP, e8 template."""
+    off = read8(
+        i,
+        base,
+        (pc_i + 1) & 0xFFFF,
+        mem,
+        actions,
+        joyp_select,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
+    )
+    off_s = sign8(off)
+    off_u = off & 0xFF
+    hflag = wp.where(((sp_i & 0x0F) + (off_u & 0x0F)) > 0x0F, 1, 0)
+    cflag = wp.where(((sp_i & 0xFF) + off_u) > 0xFF, 1, 0)
+    sp_i = (sp_i + off_s) & 0xFFFF
+    f_i = make_flags(0, 0, hflag, cflag)
+    pc_i = (pc_i + 2) & 0xFFFF
+    cycles = 16
+
+
+def template_ld_hl_sp_e8(
+    pc_i: int, sp_i: int, f_i: int, HREG_i: int, LREG_i: int, base: int, mem: wp.array
+) -> None:  # type: ignore[name-defined]
+    """LD HL, SP+e8 template."""
+    off = read8(
+        i,
+        base,
+        (pc_i + 1) & 0xFFFF,
+        mem,
+        actions,
+        joyp_select,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
+    )
+    off_s = sign8(off)
+    off_u = off & 0xFF
+    hflag = wp.where(((sp_i & 0x0F) + (off_u & 0x0F)) > 0x0F, 1, 0)
+    cflag = wp.where(((sp_i & 0xFF) + off_u) > 0xFF, 1, 0)
+    res = (sp_i + off_s) & 0xFFFF
+    HREG_i = (res >> 8) & 0xFF
+    LREG_i = res & 0xFF
+    f_i = make_flags(0, 0, hflag, cflag)
+    pc_i = (pc_i + 2) & 0xFFFF
+    cycles = 12
 
 
 def template_and_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
