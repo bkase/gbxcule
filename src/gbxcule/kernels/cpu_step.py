@@ -293,6 +293,8 @@ def _warmup_warp_device(
     zeros_wx_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_wy_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_win_line_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_obp0_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_obp1_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_f32 = wp.zeros(1, dtype=wp.float32, device=device)
     zeros_obs = wp.zeros(obs_dim, dtype=wp.float32, device=device)
     kernel = get_cpu_step_kernel(stage=stage, obs_dim=obs_dim)
@@ -340,6 +342,8 @@ def _warmup_warp_device(
             zeros_wx_latch,
             zeros_wy_latch,
             zeros_win_line_latch,
+            zeros_obp0_latch,
+            zeros_obp1_latch,
             0,
             zeros_f32,
             zeros_obs,

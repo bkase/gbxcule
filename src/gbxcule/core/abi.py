@@ -18,13 +18,16 @@ ABI v4 migration note:
 ABI v5 migration note:
 - Added window latches (WX/WY + window line) and per-env window line counter
   for Milestone E.
+
+ABI v6 migration note:
+- Added OBJ palette latches (OBP0/OBP1) for Milestone E sprites.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 5
+ABI_VERSION: Final[int] = 6
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536

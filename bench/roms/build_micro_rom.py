@@ -1067,14 +1067,19 @@ def build_ppu_window() -> bytes:
     emit(0x05)  # DEC B
     emit_jr(0x20, "tile0")
 
-    emit(0x06, 0x08)  # LD B,8
-    emit(0x3E, 0xFF)  # LD A,0xFF
-    label("tile1")
-    emit(0x22)  # LD (HL+),A
-    emit(0xAF)  # XOR A
-    emit(0x22)  # LD (HL+),A
-    emit(0x05)  # DEC B
-    emit_jr(0x20, "tile1")
+    # Tile 1: rows use colors 1,2,3,0 (repeat) for visible shading
+    for val in (
+        0xFF, 0x00,  # color 1
+        0x00, 0xFF,  # color 2
+        0xFF, 0xFF,  # color 3
+        0x00, 0x00,  # color 0
+        0xFF, 0x00,
+        0x00, 0xFF,
+        0xFF, 0xFF,
+        0x00, 0x00,
+    ):
+        emit(0x3E, val)  # LD A,val
+        emit(0x22)  # LD (HL+),A
 
     # BG map: fill with tile 0
     emit(0x21, 0x00, 0x98)  # LD HL,0x9800
@@ -1118,6 +1123,147 @@ def build_ppu_window() -> bytes:
         code[pc + 1] = offset & 0xFF
 
     return build_rom("PPU_WINDOW", bytes(code))
+
+
+def build_ppu_sprites() -> bytes:
+    """Build PPU_SPRITES.gb - sprite rendering coverage ROM."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    def ld_a_d8(val: int) -> None:
+        emit(0x3E, val & 0xFF)
+
+    def ld_hl_d16(addr: int) -> None:
+        emit(0x21, addr & 0xFF, (addr >> 8) & 0xFF)
+
+    def ld_hl_a() -> None:
+        emit(0x22)
+
+    # LCD off
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x40)  # LDH (LCDC),A
+    ld_a_d8(0xE4)  # BGP
+    emit(0xE0, 0x47)  # LDH (BGP),A
+    ld_a_d8(0xE4)  # OBP0
+    emit(0xE0, 0x48)  # LDH (OBP0),A
+    ld_a_d8(0x1B)  # OBP1 (inverted)
+    emit(0xE0, 0x49)  # LDH (OBP1),A
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x42)  # LDH (SCY),A
+    emit(0xE0, 0x43)  # LDH (SCX),A
+
+    # Tile data: tiles 0..3
+    ld_hl_d16(0x8000)
+    emit(0x06, 0x10)  # LD B,16
+    emit(0xAF)  # XOR A
+    label("tile0")
+    ld_hl_a()
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "tile0")
+
+    # Tile 1: color 1 stripes (lo=FF, hi=00)
+    emit(0x06, 0x08)  # LD B,8
+    label("tile1")
+    ld_a_d8(0xFF)
+    ld_hl_a()
+    emit(0xAF)
+    ld_hl_a()
+    emit(0x05)
+    emit_jr(0x20, "tile1")
+
+    # Tile 2: color 2 stripes (lo=00, hi=FF)
+    emit(0x06, 0x08)  # LD B,8
+    label("tile2")
+    emit(0xAF)
+    ld_hl_a()
+    ld_a_d8(0xFF)
+    ld_hl_a()
+    emit(0x05)
+    emit_jr(0x20, "tile2")
+
+    # Tile 3: color 3 solid (lo=FF, hi=FF)
+    emit(0x06, 0x10)  # LD B,16
+    label("tile3")
+    ld_a_d8(0xFF)
+    ld_hl_a()
+    emit(0x05)
+    emit_jr(0x20, "tile3")
+
+    # BG map: alternating 0/1
+    ld_hl_d16(0x9800)
+    emit(0x06, 0x20)  # LD B,32
+    emit(0xAF)
+    label("bg_row")
+    emit(0x0E, 0x20)  # LD C,32
+    label("bg_col")
+    ld_hl_a()
+    emit(0xEE, 0x01)  # XOR 0x01
+    emit(0x0D)  # DEC C
+    emit_jr(0x20, "bg_col")
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "bg_row")
+
+    # OAM data in WRAM (0xC000), then DMA copy
+    ld_hl_d16(0xC000)
+    for byte in (
+        0x38,
+        0x30,
+        0x02,
+        0x00,
+        0x38,
+        0x30,
+        0x03,
+        0x00,
+        0x38,
+        0x48,
+        0x02,
+        0x80,
+        0x38,
+        0x60,
+        0x02,
+        0x20,
+        0x38,
+        0x78,
+        0x02,
+        0x40,
+        0x38,
+        0x90,
+        0x02,
+        0x10,
+    ):
+        ld_a_d8(byte)
+        ld_hl_a()
+
+    ld_a_d8(0xC0)
+    emit(0xEA, 0x46, 0xFF)  # LD (0xFF46),A
+
+    # LCD on: BG + OBJ + 8x16
+    ld_a_d8(0x97)
+    emit(0xE0, 0x40)  # LDH (LCDC),A
+    label("halt")
+    emit_jr(0x18, "halt")
+
+    for pc, target in jr_fixups:
+        if target not in labels:
+            raise ValueError(f"Unknown JR label: {target}")
+        offset = labels[target] - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError(f"JR offset out of range for {target}: {offset}")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom("PPU_SPRITES", bytes(code))
 
 
 def build_bg_scroll_signed() -> bytes:
@@ -1229,6 +1375,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("CB_BITOPS.gb", build_cb_bitops()),
         ("BG_STATIC.gb", build_bg_static()),
         ("PPU_WINDOW.gb", build_ppu_window()),
+        ("PPU_SPRITES.gb", build_ppu_sprites()),
         ("BG_SCROLL_SIGNED.gb", build_bg_scroll_signed()),
     ]
 

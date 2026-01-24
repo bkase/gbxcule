@@ -121,6 +121,8 @@ class WarpVecBaseBackend:
         self._win_wx_latch_env0 = None
         self._win_wy_latch_env0 = None
         self._win_line_latch_env0 = None
+        self._obj_obp0_latch_env0 = None
+        self._obj_obp1_latch_env0 = None
         self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None
@@ -311,6 +313,12 @@ class WarpVecBaseBackend:
         self._win_line_latch_env0 = self._wp.zeros(
             SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
+        self._obj_obp0_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._obj_obp1_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
         self._frame_bg_shade_env0 = self._wp.zeros(
             SCREEN_W * SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
@@ -398,6 +406,8 @@ class WarpVecBaseBackend:
                 self._win_wx_latch_env0,
                 self._win_wy_latch_env0,
                 self._win_line_latch_env0,
+                self._obj_obp0_latch_env0,
+                self._obj_obp1_latch_env0,
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
@@ -421,6 +431,8 @@ class WarpVecBaseBackend:
                     self._win_wx_latch_env0,
                     self._win_wy_latch_env0,
                     self._win_line_latch_env0,
+                    self._obj_obp0_latch_env0,
+                    self._obj_obp1_latch_env0,
                     self._frame_bg_shade_env0,
                 ],
                 device=self._device,
@@ -594,6 +606,8 @@ class WarpVecBaseBackend:
         self._win_wx_latch_env0 = None
         self._win_wy_latch_env0 = None
         self._win_line_latch_env0 = None
+        self._obj_obp0_latch_env0 = None
+        self._obj_obp1_latch_env0 = None
         self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None

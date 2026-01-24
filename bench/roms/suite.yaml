@@ -94,6 +94,12 @@ roms:
     frames_per_step: 1
     release_after_frames: 1
 
+  - id: PPU_SPRITES
+    path: bench/roms/out/PPU_SPRITES.gb
+    description: "Sprite rendering (priority/flips/palettes/8x16) frame-hash compare."
+    frames_per_step: 1
+    release_after_frames: 1
+
   - id: BG_SCROLL_SIGNED
     path: bench/roms/out/BG_SCROLL_SIGNED.gb
     description: "Signed tile data with SCX/SCY scroll for frame-hash compare."

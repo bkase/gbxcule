@@ -357,6 +357,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         win_wx_latch_env0: wp.array(dtype=wp.uint8),
         win_wy_latch_env0: wp.array(dtype=wp.uint8),
         win_line_latch_env0: wp.array(dtype=wp.uint8),
+        obj_obp0_latch_env0: wp.array(dtype=wp.uint8),
+        obj_obp1_latch_env0: wp.array(dtype=wp.uint8),
     ) -> None:
         if i != 0:
             return
@@ -370,6 +372,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         win_wx_latch_env0[idx] = mem[base + 0xFF4B]
         win_wy_latch_env0[idx] = mem[base + 0xFF4A]
         win_line_latch_env0[idx] = wp.uint8(window_line & 0xFF)
+        obj_obp0_latch_env0[idx] = mem[base + 0xFF48]
+        obj_obp1_latch_env0[idx] = mem[base + 0xFF49]
 
     @wp.func
     def read8(
@@ -535,6 +539,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         win_wx_latch_env0: wp.array(dtype=wp.uint8),
         win_wy_latch_env0: wp.array(dtype=wp.uint8),
         win_line_latch_env0: wp.array(dtype=wp.uint8),
+        obj_obp0_latch_env0: wp.array(dtype=wp.uint8),
+        obj_obp1_latch_env0: wp.array(dtype=wp.uint8),
         action_codec_id: wp.int32,
         reward_out: wp.array(dtype=wp.float32),
         obs_out: wp.array(dtype=wp.float32),
@@ -608,6 +614,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             win_wx_latch_env0,
                             win_wy_latch_env0,
                             win_line_latch_env0,
+                            obj_obp0_latch_env0,
+                            obj_obp1_latch_env0,
                         )
                     while lines > 0:
                         prev_ly = ppu_ly_i
@@ -641,6 +649,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                                 win_wx_latch_env0,
                                 win_wy_latch_env0,
                                 win_line_latch_env0,
+                                obj_obp0_latch_env0,
+                                obj_obp1_latch_env0,
                             )
                         lines = lines - 1
                 pending = (
@@ -785,6 +795,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         win_wx_latch_env0,
                         win_wy_latch_env0,
                         win_line_latch_env0,
+                        obj_obp0_latch_env0,
+                        obj_obp1_latch_env0,
                     )
                 while lines > 0:
                     prev_ly = ppu_ly_i
@@ -818,6 +830,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             win_wx_latch_env0,
                             win_wy_latch_env0,
                             win_line_latch_env0,
+                            obj_obp0_latch_env0,
+                            obj_obp1_latch_env0,
                         )
                     lines = lines - 1
 

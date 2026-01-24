@@ -44,7 +44,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 16
+    assert len(results) == 17
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"

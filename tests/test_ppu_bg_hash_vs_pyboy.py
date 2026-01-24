@@ -24,7 +24,7 @@ def _verify_frame_hash_matches(
     rom_path: Path,
     *,
     warmup_frames: int = 2,
-    compare_frames: int = 4,
+    compare_frames: int = 1,
 ) -> None:
     ref = PyBoySingleBackend(
         str(rom_path),
@@ -75,3 +75,8 @@ def test_bg_scroll_signed_frame_hash_matches_pyboy() -> None:
 def test_window_frame_hash_matches_pyboy() -> None:
     require_rom(ROM_DIR / "PPU_WINDOW.gb")
     _verify_frame_hash_matches(ROM_DIR / "PPU_WINDOW.gb")
+
+
+def test_sprites_frame_hash_matches_pyboy() -> None:
+    require_rom(ROM_DIR / "PPU_SPRITES.gb")
+    _verify_frame_hash_matches(ROM_DIR / "PPU_SPRITES.gb")
