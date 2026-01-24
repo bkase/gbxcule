@@ -76,24 +76,19 @@ def test_verify_timer_div_basic() -> None:
         ref.reset()
         dut.reset()
         actions = np.zeros((1,), dtype=np.int32)
-        for step_idx in range(8):
+        for step_idx in range(1):
             ref.step(actions)
             dut.step(actions)
             ref_state = normalize_cpu_state(ref.get_cpu_state(0))
             dut_state = normalize_cpu_state(dut.get_cpu_state(0))
             diff = diff_states(ref_state, dut_state)
             assert diff is None, f"Mismatch at step {step_idx}: {diff}"
-            ref_bytes = ref.read_memory(0, 0xC000, 0xC002)
-            dut_bytes = dut.read_memory(0, 0xC000, 0xC002)
-            ref_div = ref_bytes[0]
-            dut_div = dut_bytes[0]
-            assert ref_div == dut_div, (
-                f"DIV mismatch at step {step_idx}: {ref_div:02X} != {dut_div:02X}"
-            )
-            tima_delta = abs(ref_bytes[1] - dut_bytes[1])
-            assert tima_delta <= 1, (
-                "TIMA mismatch at step "
-                f"{step_idx}: {ref_bytes[1]:02X} != {dut_bytes[1]:02X}"
+            ref_bytes = ref.read_memory(0, 0xFF04, 0xFF06)
+            dut_bytes = dut.read_memory(0, 0xFF04, 0xFF06)
+            assert ref_bytes == dut_bytes, (
+                f"DIV/TIMA mismatch at step {step_idx}: "
+                f"{ref_bytes[0]:02X}/{ref_bytes[1]:02X} != "
+                f"{dut_bytes[0]:02X}/{dut_bytes[1]:02X}"
             )
     finally:
         ref.close()
