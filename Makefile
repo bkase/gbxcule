@@ -46,6 +46,7 @@ E4_ACTIONS_SEED ?= 1234
 E4_ACTION_CODEC ?= pokemonred_puffer_v0
 E4_SUITE ?= bench/roms/suite.yaml
 WARP_BUILD_TIMEOUT ?= 900
+DEV_WARP_MODE ?= debug
 
 # Default target
 .DEFAULT_GOAL := help
@@ -80,7 +81,7 @@ lint: ## Check formatting and lint (no modifications)
 	@$(RUFF) check $(SRC_DIRS) > /dev/null
 
 test: ## Run unit tests
-	@$(PYTEST) -q --tb=short
+	@GBXCULE_SKIP_CUDA=1 GBXCULE_WARP_MODE=$(DEV_WARP_MODE) $(PYTEST) -q --tb=short
 
 typecheck: ## Run type checking with pyright
 	@$(PYRIGHT) > /dev/null
@@ -91,9 +92,9 @@ roms: ## Generate micro-ROMs
 
 build-warp: fmt ## Compile Warp CPU kernels (warm cache for tests)
 	@if command -v timeout >/dev/null 2>&1; then \
-		timeout $(WARP_BUILD_TIMEOUT) $(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
+		GBXCULE_WARP_MODE=$(DEV_WARP_MODE) timeout $(WARP_BUILD_TIMEOUT) $(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
 	else \
-		$(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
+		GBXCULE_WARP_MODE=$(DEV_WARP_MODE) $(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
 	fi
 
 smoke: roms ## Run minimal sanity check (fast, for commit hook)

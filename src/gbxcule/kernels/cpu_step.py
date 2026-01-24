@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -33,6 +34,9 @@ def get_warp() -> Any:  # type: ignore[no-untyped-def]
     if _wp is None:
         import warp as wp
 
+        mode = os.environ.get("GBXCULE_WARP_MODE")
+        if mode:
+            wp.config.mode = mode
         _wp = wp
         globals()["wp"] = wp
     if not _warp_initialized:
