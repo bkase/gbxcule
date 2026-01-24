@@ -8,6 +8,27 @@ from typing import Any
 
 from gbxcule.backends.common import Stage
 from gbxcule.core.abi import CYCLES_PER_SCANLINE, OBS_DIM_DEFAULT, SCREEN_H, SERIAL_MAX
+from gbxcule.core.cartridge import (
+    BOOTROM_SIZE,
+    CART_RAM_BANK_SIZE,
+    CART_ROM_BANK_SIZE,
+    CART_STATE_BANK_MODE,
+    CART_STATE_BOOTROM_ENABLED,
+    CART_STATE_MBC_KIND,
+    CART_STATE_RAM_BANK,
+    CART_STATE_RAM_ENABLE,
+    CART_STATE_ROM_BANK_HI,
+    CART_STATE_ROM_BANK_LO,
+    CART_STATE_RTC_DAYS_HIGH,
+    CART_STATE_RTC_DAYS_LOW,
+    CART_STATE_RTC_HOURS,
+    CART_STATE_RTC_LAST_CYCLE,
+    CART_STATE_RTC_LATCH,
+    CART_STATE_RTC_MINUTES,
+    CART_STATE_RTC_SECONDS,
+    CART_STATE_RTC_SELECT,
+    CART_STATE_STRIDE,
+)
 from gbxcule.core.isa_sm83 import iter_cb, iter_unprefixed
 from gbxcule.kernels.cpu_step_builder import (
     OpcodeTemplate,
@@ -230,6 +251,25 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "ROM_LIMIT": ROM_LIMIT,
         "CART_RAM_START": CART_RAM_START,
         "CART_RAM_END": CART_RAM_END,
+        "CART_ROM_BANK_SIZE": CART_ROM_BANK_SIZE,
+        "CART_RAM_BANK_SIZE": CART_RAM_BANK_SIZE,
+        "BOOTROM_SIZE": BOOTROM_SIZE,
+        "CART_STATE_STRIDE": CART_STATE_STRIDE,
+        "CART_STATE_MBC_KIND": CART_STATE_MBC_KIND,
+        "CART_STATE_RAM_ENABLE": CART_STATE_RAM_ENABLE,
+        "CART_STATE_ROM_BANK_LO": CART_STATE_ROM_BANK_LO,
+        "CART_STATE_ROM_BANK_HI": CART_STATE_ROM_BANK_HI,
+        "CART_STATE_RAM_BANK": CART_STATE_RAM_BANK,
+        "CART_STATE_BANK_MODE": CART_STATE_BANK_MODE,
+        "CART_STATE_BOOTROM_ENABLED": CART_STATE_BOOTROM_ENABLED,
+        "CART_STATE_RTC_SELECT": CART_STATE_RTC_SELECT,
+        "CART_STATE_RTC_LATCH": CART_STATE_RTC_LATCH,
+        "CART_STATE_RTC_SECONDS": CART_STATE_RTC_SECONDS,
+        "CART_STATE_RTC_MINUTES": CART_STATE_RTC_MINUTES,
+        "CART_STATE_RTC_HOURS": CART_STATE_RTC_HOURS,
+        "CART_STATE_RTC_DAYS_LOW": CART_STATE_RTC_DAYS_LOW,
+        "CART_STATE_RTC_DAYS_HIGH": CART_STATE_RTC_DAYS_HIGH,
+        "CART_STATE_RTC_LAST_CYCLE": CART_STATE_RTC_LAST_CYCLE,
         "OBS_DIM": obs_dim,
         "SERIAL_MAX": SERIAL_MAX,
     }
@@ -274,6 +314,10 @@ def _warmup_warp_device(
     wp = get_warp()
     device = wp.get_device(device_name)
     mem = wp.zeros(1 * MEM_SIZE, dtype=wp.uint8, device=device)
+    zeros_rom = wp.zeros(CART_ROM_BANK_SIZE, dtype=wp.uint8, device=device)
+    zeros_bootrom = wp.zeros(BOOTROM_SIZE, dtype=wp.uint8, device=device)
+    zeros_cart_ram = wp.zeros(CART_RAM_BANK_SIZE, dtype=wp.uint8, device=device)
+    zeros_cart_state = wp.zeros(CART_STATE_STRIDE, dtype=wp.int32, device=device)
     zeros_i32 = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_i64 = wp.zeros(1, dtype=wp.int64, device=device)
     zeros_u8 = wp.zeros(1, dtype=wp.uint8, device=device)
@@ -304,6 +348,13 @@ def _warmup_warp_device(
         dim=1,
         inputs=[
             mem,
+            zeros_rom,
+            zeros_bootrom,
+            zeros_cart_ram,
+            zeros_cart_state,
+            1,
+            0,
+            0,
             zeros_i32,
             zeros_i32,
             zeros_i32,

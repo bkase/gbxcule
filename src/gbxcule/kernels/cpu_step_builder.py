@@ -137,6 +137,25 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     ROM_LIMIT = {ROM_LIMIT}
     CART_RAM_START = {CART_RAM_START}
     CART_RAM_END = {CART_RAM_END}
+    CART_ROM_BANK_SIZE = {CART_ROM_BANK_SIZE}
+    CART_RAM_BANK_SIZE = {CART_RAM_BANK_SIZE}
+    BOOTROM_SIZE = {BOOTROM_SIZE}
+    CART_STATE_STRIDE = {CART_STATE_STRIDE}
+    CART_STATE_MBC_KIND = {CART_STATE_MBC_KIND}
+    CART_STATE_RAM_ENABLE = {CART_STATE_RAM_ENABLE}
+    CART_STATE_ROM_BANK_LO = {CART_STATE_ROM_BANK_LO}
+    CART_STATE_ROM_BANK_HI = {CART_STATE_ROM_BANK_HI}
+    CART_STATE_RAM_BANK = {CART_STATE_RAM_BANK}
+    CART_STATE_BANK_MODE = {CART_STATE_BANK_MODE}
+    CART_STATE_BOOTROM_ENABLED = {CART_STATE_BOOTROM_ENABLED}
+    CART_STATE_RTC_SELECT = {CART_STATE_RTC_SELECT}
+    CART_STATE_RTC_LATCH = {CART_STATE_RTC_LATCH}
+    CART_STATE_RTC_SECONDS = {CART_STATE_RTC_SECONDS}
+    CART_STATE_RTC_MINUTES = {CART_STATE_RTC_MINUTES}
+    CART_STATE_RTC_HOURS = {CART_STATE_RTC_HOURS}
+    CART_STATE_RTC_DAYS_LOW = {CART_STATE_RTC_DAYS_LOW}
+    CART_STATE_RTC_DAYS_HIGH = {CART_STATE_RTC_DAYS_HIGH}
+    CART_STATE_RTC_LAST_CYCLE = {CART_STATE_RTC_LAST_CYCLE}
     OBS_DIM = {OBS_DIM}
     SERIAL_MAX = {SERIAL_MAX}
 
@@ -443,6 +462,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         base: wp.int32,
         addr: wp.int32,
         mem: wp.array(dtype=wp.uint8),
+        rom: wp.array(dtype=wp.uint8),
+        bootrom: wp.array(dtype=wp.uint8),
+        cart_ram: wp.array(dtype=wp.uint8),
+        cart_state: wp.array(dtype=wp.int32),
+        rom_bank_count: wp.int32,
+        rom_bank_mask: wp.int32,
+        ram_bank_count: wp.int32,
         actions: wp.array(dtype=wp.int32),
         joyp_select: wp.array(dtype=wp.uint8),
         frames_done: wp.int32,
@@ -450,6 +476,16 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         action_codec_id: wp.int32,
     ) -> wp.int32:
         addr16 = addr & 0xFFFF
+        state_base = i * CART_STATE_STRIDE
+        if addr16 < BOOTROM_SIZE and cart_state[
+            state_base + CART_STATE_BOOTROM_ENABLED
+        ] != 0:
+            return wp.int32(bootrom[addr16])
+        if addr16 < ROM_LIMIT:
+            limit = rom_bank_count * CART_ROM_BANK_SIZE
+            if addr16 < limit:
+                return wp.int32(rom[addr16])
+            return 0xFF
         if addr16 == 0xFF00:
             action_i = wp.int32(actions[i])
             joyp_sel = wp.int32(joyp_select[i])
@@ -471,6 +507,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         addr: wp.int32,
         val: wp.int32,
         mem: wp.array(dtype=wp.uint8),
+        rom: wp.array(dtype=wp.uint8),
+        bootrom: wp.array(dtype=wp.uint8),
+        cart_ram: wp.array(dtype=wp.uint8),
+        cart_state: wp.array(dtype=wp.int32),
+        rom_bank_count: wp.int32,
+        rom_bank_mask: wp.int32,
+        ram_bank_count: wp.int32,
         joyp_select: wp.array(dtype=wp.uint8),
         serial_buf: wp.array(dtype=wp.uint8),
         serial_len: wp.array(dtype=wp.int32),
@@ -562,6 +605,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     @wp.kernel
     def cpu_step(
         mem: wp.array(dtype=wp.uint8),
+        rom: wp.array(dtype=wp.uint8),
+        bootrom: wp.array(dtype=wp.uint8),
+        cart_ram: wp.array(dtype=wp.uint8),
+        cart_state: wp.array(dtype=wp.int32),
+        rom_bank_count: wp.int32,
+        rom_bank_mask: wp.int32,
+        ram_bank_count: wp.int32,
         pc: wp.array(dtype=wp.int32),
         sp: wp.array(dtype=wp.int32),
         a: wp.array(dtype=wp.int32),
@@ -763,6 +813,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             sp_i,
                             (ret >> 8) & 0xFF,
                             mem,
+                            rom,
+                            bootrom,
+                            cart_ram,
+                            cart_state,
+                            rom_bank_count,
+                            rom_bank_mask,
+                            ram_bank_count,
                             joyp_select,
                             serial_buf,
                             serial_len,
@@ -779,6 +836,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             sp_i,
                             ret & 0xFF,
                             mem,
+                            rom,
+                            bootrom,
+                            cart_ram,
+                            cart_state,
+                            rom_bank_count,
+                            rom_bank_mask,
+                            ram_bank_count,
                             joyp_select,
                             serial_buf,
                             serial_len,
@@ -811,12 +875,46 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     if frames_done >= frames_to_run:
                         break
                 continue
-            opcode = wp.int32(mem[base + pc_i])
+            opcode = read8(
+                i,
+                base,
+                pc_i,
+                mem,
+                rom,
+                bootrom,
+                cart_ram,
+                cart_state,
+                rom_bank_count,
+                rom_bank_mask,
+                ram_bank_count,
+                actions,
+                joyp_select,
+                frames_done,
+                release_after_frames,
+                action_codec_id,
+            )
             opcode_hi = opcode >> 4
             cycles = wp.int32(0)
 
             if opcode == 0xCB:
-                cb_opcode = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+                cb_opcode = read8(
+                    i,
+                    base,
+                    (pc_i + 1) & 0xFFFF,
+                    mem,
+                    rom,
+                    bootrom,
+                    cart_ram,
+                    cart_state,
+                    rom_bank_count,
+                    rom_bank_mask,
+                    ram_bank_count,
+                    actions,
+                    joyp_select,
+                    frames_done,
+                    release_after_frames,
+                    action_codec_id,
+                )
                 cb_opcode_hi = cb_opcode >> 4
                 pc_i = (pc_i + 2) & 0xFFFF
                 CB_DISPATCH
@@ -954,6 +1052,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         sp_i,
                         (ret >> 8) & 0xFF,
                         mem,
+                        rom,
+                        bootrom,
+                        cart_ram,
+                        cart_state,
+                        rom_bank_count,
+                        rom_bank_mask,
+                        ram_bank_count,
                         joyp_select,
                         serial_buf,
                         serial_len,
@@ -970,6 +1075,13 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         sp_i,
                         ret & 0xFF,
                         mem,
+                        rom,
+                        bootrom,
+                        cart_ram,
+                        cart_state,
+                        rom_bank_count,
+                        rom_bank_mask,
+                        ram_bank_count,
                         joyp_select,
                         serial_buf,
                         serial_len,

@@ -24,6 +24,30 @@ from gbxcule.backends.common import (
 )
 from gbxcule.core.abi import MEM_SIZE, OBS_DIM_DEFAULT, SCREEN_H, SCREEN_W, SERIAL_MAX
 from gbxcule.core.action_codec import action_codec_kernel_id
+from gbxcule.core.cartridge import (
+    BOOTROM_SIZE,
+    CART_STATE_BANK_MODE,
+    CART_STATE_BOOTROM_ENABLED,
+    CART_STATE_MBC_KIND,
+    CART_STATE_RAM_BANK,
+    CART_STATE_RAM_ENABLE,
+    CART_STATE_ROM_BANK_HI,
+    CART_STATE_ROM_BANK_LO,
+    CART_STATE_RTC_DAYS_HIGH,
+    CART_STATE_RTC_DAYS_LOW,
+    CART_STATE_RTC_HOURS,
+    CART_STATE_RTC_LAST_CYCLE,
+    CART_STATE_RTC_LATCH,
+    CART_STATE_RTC_MINUTES,
+    CART_STATE_RTC_SECONDS,
+    CART_STATE_RTC_SELECT,
+    CART_STATE_STRIDE,
+    MBC_KIND_MBC1,
+    MBC_KIND_MBC3,
+    MBC_KIND_ROM_ONLY,
+    CartType,
+    parse_cartridge_header,
+)
 from gbxcule.kernels.cpu_step import (
     get_cpu_step_kernel,
     get_warp,
@@ -33,6 +57,7 @@ from gbxcule.kernels.cpu_step import (
 from gbxcule.kernels.ppu_step import get_ppu_render_bg_kernel
 
 BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
+ROM_LIMIT = 0x8000
 
 
 class WarpVecBaseBackend:
@@ -82,6 +107,16 @@ class WarpVecBaseBackend:
         self._kernel = get_cpu_step_kernel(stage=self._stage, obs_dim=self._obs_dim)
 
         self._mem = None
+        self._rom = None
+        self._bootrom = None
+        self._cart_ram = None
+        self._cart_state = None
+        self._rom_bytes = None
+        self._bootrom_bytes = None
+        self._rom_bank_count = 0
+        self._rom_bank_mask = -1
+        self._ram_bank_count = 0
+        self._ram_byte_length = 0
         self._pc = None
         self._sp = None
         self._a = None
@@ -184,16 +219,80 @@ class WarpVecBaseBackend:
         """
         rom_bytes = self._load_rom_bytes()
         bootrom_bytes = self._load_bootrom_bytes()
+        spec = parse_cartridge_header(rom_bytes)
+        if len(rom_bytes) < spec.rom_byte_length:
+            raise ValueError(
+                f"ROM smaller than header advertises: "
+                f"{len(rom_bytes)} < {spec.rom_byte_length}"
+            )
+        if len(rom_bytes) > spec.rom_byte_length:
+            rom_bytes = rom_bytes[: spec.rom_byte_length]
+
+        self._rom_bytes = rom_bytes
+        self._bootrom_bytes = bootrom_bytes
+        self._rom_bank_count = spec.rom_bank_count
+        self._rom_bank_mask = (
+            spec.rom_bank_mask if spec.rom_bank_mask is not None else -1
+        )
+        self._ram_bank_count = spec.ram_bank_count
+        self._ram_byte_length = spec.ram_byte_length
+
+        rom_np = np.frombuffer(rom_bytes, dtype=np.uint8)
+        self._rom = self._wp.array(rom_np, dtype=self._wp.uint8, device=self._device)
+        bootrom_np = np.frombuffer(bootrom_bytes, dtype=np.uint8)
+        self._bootrom = self._wp.array(
+            bootrom_np, dtype=self._wp.uint8, device=self._device
+        )
+
+        ram_alloc_bytes = self._ram_byte_length
+        if ram_alloc_bytes <= 0:
+            ram_alloc_bytes = 1
+        cart_ram_np = np.zeros(self.num_envs * ram_alloc_bytes, dtype=np.uint8)
+        self._cart_ram = self._wp.array(
+            cart_ram_np, dtype=self._wp.uint8, device=self._device
+        )
+
+        cart_state_np = np.zeros(self.num_envs * CART_STATE_STRIDE, dtype=np.int32)
+        mbc_kind = MBC_KIND_ROM_ONLY
+        if spec.cart_type in {
+            CartType.MBC1,
+            CartType.MBC1_RAM,
+            CartType.MBC1_RAM_BATTERY,
+        }:
+            mbc_kind = MBC_KIND_MBC1
+        elif spec.cart_type in {
+            CartType.MBC3,
+            CartType.MBC3_RAM,
+            CartType.MBC3_RAM_BATTERY,
+            CartType.MBC3_TIMER_BATTERY,
+            CartType.MBC3_TIMER_RAM_BATTERY,
+        }:
+            mbc_kind = MBC_KIND_MBC3
+        for env_idx in range(self.num_envs):
+            base = env_idx * CART_STATE_STRIDE
+            cart_state_np[base + CART_STATE_MBC_KIND] = mbc_kind
+            cart_state_np[base + CART_STATE_RAM_ENABLE] = 0
+            cart_state_np[base + CART_STATE_ROM_BANK_LO] = 1
+            cart_state_np[base + CART_STATE_ROM_BANK_HI] = 0
+            cart_state_np[base + CART_STATE_RAM_BANK] = 0
+            cart_state_np[base + CART_STATE_BANK_MODE] = 0
+            cart_state_np[base + CART_STATE_BOOTROM_ENABLED] = 1
+            cart_state_np[base + CART_STATE_RTC_SELECT] = 0
+            cart_state_np[base + CART_STATE_RTC_LATCH] = 0
+            cart_state_np[base + CART_STATE_RTC_SECONDS] = 0
+            cart_state_np[base + CART_STATE_RTC_MINUTES] = 0
+            cart_state_np[base + CART_STATE_RTC_HOURS] = 0
+            cart_state_np[base + CART_STATE_RTC_DAYS_LOW] = 0
+            cart_state_np[base + CART_STATE_RTC_DAYS_HIGH] = 0
+            cart_state_np[base + CART_STATE_RTC_LAST_CYCLE] = 0
+        self._cart_state = self._wp.array(
+            cart_state_np, dtype=self._wp.int32, device=self._device
+        )
 
         mem_np = np.zeros(self.num_envs * MEM_SIZE, dtype=np.uint8)
         for env_idx in range(self.num_envs):
             base = env_idx * MEM_SIZE
-            mem_np[base : base + len(rom_bytes)] = np.frombuffer(
-                rom_bytes, dtype=np.uint8
-            )
-            mem_np[base : base + len(bootrom_bytes)] = np.frombuffer(
-                bootrom_bytes, dtype=np.uint8
-            )
+            mem_np[base : base + BOOTROM_SIZE] = bootrom_np
 
         self._mem = self._wp.array(mem_np, dtype=self._wp.uint8, device=self._device)
         self._pc = self._wp.zeros(
@@ -350,7 +449,14 @@ class WarpVecBaseBackend:
             bad = int(actions[invalid_mask][0])
             raise ValueError(f"Action {bad} out of range [0, {self.num_actions})")
 
-        if self._mem is None or self._actions is None:
+        if (
+            self._mem is None
+            or self._rom is None
+            or self._bootrom is None
+            or self._cart_ram is None
+            or self._cart_state is None
+            or self._actions is None
+        ):
             raise RuntimeError("Backend not initialized. Call reset() first.")
 
         if hasattr(self._actions, "assign"):
@@ -371,6 +477,13 @@ class WarpVecBaseBackend:
             dim=self.num_envs,
             inputs=[
                 self._mem,
+                self._rom,
+                self._bootrom,
+                self._cart_ram,
+                self._cart_state,
+                int(self._rom_bank_count),
+                int(self._rom_bank_mask),
+                int(self._ram_bank_count),
                 self._pc,
                 self._sp,
                 self._a,
@@ -468,7 +581,28 @@ class WarpVecBaseBackend:
             raise ValueError(f"Invalid memory range: lo={lo} hi={hi}")
         base = env_idx * MEM_SIZE
         mem_np = self._mem.numpy()
-        return mem_np[base + lo : base + hi].tobytes()
+        if hi <= ROM_LIMIT:
+            return self._read_rom_slice(lo, hi)
+        if lo >= ROM_LIMIT:
+            return mem_np[base + lo : base + hi].tobytes()
+        rom_part = self._read_rom_slice(lo, ROM_LIMIT)
+        mem_part = mem_np[base + ROM_LIMIT : base + hi].tobytes()
+        return rom_part + mem_part
+
+    def _read_rom_slice(self, lo: int, hi: int) -> bytes:
+        if self._rom_bytes is None or self._bootrom_bytes is None:
+            raise RuntimeError("ROM not initialized. Call reset() first.")
+        if lo < 0 or hi < 0 or lo > ROM_LIMIT or hi > ROM_LIMIT or lo > hi:
+            raise ValueError(f"Invalid ROM range: lo={lo} hi={hi}")
+        out = bytearray(hi - lo)
+        for idx, addr in enumerate(range(lo, hi)):
+            if addr < BOOTROM_SIZE:
+                out[idx] = self._bootrom_bytes[addr]
+            else:
+                out[idx] = (
+                    self._rom_bytes[addr] if addr < len(self._rom_bytes) else 0xFF
+                )
+        return bytes(out)
 
     def read_frame_bg_shade_env0(self) -> bytes:
         """Read env0 BG shade framebuffer (CPU backend only)."""
@@ -589,6 +723,16 @@ class WarpVecBaseBackend:
         """Close the backend and release resources."""
         self._initialized = False
         self._mem = None
+        self._rom = None
+        self._bootrom = None
+        self._cart_ram = None
+        self._cart_state = None
+        self._rom_bytes = None
+        self._bootrom_bytes = None
+        self._rom_bank_count = 0
+        self._rom_bank_mask = -1
+        self._ram_bank_count = 0
+        self._ram_byte_length = 0
         self._pc = None
         self._sp = None
         self._a = None
@@ -715,8 +859,17 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
         if lo < 0 or hi < 0 or lo > MEM_SIZE or hi > MEM_SIZE or lo > hi:
             raise ValueError(f"Invalid memory range: lo={lo} hi={hi}")
+        if hi <= ROM_LIMIT:
+            return self._read_rom_slice(lo, hi)
+        if lo >= ROM_LIMIT:
+            return self._read_mem_device_range(env_idx, lo, hi)
+        rom_part = self._read_rom_slice(lo, ROM_LIMIT)
+        mem_part = self._read_mem_device_range(env_idx, ROM_LIMIT, hi)
+        return rom_part + mem_part
+
+    def _read_mem_device_range(self, env_idx: int, lo: int, hi: int) -> bytes:
         count = hi - lo
-        if count == 0:
+        if count <= 0:
             return b""
         if self._mem_readback is None or self._mem_readback_capacity < count:
             self._mem_readback = self._wp.empty(

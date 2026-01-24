@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from bench.roms.build_micro_rom import build_rom
 from gbxcule.backends.warp_vec import BOOTROM_PATH, WarpVecCpuBackend
 
 
@@ -12,7 +13,7 @@ def test_reset_loads_rom_prefix() -> None:
     """reset() loads ROM bytes and overlays boot ROM for env 0."""
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
-        rom_bytes = bytes(range(256)) + bytes(range(256))
+        rom_bytes = build_rom("TEST", b"\x00")
         rom_path.write_bytes(rom_bytes)
 
         backend = WarpVecCpuBackend(str(rom_path), num_envs=1, obs_dim=32)
@@ -32,7 +33,8 @@ def test_multi_env_isolation() -> None:
     """Each env has its own 64KB memory slice."""
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
-        rom_path.write_bytes(b"\x00" * 32)
+        rom_bytes = build_rom("TEST", b"\x00")
+        rom_path.write_bytes(rom_bytes)
 
         backend = WarpVecCpuBackend(str(rom_path), num_envs=2, obs_dim=32)
         try:

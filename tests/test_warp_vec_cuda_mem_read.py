@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from bench.roms.build_micro_rom import build_rom
 from gbxcule.backends.warp_vec import BOOTROM_PATH, WarpVecCudaBackend
 
 from .conftest import require_rom
@@ -28,7 +29,7 @@ def test_cuda_read_memory_bootrom_and_rom() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
-        rom_bytes = bytes(range(256)) + bytes(range(256))
+        rom_bytes = build_rom("TEST", b"\x00")
         rom_path.write_bytes(rom_bytes)
 
         backend = WarpVecCudaBackend(
@@ -57,7 +58,8 @@ def test_cuda_read_memory_invalid_ranges() -> None:
         pytest.skip("CUDA disabled for dev runs")
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
-        rom_path.write_bytes(b"\x00" * 32)
+        rom_bytes = build_rom("TEST", b"\x00")
+        rom_path.write_bytes(rom_bytes)
 
         backend = WarpVecCudaBackend(
             str(rom_path),
