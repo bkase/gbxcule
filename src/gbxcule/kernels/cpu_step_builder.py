@@ -202,6 +202,131 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         return 0xC0 | sel | low
 
     @wp.func
+    def timer_div_bit(tac: wp.int32) -> wp.int32:
+        sel = tac & 0x03
+        if sel == 0:
+            return 9
+        if sel == 1:
+            return 3
+        if sel == 2:
+            return 5
+        return 7
+
+    @wp.func
+    def timer_in(div: wp.int32, tac: wp.int32) -> wp.int32:
+        if (tac & 0x04) == 0:
+            return 0
+        bit = timer_div_bit(tac)
+        return (div >> bit) & 0x1
+
+    @wp.func
+    def tima_inc(
+        i: wp.int32,
+        base: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        tima_reload_pending: wp.array(dtype=wp.int32),
+        tima_reload_delay: wp.array(dtype=wp.int32),
+    ) -> None:
+        tima = wp.int32(mem[base + 0xFF05]) & 0xFF
+        tima2 = (tima + 1) & 0xFF
+        mem[base + 0xFF05] = wp.uint8(tima2)
+        if tima == 0xFF:
+            tima_reload_pending[i] = 1
+            tima_reload_delay[i] = 4
+
+    @wp.func
+    def tima_reload_now(
+        i: wp.int32,
+        base: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        tima_reload_pending: wp.array(dtype=wp.int32),
+        tima_reload_delay: wp.array(dtype=wp.int32),
+    ) -> None:
+        tma = wp.int32(mem[base + 0xFF06]) & 0xFF
+        mem[base + 0xFF05] = wp.uint8(tma)
+        if_addr = base + 0xFF0F
+        mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x04))
+        tima_reload_pending[i] = 0
+        tima_reload_delay[i] = 0
+
+    @wp.func
+    def timer_tick(
+        i: wp.int32,
+        base: wp.int32,
+        cycles: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        div_counter: wp.array(dtype=wp.int32),
+        timer_prev_in: wp.array(dtype=wp.int32),
+        tima_reload_pending: wp.array(dtype=wp.int32),
+        tima_reload_delay: wp.array(dtype=wp.int32),
+    ) -> None:
+        if cycles <= 0:
+            return
+
+        remaining = cycles
+        div = div_counter[i] & 0xFFFF
+
+        while remaining > 0:
+            if tima_reload_pending[i] != 0 and tima_reload_delay[i] <= 0:
+                tima_reload_now(
+                    i,
+                    base,
+                    mem,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
+
+            tac = wp.int32(mem[base + 0xFF07]) & 0x07
+            dt = remaining
+
+            if tima_reload_pending[i] != 0:
+                rd = tima_reload_delay[i]
+                if rd < dt:
+                    dt = rd
+
+            do_edge = wp.int32(0)
+            if (tac & 0x04) != 0:
+                bit = timer_div_bit(tac)
+                period = wp.int32(1) << (bit + 1)
+                mask = period - 1
+                mod = div & mask
+                edge_dt = period - mod
+                if edge_dt < dt:
+                    dt = edge_dt
+                if dt == edge_dt:
+                    do_edge = 1
+
+            div = (div + dt) & 0xFFFF
+
+            if tima_reload_pending[i] != 0:
+                tima_reload_delay[i] = tima_reload_delay[i] - dt
+
+            remaining = remaining - dt
+
+            if do_edge != 0:
+                tima_inc(
+                    i,
+                    base,
+                    mem,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
+
+            if tima_reload_pending[i] != 0 and tima_reload_delay[i] <= 0:
+                tima_reload_now(
+                    i,
+                    base,
+                    mem,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
+
+        div_counter[i] = div
+        mem[base + 0xFF04] = wp.uint8((div >> 8) & 0xFF)
+        tac = wp.int32(mem[base + 0xFF07]) & 0x07
+        timer_prev_in[i] = timer_in(div, tac)
+
+    @wp.func
     def read8(
         i: wp.int32,
         base: wp.int32,
@@ -270,11 +395,21 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x08))
             return
         if addr16 == 0xFF04:
-            div_counter[i] = 0
-            timer_prev_in[i] = 0
-            tima_reload_pending[i] = 0
-            tima_reload_delay[i] = 0
+            tac = wp.int32(mem[base + 0xFF07]) & 0x07
+            div = div_counter[i] & 0xFFFF
+            pre_in = timer_in(div, tac)
             mem[base + addr16] = wp.uint8(0)
+            div_counter[i] = 0
+            post_in = timer_in(0, tac)
+            timer_prev_in[i] = post_in
+            if pre_in != 0 and post_in == 0:
+                tima_inc(
+                    i,
+                    base,
+                    mem,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
             return
         if addr16 == 0xFF05:
             mem[base + addr16] = val8
@@ -283,7 +418,21 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             mem[base + addr16] = val8
             return
         if addr16 == 0xFF07:
-            mem[base + addr16] = val8 & wp.uint8(0x07)
+            div = div_counter[i] & 0xFFFF
+            tac_old = wp.int32(mem[base + 0xFF07]) & 0x07
+            pre_in = timer_in(div, tac_old)
+            tac_new = wp.int32(val) & 0x07
+            mem[base + addr16] = wp.uint8(tac_new)
+            post_in = timer_in(div, tac_new)
+            timer_prev_in[i] = post_in
+            if pre_in != 0 and post_in == 0:
+                tima_inc(
+                    i,
+                    base,
+                    mem,
+                    tima_reload_pending,
+                    tima_reload_delay,
+                )
             return
         if addr16 == 0xFFFF:
             mem[base + addr16] = val8 & wp.uint8(0x1F)
@@ -375,6 +524,16 @@ _CPU_STEP_SKELETON = textwrap.dedent(
 
             f_i = f_i & 0xF0
             instr_i += wp.int64(1)
+            timer_tick(
+                i,
+                base,
+                cycles,
+                mem,
+                div_counter,
+                timer_prev_in,
+                tima_reload_pending,
+                tima_reload_delay,
+            )
             cycles_i += wp.int64(cycles)
             cycle_frame += cycles
 
