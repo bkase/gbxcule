@@ -17,7 +17,7 @@ from typing import Any, Literal, Protocol, TypedDict  # noqa: E402
 import numpy as np  # noqa: E402
 from numpy.typing import NDArray  # noqa: E402
 
-from gbxcule.core.action_codec import (  # noqa: E402
+from gbxcule.core.action_codec import (  # noqa: E402  # pyright: ignore[reportMissingTypeStubs]
     POKERED_PUFFER_V0_ID,
     ActionCodecDef,
     get_action_codec,
@@ -130,12 +130,8 @@ class CpuFlags(TypedDict):
     c: int  # Carry flag (bit 4 of F)
 
 
-class CpuState(TypedDict, total=False):
-    """CPU register state for verification.
-
-    All register values are integers. Counters are optional and may be None
-    if the backend cannot provide them.
-    """
+class _CpuStateRequired(TypedDict):
+    """Required fields for CPU state."""
 
     pc: int  # Program counter
     sp: int  # Stack pointer
@@ -148,6 +144,16 @@ class CpuState(TypedDict, total=False):
     h: int
     l: int  # noqa: E741 - canonical register name
     flags: CpuFlags  # Decomposed flags
+
+
+class CpuState(_CpuStateRequired, total=False):
+    """CPU register state for verification.
+
+    Core registers (pc, sp, a-l, f, flags) are always present.
+    Counters and trap fields are optional and may be None
+    if the backend cannot provide them.
+    """
+
     instr_count: int | None  # Instruction count (optional)
     cycle_count: int | None  # Cycle count (optional)
     trap_flag: int | None  # Trap active flag (optional)
@@ -174,6 +180,7 @@ class VecBackend(Protocol):
     name: str
     device: Device
     num_envs: int
+    num_actions: int
     action_spec: ArraySpec
     obs_spec: ArraySpec
 

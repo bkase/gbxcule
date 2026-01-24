@@ -1,3 +1,4 @@
+# pyright: reportTypedDictNotRequiredAccess=false
 """Tests for pyboy_single backend.
 
 Tests cover:

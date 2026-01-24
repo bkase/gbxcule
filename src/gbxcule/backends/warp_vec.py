@@ -68,7 +68,7 @@ class WarpVecBaseBackend:
         self.device = device
         self._device_name = device_name
         self._sync_after_step = True
-        self._stage = stage
+        self._stage: Stage = stage
         self._render_bg = render_bg
         self._ppu_render_kernel = None
         self._action_codec = resolve_action_codec(action_codec)
@@ -529,6 +529,23 @@ class WarpVecBaseBackend:
             raise RuntimeError("Backend not initialized. Call reset() first.")
         if self.device == "cuda":
             self._wp.synchronize()
+
+        # All register arrays are guaranteed non-None after initialization
+        assert self._sp is not None
+        assert self._a is not None
+        assert self._b is not None
+        assert self._c is not None
+        assert self._d is not None
+        assert self._e is not None
+        assert self._h is not None
+        assert self._l is not None
+        assert self._f is not None
+        assert self._instr_count is not None
+        assert self._cycle_count is not None
+        assert self._trap_flag is not None
+        assert self._trap_pc is not None
+        assert self._trap_opcode is not None
+        assert self._trap_kind is not None
 
         pc = int(self._pc.numpy()[env_idx]) & 0xFFFF
         sp = int(self._sp.numpy()[env_idx]) & 0xFFFF

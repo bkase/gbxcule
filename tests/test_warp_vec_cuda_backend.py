@@ -1,4 +1,6 @@
 """Smoke tests for warp_vec_cuda backend (CUDA only)."""
+# pyright: reportTypedDictNotRequiredAccess=false
+# Tests legitimately access optional CpuState fields
 
 from __future__ import annotations
 

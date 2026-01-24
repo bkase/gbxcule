@@ -138,7 +138,7 @@ verify-mismatch: roms ## Exercise mismatch bundle path (expected fail)
 	test -f "$$bundle/rom.gb"; \
 	rm "$$out"
 
-check: fmt lint roms build-warp test ## Run all checks (commit hook gate)
+check: fmt lint typecheck roms build-warp test ## Run all checks (commit hook gate)
 
 verify-gpu: roms ## M3 must-pass verify (DGX/CUDA)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }

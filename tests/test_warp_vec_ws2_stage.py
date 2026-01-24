@@ -1,15 +1,18 @@
 """Stage kernel tests for warp_vec_cpu."""
+# pyright: reportOptionalMemberAccess=false
+# Tests access internal state that is Optional before reset()
 
 from __future__ import annotations
 
 import numpy as np
 
+from gbxcule.backends.common import Stage
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
 from .conftest import ROM_PATH, require_rom
 
 
-def _make_backend(stage: str, frames_per_step: int = 0) -> WarpVecCpuBackend:
+def _make_backend(stage: Stage, frames_per_step: int = 0) -> WarpVecCpuBackend:
     require_rom(ROM_PATH)
     return WarpVecCpuBackend(
         str(ROM_PATH),
@@ -21,6 +24,17 @@ def _make_backend(stage: str, frames_per_step: int = 0) -> WarpVecCpuBackend:
 
 
 def _set_regs(backend: WarpVecCpuBackend, *, pc: int, sp: int, a: int) -> None:
+    # These attributes are guaranteed non-None after reset()
+    assert backend._pc is not None
+    assert backend._sp is not None
+    assert backend._a is not None
+    assert backend._b is not None
+    assert backend._c is not None
+    assert backend._d is not None
+    assert backend._e is not None
+    assert backend._h is not None
+    assert backend._l is not None
+    assert backend._f is not None
     backend._pc.numpy()[0] = pc
     backend._sp.numpy()[0] = sp
     backend._a.numpy()[0] = a
@@ -47,6 +61,8 @@ def test_stage_emulate_only_does_not_write_outputs() -> None:
     backend = _make_backend("emulate_only", frames_per_step=0)
     try:
         backend.reset()
+        assert backend._reward is not None
+        assert backend._obs is not None
         backend._reward.numpy()[:] = 0.75
         backend._obs.numpy()[:] = 0.25
         actions = np.zeros((1,), dtype=np.int32)

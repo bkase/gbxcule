@@ -10,10 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from gbxcule.backends.common import CpuState
+from collections.abc import Mapping
+from typing import Any
 
 
 def hash64(base_seed: int, env_idx: int, rom_sha: str) -> int:
@@ -49,7 +47,7 @@ def hash64(base_seed: int, env_idx: int, rom_sha: str) -> int:
     return struct.unpack("<Q", digest)[0]
 
 
-def hash_cpu_state(state: CpuState, *, include_counters: bool = True) -> str:
+def hash_cpu_state(state: Mapping[str, Any], *, include_counters: bool = True) -> str:
     """Compute a deterministic hash of CPU state for quick comparison.
 
     Uses blake2b over a canonicalized JSON representation with sorted keys

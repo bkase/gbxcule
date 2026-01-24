@@ -115,7 +115,7 @@ class PyBoyPufferVecBackend:
 
         self.num_workers = effective_num_workers
 
-        def env_creator() -> GymnasiumPufferEnv:
+        def env_creator() -> Any:
             return GymnasiumPufferEnv(
                 env=PyBoyGymEnv(
                     rom_path,

@@ -53,6 +53,7 @@ class FakeVecBackend:
 
     def __init__(self, num_envs: int = 4, obs_dim: int = 32) -> None:
         self.num_envs = num_envs
+        self.num_actions = 8  # Fake action count
         self._obs_dim = obs_dim
         self._step_count = 0
         self._initialized = False
@@ -100,6 +101,10 @@ class FakeVecBackend:
             "l": 0,
             "flags": {"z": 0, "n": 0, "h": 0, "c": 0},
         }
+
+    def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
+        """Return fake memory bytes."""
+        return bytes(hi - lo)
 
     def close(self) -> None:
         self._initialized = False

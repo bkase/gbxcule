@@ -1,0 +1,24 @@
+"""Type stubs for pyboy - all types as Any for now."""
+
+from typing import Any
+
+__version__: str
+
+class PyBoy:
+    memory: Any
+    register_file: Any
+
+    def __init__(
+        self,
+        rom_path: str,
+        *,
+        window: str = ...,
+        sound_emulated: bool = ...,
+        bootrom: str | None = ...,
+        **kwargs: Any,
+    ) -> None: ...
+    def set_emulation_speed(self, speed: int) -> None: ...
+    def tick(self, *, render: bool = ...) -> bool: ...
+    def button_press(self, button: str) -> None: ...
+    def button_release(self, button: str) -> None: ...
+    def stop(self, *, save: bool = ...) -> None: ...

@@ -18,12 +18,13 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from gbxcule.backends.common import Stage, VecBackend
+    from gbxcule.backends.common import CpuState, Stage, VecBackend
 
 from gbxcule.backends.common import DEFAULT_ACTION_CODEC_ID
 from gbxcule.core.abi import SCREEN_H, SCREEN_W
@@ -403,7 +404,7 @@ def _frame_shades_from_backend(backend: Any) -> np.ndarray:
     """Return env0 frame as shade indices (0..3)."""
     reader = getattr(backend, "read_frame_bg_shade_env0", None)
     if callable(reader):
-        data = reader()
+        data = cast(bytes, reader())
         return np.frombuffer(data, dtype=np.uint8).reshape(SCREEN_H, SCREEN_W)
     if getattr(backend, "_pyboy", None) is not None:
         frame = _frame_from_pyboy(backend)
@@ -434,7 +435,8 @@ def _read_ppu_regs(backend: Any) -> dict[str, int] | None:
     out: dict[str, int] = {}
     try:
         for name, addr in regs.items():
-            out[name] = reader(0, addr, addr + 1)[0]
+            mem = cast(bytes, reader(0, addr, addr + 1))
+            out[name] = mem[0]
     except Exception:
         return None
     return out
@@ -501,7 +503,7 @@ def _coerce_memory_slice(data: Any, expected_len: int) -> bytes:
     return mem_bytes
 
 
-def normalize_cpu_state(state: dict[str, Any]) -> dict[str, Any]:
+def normalize_cpu_state(state: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize CPU state for comparison (pure function).
 
     Ensures consistent key ordering and types for deterministic comparison.
@@ -666,7 +668,7 @@ def get_system_info() -> dict[str, Any]:
         )
 
         if warp_dist is not None:
-            info["warp_dist_name"] = warp_dist.metadata.get("Name") or None
+            info["warp_dist_name"] = warp_dist.metadata["Name"]
             info["warp_dist_version"] = warp_dist.version
 
             direct_url_path = None
@@ -677,7 +679,7 @@ def get_system_info() -> dict[str, Any]:
 
             if direct_url_path is not None:
                 try:
-                    direct_url_json = json.loads(Path(direct_url_path).read_text())
+                    direct_url_json = json.loads(Path(str(direct_url_path)).read_text())
                     direct_url = direct_url_json.get("url")
                 except Exception:
                     direct_url = None
@@ -699,7 +701,7 @@ def get_system_info() -> dict[str, Any]:
             puffer_dist = None
 
         if puffer_dist is not None:
-            info["pufferlib_dist_name"] = puffer_dist.metadata.get("Name") or None
+            info["pufferlib_dist_name"] = puffer_dist.metadata["Name"]
             info["pufferlib_dist_version"] = puffer_dist.version
 
             direct_url_path = None
@@ -710,7 +712,7 @@ def get_system_info() -> dict[str, Any]:
 
             if direct_url_path is not None:
                 try:
-                    direct_url_json = json.loads(Path(direct_url_path).read_text())
+                    direct_url_json = json.loads(Path(str(direct_url_path)).read_text())
                     direct_url = direct_url_json.get("url")
                 except Exception:
                     direct_url = None
@@ -1577,7 +1579,7 @@ def write_mismatch_bundle(
     dump_frame_on_mismatch: bool = False,
     frame_warmup: int = 0,
     ppu_regs: dict[str, dict[str, int]] | None = None,
-    frame_hash_history: list[dict[str, int]] | None = None,
+    frame_hash_history: list[dict[str, int | str]] | None = None,
     ppu_mem_dump_meta: list[dict[str, Any]] | None = None,
     ppu_mem_dump_blobs: list[tuple[str, int, int, bytes, bytes]] | None = None,
 ) -> Path:
@@ -1895,7 +1897,7 @@ def run_verify(
 
         # Action trace for recording
         actions_trace: list[list[int]] = []
-        frame_hash_history: list[dict[str, int]] = []
+        frame_hash_history: list[dict[str, int | str]] = []
 
         # Verify loop
         for step_idx in range(args.verify_steps):
@@ -2253,7 +2255,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.dump_serial:
             serial_fn = getattr(backend, "read_serial", None)
             if callable(serial_fn):
-                serial_bytes = serial_fn(0)
+                serial_bytes = cast(bytes, serial_fn(0))
                 ascii_view = format_serial_ascii(serial_bytes)
                 print(f"Serial bytes (len={len(serial_bytes)}): {ascii_view}")
             else:

@@ -1,3 +1,6 @@
+# pyright: reportTypedDictNotRequiredAccess=false
+# pyright: reportOperatorIssue=false
+# pyright: reportOptionalOperand=false
 """Tests for warp_vec_cpu backend."""
 
 from __future__ import annotations

@@ -390,8 +390,8 @@ def test_hash_cpu_state_different_for_different_states() -> None:
     from gbxcule.backends.common import CpuState
     from gbxcule.core.signatures import hash_cpu_state
 
-    state1: CpuState = {"pc": 0x0150, "sp": 0xFFFE, "a": 0}
-    state2: CpuState = {"pc": 0x0151, "sp": 0xFFFE, "a": 0}
+    state1 = {"pc": 0x0150, "sp": 0xFFFE, "a": 0}
+    state2 = {"pc": 0x0151, "sp": 0xFFFE, "a": 0}
 
     h1 = hash_cpu_state(state1)
     h2 = hash_cpu_state(state2)
@@ -404,8 +404,8 @@ def test_hash_cpu_state_exclude_counters() -> None:
     from gbxcule.backends.common import CpuState
     from gbxcule.core.signatures import hash_cpu_state
 
-    state_with: CpuState = {"pc": 0x0150, "instr_count": 100}
-    state_without: CpuState = {"pc": 0x0150, "instr_count": 200}
+    state_with = {"pc": 0x0150, "instr_count": 100}
+    state_without = {"pc": 0x0150, "instr_count": 200}
 
     # With counters, different
     h1 = hash_cpu_state(state_with, include_counters=True)

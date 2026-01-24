@@ -1,3 +1,5 @@
+# pyright: reportReturnType=false
+# pyright: reportInvalidTypeForm=false
 """Tests for pyboy_vec_mp backend reliability.
 
 Tests cover:

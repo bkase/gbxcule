@@ -29,7 +29,9 @@ class TemplateSpecializer(cst.CSTTransformer):
     def __init__(self, replacements: dict[str, str]):
         self._replacements = replacements
 
-    def leave_Name(self, original: cst.Name, updated: cst.Name) -> cst.Name:
+    def leave_Name(  # type: ignore[override]
+        self, original: cst.Name, updated: cst.Name
+    ) -> cst.Name:
         replacement = self._replacements.get(original.value)
         if replacement is None:
             return updated
@@ -46,7 +48,8 @@ def _get_template_body(
         raise ValueError("Template source must be a function definition")
     transformer = TemplateSpecializer(replacements)
     modified_func = func_def.visit(transformer)
-    return list(modified_func.body.body)
+    assert isinstance(modified_func, cst.FunctionDef)
+    return list(modified_func.body.body)  # type: ignore[misc]
 
 
 def get_template_body(
@@ -1060,18 +1063,18 @@ def build_cpu_step_source(
                 self._in_cpu_step = True
             return True
 
-        def leave_FunctionDef(
+        def leave_FunctionDef(  # type: ignore[override]
             self, original: cst.FunctionDef, updated: cst.FunctionDef
         ) -> cst.FunctionDef:
             if original.name.value == "cpu_step":
                 self._in_cpu_step = False
             return updated
 
-        def leave_SimpleStatementLine(
+        def leave_SimpleStatementLine(  # type: ignore[override]
             self,
             original: cst.SimpleStatementLine,
             updated: cst.SimpleStatementLine,
-        ) -> cst.BaseStatement:
+        ) -> cst.BaseStatement | cst.FlattenSentinel[cst.BaseStatement]:
             if not self._in_cpu_step:
                 return updated
             if (

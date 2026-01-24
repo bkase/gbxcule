@@ -64,6 +64,15 @@ filterwarnings = [
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
-include = ["src/gbxcule/core", "src/gbxcule/backends/common.py"]
+include = ["src", "tests", "bench", "tools"]
+# Exclude template files (transformed at runtime via libcst) and Warp kernel DSL
+exclude = ["src/gbxcule/kernels/cpu_templates", "src/gbxcule/kernels/ppu_step.py"]
+stubPath = "typings"
+# Allow tests to import 'harness' from bench/
+extraPaths = ["bench"]
+# Allow bytearray where bytes is expected (Python runtime allows this)
+disableBytesTypePromotions = false
+# Don't require stubs for our own internal modules
+reportMissingTypeStubs = false
 # Enforce strict mode for shared contract modules
 strict = ["src/gbxcule/backends/common.py"]
