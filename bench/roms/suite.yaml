@@ -51,3 +51,9 @@ roms:
     description: "Control flow + stack coverage loop (CALL/RET/JR/JP/PUSH/POP)."
     frames_per_step: 24
     release_after_frames: 8
+
+  - id: CB_BITOPS
+    path: bench/roms/out/CB_BITOPS.gb
+    description: "Rotate/shift + CB bit ops coverage (BIT/RES/SET, r8 + (HL))."
+    frames_per_step: 24
+    release_after_frames: 8

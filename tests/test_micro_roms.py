@@ -19,6 +19,7 @@ from bench.roms.build_micro_rom import (
     build_alu16_sp,
     build_alu_flags,
     build_alu_loop,
+    build_cb_bitops,
     build_flow_stack,
     build_joy_diverge_persist,
     build_loads_basic,
@@ -38,7 +39,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 8
+    assert len(results) == 9
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -79,6 +80,10 @@ def test_roms_are_deterministic() -> None:
     flow1 = build_flow_stack()
     flow2 = build_flow_stack()
     assert flow1 == flow2, "FLOW_STACK is not deterministic"
+
+    cb1 = build_cb_bitops()
+    cb2 = build_cb_bitops()
+    assert cb1 == cb2, "CB_BITOPS is not deterministic"
 
 
 def test_sha256_is_deterministic() -> None:
@@ -175,6 +180,16 @@ def test_flow_stack_header_checksum() -> None:
     )
 
 
+def test_cb_bitops_header_checksum() -> None:
+    """CB_BITOPS has valid header checksum."""
+    rom = build_cb_bitops()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
 def test_alu_loop_global_checksum() -> None:
     """ALU_LOOP has valid global checksum."""
     rom = build_alu_loop()
@@ -248,6 +263,16 @@ def test_alu_flags_global_checksum() -> None:
 def test_alu16_sp_global_checksum() -> None:
     """ALU16_SP has valid global checksum."""
     rom = build_alu16_sp()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_cb_bitops_global_checksum() -> None:
+    """CB_BITOPS has valid global checksum."""
+    rom = build_cb_bitops()
     stored = (rom[0x014E] << 8) | rom[0x014F]
     computed = compute_global_checksum(rom)
     assert stored == computed, (

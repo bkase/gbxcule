@@ -669,6 +669,87 @@ def build_flow_stack() -> bytes:
     return build_rom("FLOW_STACK", program)
 
 
+def build_cb_bitops() -> bytes:
+    """Build CB_BITOPS.gb - rotates/shifts + CB bit operations coverage loop."""
+    program = bytes(
+        [
+            0x3E,
+            0x81,  # LD A, 0x81
+            0x06,
+            0x01,  # LD B, 0x01
+            0x0E,
+            0x80,  # LD C, 0x80
+            0x16,
+            0x3C,  # LD D, 0x3C
+            0x1E,
+            0xF0,  # LD E, 0xF0
+            0x26,
+            0xC0,  # LD H, 0xC0
+            0x2E,
+            0x00,  # LD L, 0x00
+            0x36,
+            0x55,  # LD (HL), 0x55
+            0x07,  # RLCA
+            0x17,  # RLA
+            0x0F,  # RRCA
+            0x1F,  # RRA
+            0xCB,
+            0x00,  # RLC B
+            0xCB,
+            0x09,  # RRC C
+            0xCB,
+            0x12,  # RL D
+            0xCB,
+            0x1B,  # RR E
+            0xCB,
+            0x20,  # SLA B
+            0xCB,
+            0x29,  # SRA C
+            0xCB,
+            0x37,  # SWAP A
+            0xCB,
+            0x3A,  # SRL D
+            0xCB,
+            0x06,  # RLC (HL)
+            0xCB,
+            0x0E,  # RRC (HL)
+            0xCB,
+            0x16,  # RL (HL)
+            0xCB,
+            0x1E,  # RR (HL)
+            0xCB,
+            0x26,  # SLA (HL)
+            0xCB,
+            0x2E,  # SRA (HL)
+            0xCB,
+            0x36,  # SWAP (HL)
+            0xCB,
+            0x3E,  # SRL (HL)
+            0xCB,
+            0x40,  # BIT 0,B
+            0xCB,
+            0x49,  # BIT 1,C
+            0xCB,
+            0x7E,  # BIT 7,(HL)
+            0xCB,
+            0x82,  # RES 0,D
+            0xCB,
+            0x8B,  # RES 1,E
+            0xCB,
+            0xBE,  # RES 7,(HL)
+            0xCB,
+            0xC0,  # SET 0,B
+            0xCB,
+            0xC9,  # SET 1,C
+            0xCB,
+            0xFE,  # SET 7,(HL)
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    return build_rom("CB_BITOPS", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -711,6 +792,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("ALU_FLAGS.gb", build_alu_flags()),
         ("ALU16_SP.gb", build_alu16_sp()),
         ("FLOW_STACK.gb", build_flow_stack()),
+        ("CB_BITOPS.gb", build_cb_bitops()),
     ]
 
     results: list[tuple[str, Path, str]] = []

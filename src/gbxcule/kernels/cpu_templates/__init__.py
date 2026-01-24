@@ -2,4 +2,4 @@
 
 from __future__ import annotations
 
-__all__ = ["alu", "jumps", "loads", "misc", "post_step", "stack"]
+__all__ = ["alu", "bitops", "jumps", "loads", "misc", "post_step", "stack"]

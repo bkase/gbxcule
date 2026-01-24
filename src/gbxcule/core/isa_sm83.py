@@ -214,6 +214,8 @@ _UNPREFIXED_OVERRIDES: dict[int, OpcodeSpec] = {
     ),
 }
 
+_CB_OVERRIDES: dict[int, OpcodeSpec] = {}
+
 _REG_ORDER = ("B", "C", "D", "E", "H", "L", "(HL)", "A")
 _REG_VAR = {
     "A": "a_i",
@@ -228,6 +230,10 @@ _REG_VAR = {
 
 def _add_spec(spec: OpcodeSpec) -> None:
     _UNPREFIXED_OVERRIDES[spec.opcode] = spec
+
+
+def _add_cb_spec(spec: OpcodeSpec) -> None:
+    _CB_OVERRIDES[spec.opcode] = spec
 
 
 def _add_load_families() -> None:
@@ -694,6 +700,29 @@ def _add_alu_families() -> None:
 _add_alu_families()
 
 
+def _add_bitops_families() -> None:
+    rotates = [
+        (0x07, "RLCA", "rlca"),
+        (0x0F, "RRCA", "rrca"),
+        (0x17, "RLA", "rla"),
+        (0x1F, "RRA", "rra"),
+    ]
+    for opcode, mnemonic, template_key in rotates:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=mnemonic,
+                length=1,
+                cycles=(4,),
+                template_key=template_key,
+                group="bitops",
+            )
+        )
+
+
+_add_bitops_families()
+
+
 def _add_alu16_families() -> None:
     # ADD HL, rr
     add_hl = [
@@ -997,11 +1026,139 @@ def _add_control_flow_families() -> None:
     )
 
 
+def _add_cb_families() -> None:
+    cb_rotates = [
+        ("RLC", 0x00, "cb_rlc_r8", "cb_rlc_hl"),
+        ("RRC", 0x08, "cb_rrc_r8", "cb_rrc_hl"),
+        ("RL", 0x10, "cb_rl_r8", "cb_rl_hl"),
+        ("RR", 0x18, "cb_rr_r8", "cb_rr_hl"),
+        ("SLA", 0x20, "cb_sla_r8", "cb_sla_hl"),
+        ("SRA", 0x28, "cb_sra_r8", "cb_sra_hl"),
+        ("SWAP", 0x30, "cb_swap_r8", "cb_swap_hl"),
+        ("SRL", 0x38, "cb_srl_r8", "cb_srl_hl"),
+    ]
+    for mnemonic, base, tmpl_r8, tmpl_hl in cb_rotates:
+        for idx, reg in enumerate(_REG_ORDER):
+            opcode = base + idx
+            if reg == "(HL)":
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"{mnemonic} (HL)",
+                        length=2,
+                        cycles=(16,),
+                        template_key=tmpl_hl,
+                        replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                        group="bitops",
+                    )
+                )
+            else:
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"{mnemonic} {reg}",
+                        length=2,
+                        cycles=(8,),
+                        template_key=tmpl_r8,
+                        replacements={"REG_i": _REG_VAR[reg]},
+                        group="bitops",
+                    )
+                )
+
+    for bit in range(8):
+        bit_base = 0x40 + (bit * 8)
+        for idx, reg in enumerate(_REG_ORDER):
+            opcode = bit_base + idx
+            if reg == "(HL)":
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"BIT {bit},(HL)",
+                        length=2,
+                        cycles=(16,),
+                        template_key="cb_bit_hl",
+                        replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                        group="bitops",
+                    )
+                )
+            else:
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"BIT {bit},{reg}",
+                        length=2,
+                        cycles=(8,),
+                        template_key="cb_bit_r8",
+                        replacements={"REG_i": _REG_VAR[reg]},
+                        group="bitops",
+                    )
+                )
+
+    for bit in range(8):
+        res_base = 0x80 + (bit * 8)
+        for idx, reg in enumerate(_REG_ORDER):
+            opcode = res_base + idx
+            if reg == "(HL)":
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"RES {bit},(HL)",
+                        length=2,
+                        cycles=(16,),
+                        template_key="cb_res_hl",
+                        replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                        group="bitops",
+                    )
+                )
+            else:
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"RES {bit},{reg}",
+                        length=2,
+                        cycles=(8,),
+                        template_key="cb_res_r8",
+                        replacements={"REG_i": _REG_VAR[reg]},
+                        group="bitops",
+                    )
+                )
+
+    for bit in range(8):
+        set_base = 0xC0 + (bit * 8)
+        for idx, reg in enumerate(_REG_ORDER):
+            opcode = set_base + idx
+            if reg == "(HL)":
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"SET {bit},(HL)",
+                        length=2,
+                        cycles=(16,),
+                        template_key="cb_set_hl",
+                        replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                        group="bitops",
+                    )
+                )
+            else:
+                _add_cb_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"SET {bit},{reg}",
+                        length=2,
+                        cycles=(8,),
+                        template_key="cb_set_r8",
+                        replacements={"REG_i": _REG_VAR[reg]},
+                        group="bitops",
+                    )
+                )
+
+
 _add_control_flow_families()
+_add_cb_families()
 
 
 UNPREFIXED_SPECS = _build_table("OP", _UNPREFIXED_OVERRIDES)
-CB_SPECS = _build_table("CB", {})
+CB_SPECS = _build_table("CB", _CB_OVERRIDES)
 
 
 def iter_unprefixed() -> tuple[OpcodeSpec, ...]:

@@ -57,7 +57,15 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
 
     get_warp()
 
-    from gbxcule.kernels.cpu_templates import alu, jumps, loads, misc, post_step, stack
+    from gbxcule.kernels.cpu_templates import (
+        alu,
+        bitops,
+        jumps,
+        loads,
+        misc,
+        post_step,
+        stack,
+    )
 
     template_map = {
         "nop": misc.template_nop,
@@ -133,8 +141,34 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "cpl": alu.template_cpl,
         "scf": alu.template_scf,
         "ccf": alu.template_ccf,
+        "rlca": bitops.template_rlca,
+        "rrca": bitops.template_rrca,
+        "rla": bitops.template_rla,
+        "rra": bitops.template_rra,
         "ld_hl_r8": loads.template_ld_hl_r8,
         "ld_r8_hl": loads.template_ld_r8_hl,
+        "cb_rlc_r8": bitops.template_cb_rlc_r8,
+        "cb_rlc_hl": bitops.template_cb_rlc_hl,
+        "cb_rrc_r8": bitops.template_cb_rrc_r8,
+        "cb_rrc_hl": bitops.template_cb_rrc_hl,
+        "cb_rl_r8": bitops.template_cb_rl_r8,
+        "cb_rl_hl": bitops.template_cb_rl_hl,
+        "cb_rr_r8": bitops.template_cb_rr_r8,
+        "cb_rr_hl": bitops.template_cb_rr_hl,
+        "cb_sla_r8": bitops.template_cb_sla_r8,
+        "cb_sla_hl": bitops.template_cb_sla_hl,
+        "cb_sra_r8": bitops.template_cb_sra_r8,
+        "cb_sra_hl": bitops.template_cb_sra_hl,
+        "cb_swap_r8": bitops.template_cb_swap_r8,
+        "cb_swap_hl": bitops.template_cb_swap_hl,
+        "cb_srl_r8": bitops.template_cb_srl_r8,
+        "cb_srl_hl": bitops.template_cb_srl_hl,
+        "cb_bit_r8": bitops.template_cb_bit_r8,
+        "cb_bit_hl": bitops.template_cb_bit_hl,
+        "cb_res_r8": bitops.template_cb_res_r8,
+        "cb_res_hl": bitops.template_cb_res_hl,
+        "cb_set_r8": bitops.template_cb_set_r8,
+        "cb_set_hl": bitops.template_cb_set_hl,
         "push_r16": stack.template_push_r16,
         "pop_r16": stack.template_pop_r16,
         "push_af": stack.template_push_af,

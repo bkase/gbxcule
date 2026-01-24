@@ -74,3 +74,8 @@ def test_verify_alu16_sp() -> None:
 def test_verify_flow_stack() -> None:
     require_rom(ROM_DIR / "FLOW_STACK.gb")
     _verify_no_mismatch(ROM_DIR / "FLOW_STACK.gb", steps=96)
+
+
+def test_verify_cb_bitops() -> None:
+    require_rom(ROM_DIR / "CB_BITOPS.gb")
+    _verify_no_mismatch(ROM_DIR / "CB_BITOPS.gb", steps=96)
