@@ -94,3 +94,49 @@ def template_jr_z_r8(pc_i: int, f_i: int, base: int, mem: wp.array) -> None:  # 
     take = wp.where(z != 0, 1, 0)
     pc_i = wp.where(take != 0, (pc_i + 2 + off) & 0xFFFF, (pc_i + 2) & 0xFFFF)
     cycles = wp.where(take != 0, 12, 8)
+
+
+def template_jr_nc_r8(pc_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
+    """JR NC, r8 template."""
+    off = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+    off = sign8(off)
+    c = (f_i >> 4) & 0x1
+    take = wp.where(c == 0, 1, 0)
+    pc_i = wp.where(take != 0, (pc_i + 2 + off) & 0xFFFF, (pc_i + 2) & 0xFFFF)
+    cycles = wp.where(take != 0, 12, 8)
+
+
+def template_jr_c_r8(pc_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
+    """JR C, r8 template."""
+    off = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+    off = sign8(off)
+    c = (f_i >> 4) & 0x1
+    take = wp.where(c != 0, 1, 0)
+    pc_i = wp.where(take != 0, (pc_i + 2 + off) & 0xFFFF, (pc_i + 2) & 0xFFFF)
+    cycles = wp.where(take != 0, 12, 8)
+
+
+def template_jp_cc(pc_i: int, f_i: int, cond: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
+    """JP cc, a16 template (cond placeholder: 0=NZ,1=Z,2=NC,3=C)."""
+    lo = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+    hi = wp.int32(mem[base + ((pc_i + 2) & 0xFFFF)])
+    addr = ((hi << 8) | lo) & 0xFFFF
+    z = (f_i >> 7) & 0x1
+    c = (f_i >> 4) & 0x1
+    take = wp.int32(0)
+    if cond == 0:
+        take = wp.where(z == 0, 1, 0)
+    elif cond == 1:
+        take = wp.where(z != 0, 1, 0)
+    elif cond == 2:
+        take = wp.where(c == 0, 1, 0)
+    else:
+        take = wp.where(c != 0, 1, 0)
+    pc_i = wp.where(take != 0, addr, (pc_i + 3) & 0xFFFF)
+    cycles = wp.where(take != 0, 16, 12)
+
+
+def template_jp_hl(pc_i: int, HREG_i: int, LREG_i: int) -> None:
+    """JP (HL) template."""
+    pc_i = ((HREG_i << 8) | LREG_i) & 0xFFFF
+    cycles = 4

@@ -313,9 +313,7 @@ def template_ldh_a_a8(pc_i: int, a_i: int, base: int, mem: wp.array) -> None:  #
     cycles = 12
 
 
-def template_ldh_c_a(
-    pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_ldh_c_a(pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """LD (C), A template (FF00+C)."""
     addr = (0xFF00 | c_i) & 0xFFFF
     write8(
@@ -333,9 +331,7 @@ def template_ldh_c_a(
     cycles = 8
 
 
-def template_ldh_a_c(
-    pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_ldh_a_c(pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """LD A, (C) template (FF00+C)."""
     addr = (0xFF00 | c_i) & 0xFFFF
     a_i = read8(

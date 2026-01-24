@@ -391,9 +391,7 @@ def build_cpu_step_source(
     )
     cb_templates = cb_opcode_templates or ()
     cb_default = cb_default_template or default_template
-    cb_default_body = _get_template_body(
-        cb_default.template, cb_default.replacements
-    )
+    cb_default_body = _get_template_body(cb_default.template, cb_default.replacements)
     cb_dispatch_tree = _build_bucket_dispatch(
         cb_templates, cb_default_body, "cb_opcode", "cb_opcode_hi"
     )

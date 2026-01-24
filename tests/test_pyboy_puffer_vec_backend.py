@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-ROM_PATH = Path(__file__).parent.parent / "bench" / "roms" / "out" / "ALU_LOOP.gb"
+from .conftest import ROM_PATH, require_rom
 
 
-@pytest.mark.skipif(
-    not ROM_PATH.exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_puffer_vec_serial_smoke() -> None:
+    require_rom(ROM_PATH)
     pytest.importorskip("pufferlib")
     from gbxcule.backends.pyboy_puffer_vec import PyBoyPufferVecBackend
 

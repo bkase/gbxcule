@@ -11,6 +11,8 @@ from bench.harness import diff_states, normalize_cpu_state
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 from gbxcule.backends.warp_vec import WarpVecCudaBackend
 
+from .conftest import require_rom
+
 ROM_DIR = Path(__file__).parent.parent / "bench" / "roms" / "out"
 
 
@@ -61,21 +63,15 @@ def _verify_no_mismatch_cuda(
         dut.close()
 
 
-@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not (ROM_DIR / "ALU_LOOP.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_cuda_verify_alu_loop() -> None:
+    assert _cuda_available(), "CUDA not available"
+    require_rom(ROM_DIR / "ALU_LOOP.gb")
     _verify_no_mismatch_cuda(ROM_DIR / "ALU_LOOP.gb")
 
 
-@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
-@pytest.mark.skipif(
-    not (ROM_DIR / "MEM_RWB.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_cuda_verify_mem_rwb() -> None:
+    assert _cuda_available(), "CUDA not available"
+    require_rom(ROM_DIR / "MEM_RWB.gb")
     _verify_no_mismatch_cuda(
         ROM_DIR / "MEM_RWB.gb",
         steps=64,

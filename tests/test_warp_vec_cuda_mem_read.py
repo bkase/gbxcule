@@ -9,6 +9,8 @@ import pytest
 
 from gbxcule.backends.warp_vec import BOOTROM_PATH, WarpVecCudaBackend
 
+from .conftest import require_rom
+
 
 def _cuda_available() -> bool:
     wp = pytest.importorskip("warp")
@@ -16,10 +18,9 @@ def _cuda_available() -> bool:
     return wp.is_cuda_available()
 
 
-@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
 def test_cuda_read_memory_bootrom_and_rom() -> None:
-    if not BOOTROM_PATH.exists():
-        pytest.skip("Boot ROM not found")
+    assert _cuda_available(), "CUDA not available"
+    require_rom(BOOTROM_PATH)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
@@ -47,8 +48,8 @@ def test_cuda_read_memory_bootrom_and_rom() -> None:
             backend.close()
 
 
-@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
 def test_cuda_read_memory_invalid_ranges() -> None:
+    assert _cuda_available(), "CUDA not available"
     with tempfile.TemporaryDirectory() as tmpdir:
         rom_path = Path(tmpdir) / "test.gb"
         rom_path.write_bytes(b"\x00" * 32)

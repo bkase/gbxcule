@@ -18,7 +18,7 @@ import numpy as np  # noqa: E402
 from numpy.typing import NDArray  # noqa: E402
 
 from gbxcule.core.action_codec import (  # noqa: E402
-    LEGACY_V0_ID,
+    POKERED_PUFFER_V0_ID,
     ActionCodecDef,
     get_action_codec,
 )
@@ -252,10 +252,10 @@ def get_pyboy_class() -> type:
 
 
 # ---------------------------------------------------------------------------
-# Action codec helpers + legacy mapping constants
+# Action codec helpers
 # ---------------------------------------------------------------------------
 
-DEFAULT_ACTION_CODEC_ID = LEGACY_V0_ID
+DEFAULT_ACTION_CODEC_ID = POKERED_PUFFER_V0_ID
 
 
 @dataclass(frozen=True)
@@ -280,7 +280,7 @@ class ActionCodecSpec:
 
 
 def resolve_action_codec(codec_id: str | None = None) -> ActionCodecDef:
-    """Resolve an action codec by id (defaults to legacy)."""
+    """Resolve an action codec by id (defaults to pokemonred_puffer_v0)."""
     return get_action_codec(codec_id or DEFAULT_ACTION_CODEC_ID)
 
 
@@ -295,43 +295,6 @@ def action_codec_spec(codec_id: str | None = None) -> ActionCodecSpec:
         num_actions=codec.num_actions,
         action_names=codec.action_names,
     )
-
-
-# Canonical legacy action indices (kept for compatibility)
-ACTION_NOOP = 0
-ACTION_UP = 1
-ACTION_DOWN = 2
-ACTION_LEFT = 3
-ACTION_RIGHT = 4
-ACTION_A = 5
-ACTION_B = 6
-ACTION_START = 7
-ACTION_SELECT = 8
-
-_LEGACY_CODEC = resolve_action_codec(DEFAULT_ACTION_CODEC_ID)
-NUM_ACTIONS = _LEGACY_CODEC.num_actions
-
-# Mapping from action index to PyBoy button name (legacy codec)
-ACTION_TO_BUTTON: dict[int, str | None] = {
-    idx: _LEGACY_CODEC.to_pyboy_button(idx) for idx in range(NUM_ACTIONS)
-}
-
-
-def action_to_button(action: int) -> str | None:
-    """Convert action index to PyBoy button name.
-
-    Args:
-        action: Action index (0-8).
-
-    Returns:
-        Button name string, or None for noop.
-
-    Raises:
-        ValueError: If action is out of range.
-    """
-    if action < 0 or action >= NUM_ACTIONS:
-        raise ValueError(f"Action {action} out of range [0, {NUM_ACTIONS})")
-    return ACTION_TO_BUTTON[action]
 
 
 # ---------------------------------------------------------------------------

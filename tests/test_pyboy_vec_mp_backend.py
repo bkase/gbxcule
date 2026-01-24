@@ -15,7 +15,7 @@ import pytest
 
 from gbxcule.backends.pyboy_vec_mp import PyBoyMpConfig, PyBoyVecMpBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests
+from .conftest import ROM_PATH, BackendComplianceTests, require_rom
 
 
 class TestConfig:
@@ -23,8 +23,7 @@ class TestConfig:
 
     def test_valid_config(self) -> None:
         """Valid configuration is accepted."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         config = PyBoyMpConfig(
             num_envs=4,
             num_workers=2,
@@ -37,8 +36,7 @@ class TestConfig:
 
     def test_invalid_num_envs(self) -> None:
         """num_envs < 1 raises ValueError."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         with pytest.raises(ValueError, match="num_envs must be >= 1"):
             PyBoyMpConfig(
                 num_envs=0,
@@ -50,8 +48,7 @@ class TestConfig:
 
     def test_invalid_num_workers(self) -> None:
         """num_workers < 1 raises ValueError."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         with pytest.raises(ValueError, match="num_workers must be >= 1"):
             PyBoyMpConfig(
                 num_envs=4,
@@ -63,8 +60,7 @@ class TestConfig:
 
     def test_workers_exceed_envs(self) -> None:
         """num_workers > num_envs raises ValueError."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         with pytest.raises(ValueError, match="cannot exceed"):
             PyBoyMpConfig(
                 num_envs=2,
@@ -76,8 +72,7 @@ class TestConfig:
 
     def test_invalid_release_frames(self) -> None:
         """release_after_frames > frames_per_step raises ValueError."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         with pytest.raises(ValueError, match="cannot exceed"):
             PyBoyMpConfig(
                 num_envs=4,
@@ -98,8 +93,7 @@ class TestPyBoyVecMpCompliance(BackendComplianceTests):
     @pytest.fixture
     def backend(self) -> PyBoyVecMpBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         be = PyBoyVecMpBackend(str(ROM_PATH), num_envs=4, num_workers=2, obs_dim=32)
         yield be
         be.close()
@@ -111,8 +105,7 @@ class TestPyBoyVecMpSpecific:
     @pytest.fixture
     def backend(self) -> PyBoyVecMpBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return PyBoyVecMpBackend(str(ROM_PATH), num_envs=4, num_workers=2, obs_dim=32)
 
     def test_reset_info_contains_rom_sha256(self, backend: PyBoyVecMpBackend) -> None:
@@ -209,8 +202,7 @@ class TestDeterministicSeeding:
     @pytest.fixture
     def backend(self) -> PyBoyVecMpBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return PyBoyVecMpBackend(str(ROM_PATH), num_envs=4, num_workers=2, obs_dim=32)
 
     def test_derived_seeds_are_stable(self, backend: PyBoyVecMpBackend) -> None:

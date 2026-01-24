@@ -16,8 +16,8 @@ import pytest
 
 from bench.roms.build_micro_rom import (
     build_all,
-    build_alu_flags,
     build_alu16_sp,
+    build_alu_flags,
     build_alu_loop,
     build_joy_diverge_persist,
     build_loads_basic,

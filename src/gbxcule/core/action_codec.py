@@ -75,58 +75,8 @@ class ActionCodecDef:
         return (self._dpad_masks[action], self._button_masks[action])
 
 
-LEGACY_V0_ID = "legacy_v0"
 POKERED_PUFFER_V0_ID = "pokemonred_puffer_v0"
 
-
-_LEGACY_V0 = ActionCodecDef(
-    name="legacy",
-    version="v0",
-    action_names=(
-        "NOOP",
-        "UP",
-        "DOWN",
-        "LEFT",
-        "RIGHT",
-        "A",
-        "B",
-        "START",
-        "SELECT",
-    ),
-    _pyboy_buttons=(
-        None,
-        "up",
-        "down",
-        "left",
-        "right",
-        "a",
-        "b",
-        "start",
-        "select",
-    ),
-    _dpad_masks=(
-        0,
-        DPAD_UP,
-        DPAD_DOWN,
-        DPAD_LEFT,
-        DPAD_RIGHT,
-        0,
-        0,
-        0,
-        0,
-    ),
-    _button_masks=(
-        0,
-        0,
-        0,
-        0,
-        0,
-        BUTTON_A,
-        BUTTON_B,
-        BUTTON_START,
-        BUTTON_SELECT,
-    ),
-)
 
 _POKERED_PUFFER_V0 = ActionCodecDef(
     name="pokemonred_puffer",
@@ -171,7 +121,6 @@ _POKERED_PUFFER_V0 = ActionCodecDef(
 
 
 _REGISTRY: dict[str, ActionCodecDef] = {
-    LEGACY_V0_ID: _LEGACY_V0,
     POKERED_PUFFER_V0_ID: _POKERED_PUFFER_V0,
 }
 

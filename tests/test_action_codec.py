@@ -7,13 +7,11 @@ import pytest
 from gbxcule.core.action_codec import (
     BUTTON_A,
     BUTTON_B,
-    BUTTON_SELECT,
     BUTTON_START,
     DPAD_DOWN,
     DPAD_LEFT,
     DPAD_RIGHT,
     DPAD_UP,
-    LEGACY_V0_ID,
     POKERED_PUFFER_V0_ID,
     get_action_codec,
     list_action_codecs,
@@ -23,17 +21,7 @@ from gbxcule.core.action_codec import (
 def test_list_action_codecs_contains_known_ids() -> None:
     """Registry exposes the expected codec ids."""
     ids = list_action_codecs()
-    assert LEGACY_V0_ID in ids
     assert POKERED_PUFFER_V0_ID in ids
-
-
-def test_legacy_v0_metadata_and_lengths() -> None:
-    """Legacy codec metadata and lengths are consistent."""
-    codec = get_action_codec(LEGACY_V0_ID)
-    assert codec.name == "legacy"
-    assert codec.version == "v0"
-    assert codec.num_actions == len(codec.action_names)
-    assert codec.num_actions == 9
 
 
 def test_pokered_puffer_v0_metadata_and_lengths() -> None:
@@ -43,24 +31,6 @@ def test_pokered_puffer_v0_metadata_and_lengths() -> None:
     assert codec.version == "v0"
     assert codec.num_actions == len(codec.action_names)
     assert codec.num_actions == 7
-
-
-def test_legacy_v0_pyboy_mapping() -> None:
-    """Legacy codec maps to PyBoy button names correctly."""
-    codec = get_action_codec(LEGACY_V0_ID)
-    expected = {
-        "NOOP": None,
-        "UP": "up",
-        "DOWN": "down",
-        "LEFT": "left",
-        "RIGHT": "right",
-        "A": "a",
-        "B": "b",
-        "START": "start",
-        "SELECT": "select",
-    }
-    for idx, name in enumerate(codec.action_names):
-        assert codec.to_pyboy_button(idx) == expected[name]
 
 
 def test_pokered_puffer_v0_pyboy_mapping() -> None:
@@ -77,24 +47,6 @@ def test_pokered_puffer_v0_pyboy_mapping() -> None:
     }
     for idx, name in enumerate(codec.action_names):
         assert codec.to_pyboy_button(idx) == expected[name]
-
-
-def test_legacy_v0_joypad_masks() -> None:
-    """Legacy codec returns correct JOYP masks."""
-    codec = get_action_codec(LEGACY_V0_ID)
-    expected = {
-        "NOOP": (0, 0),
-        "UP": (DPAD_UP, 0),
-        "DOWN": (DPAD_DOWN, 0),
-        "LEFT": (DPAD_LEFT, 0),
-        "RIGHT": (DPAD_RIGHT, 0),
-        "A": (0, BUTTON_A),
-        "B": (0, BUTTON_B),
-        "START": (0, BUTTON_START),
-        "SELECT": (0, BUTTON_SELECT),
-    }
-    for idx, name in enumerate(codec.action_names):
-        assert codec.to_joypad_mask(idx) == expected[name]
 
 
 def test_pokered_puffer_v0_joypad_masks() -> None:
@@ -115,7 +67,7 @@ def test_pokered_puffer_v0_joypad_masks() -> None:
 
 def test_invalid_action_raises() -> None:
     """Out-of-range actions raise ValueError."""
-    codec = get_action_codec(LEGACY_V0_ID)
+    codec = get_action_codec(POKERED_PUFFER_V0_ID)
     with pytest.raises(ValueError, match="out of range"):
         codec.to_pyboy_button(-1)
     with pytest.raises(ValueError, match="out of range"):

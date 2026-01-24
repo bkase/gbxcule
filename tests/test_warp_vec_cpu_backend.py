@@ -7,7 +7,7 @@ import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests
+from .conftest import ROM_PATH, BackendComplianceTests, require_rom
 
 
 class TestWarpVecCpuCompliance(BackendComplianceTests):
@@ -20,8 +20,7 @@ class TestWarpVecCpuCompliance(BackendComplianceTests):
     @pytest.fixture
     def backend(self) -> WarpVecCpuBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return WarpVecCpuBackend(str(ROM_PATH), num_envs=4, obs_dim=32)
 
 
@@ -31,8 +30,7 @@ class TestWarpVecCpuSpecific:
     @pytest.fixture
     def backend(self) -> WarpVecCpuBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return WarpVecCpuBackend(str(ROM_PATH), num_envs=2, obs_dim=32)
 
     def test_step_increments_counter(self, backend: WarpVecCpuBackend) -> None:
@@ -59,8 +57,7 @@ class TestWarpVecCpuSpecific:
 
     def test_determinism_across_instances(self) -> None:
         """Identical runs produce identical state progression."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         backend_a = WarpVecCpuBackend(str(ROM_PATH), num_envs=1, obs_dim=32)
         backend_b = WarpVecCpuBackend(str(ROM_PATH), num_envs=1, obs_dim=32)
         backend_a.reset(seed=123)

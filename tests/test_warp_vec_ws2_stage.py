@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
-from .conftest import ROM_PATH
+from .conftest import ROM_PATH, require_rom
 
 
 def _make_backend(stage: str, frames_per_step: int = 0) -> WarpVecCpuBackend:
-    if not ROM_PATH.exists():
-        pytest.skip(f"Test ROM not found: {ROM_PATH}")
+    require_rom(ROM_PATH)
     return WarpVecCpuBackend(
         str(ROM_PATH),
         num_envs=1,

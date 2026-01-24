@@ -223,9 +223,7 @@ def template_add_a_hl(
     cycles = 8
 
 
-def template_add_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_add_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """ADD A, d8 template."""
     val = read8(
         i,
@@ -255,9 +253,7 @@ def template_adc_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
     sum_ab = a_i + REG_i + carry
     res = sum_ab & 0xFF
     z = wp.where(res == 0, 1, 0)
-    hflag = wp.where(
-        ((a_i & 0x0F) + (REG_i & 0x0F) + carry) > 0x0F, 1, 0
-    )
+    hflag = wp.where(((a_i & 0x0F) + (REG_i & 0x0F) + carry) > 0x0F, 1, 0)
     cflag = wp.where(sum_ab > 0xFF, 1, 0)
     a_i = res
     f_i = make_flags(z, 0, hflag, cflag)
@@ -285,9 +281,7 @@ def template_adc_a_hl(
     sum_ab = a_i + val + carry
     res = sum_ab & 0xFF
     z = wp.where(res == 0, 1, 0)
-    hflag = wp.where(
-        ((a_i & 0x0F) + (val & 0x0F) + carry) > 0x0F, 1, 0
-    )
+    hflag = wp.where(((a_i & 0x0F) + (val & 0x0F) + carry) > 0x0F, 1, 0)
     cflag = wp.where(sum_ab > 0xFF, 1, 0)
     a_i = res
     f_i = make_flags(z, 0, hflag, cflag)
@@ -295,9 +289,7 @@ def template_adc_a_hl(
     cycles = 8
 
 
-def template_adc_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_adc_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """ADC A, d8 template."""
     carry = (f_i >> 4) & 0x1
     val = read8(
@@ -314,9 +306,7 @@ def template_adc_a_d8(
     sum_ab = a_i + val + carry
     res = sum_ab & 0xFF
     z = wp.where(res == 0, 1, 0)
-    hflag = wp.where(
-        ((a_i & 0x0F) + (val & 0x0F) + carry) > 0x0F, 1, 0
-    )
+    hflag = wp.where(((a_i & 0x0F) + (val & 0x0F) + carry) > 0x0F, 1, 0)
     cflag = wp.where(sum_ab > 0xFF, 1, 0)
     a_i = res
     f_i = make_flags(z, 0, hflag, cflag)
@@ -364,9 +354,7 @@ def template_sub_a_hl(
     cycles = 8
 
 
-def template_sub_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_sub_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """SUB d8 template."""
     val = read8(
         i,
@@ -396,9 +384,7 @@ def template_sbc_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
     diff = a_i - REG_i - carry
     res = diff & 0xFF
     z = wp.where(res == 0, 1, 0)
-    hflag = wp.where(
-        ((a_i & 0x0F) - ((REG_i & 0x0F) + carry)) < 0, 1, 0
-    )
+    hflag = wp.where(((a_i & 0x0F) - ((REG_i & 0x0F) + carry)) < 0, 1, 0)
     cflag = wp.where(a_i < (REG_i + carry), 1, 0)
     a_i = res
     f_i = make_flags(z, 1, hflag, cflag)
@@ -434,9 +420,7 @@ def template_sbc_a_hl(
     cycles = 8
 
 
-def template_sbc_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_sbc_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """SBC A, d8 template."""
     carry = (f_i >> 4) & 0x1
     val = read8(
@@ -529,9 +513,7 @@ def template_or_a_hl(
     cycles = 8
 
 
-def template_or_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_or_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """OR A, d8 template."""
     val = read8(
         i,
@@ -586,9 +568,7 @@ def template_xor_a_hl(
     cycles = 8
 
 
-def template_xor_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_xor_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """XOR A, d8 template."""
     val = read8(
         i,
@@ -647,9 +627,7 @@ def template_cp_a_hl(
     cycles = 8
 
 
-def template_cp_a_d8(
-    pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array
-) -> None:  # type: ignore[name-defined]
+def template_cp_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """CP d8 template."""
     val = read8(
         i,

@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from bench.harness import diff_states, normalize_cpu_state
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
+
+from .conftest import require_rom
 
 ROM_DIR = Path(__file__).parent.parent / "bench" / "roms" / "out"
 
@@ -43,43 +44,28 @@ def _verify_no_mismatch(rom_path: Path, steps: int = 8) -> None:
         dut.close()
 
 
-@pytest.mark.skipif(
-    not (ROM_DIR / "ALU_LOOP.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_verify_alu_loop() -> None:
+    require_rom(ROM_DIR / "ALU_LOOP.gb")
     _verify_no_mismatch(ROM_DIR / "ALU_LOOP.gb")
 
 
-@pytest.mark.skipif(
-    not (ROM_DIR / "MEM_RWB.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_verify_mem_rwb() -> None:
+    require_rom(ROM_DIR / "MEM_RWB.gb")
     # MEM_RWB increments HL across the full address space; the first divergence
     # from incorrect ROM write handling shows up after several frames.
     _verify_no_mismatch(ROM_DIR / "MEM_RWB.gb", steps=64)
 
 
-@pytest.mark.skipif(
-    not (ROM_DIR / "LOADS_BASIC.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_verify_loads_basic() -> None:
+    require_rom(ROM_DIR / "LOADS_BASIC.gb")
     _verify_no_mismatch(ROM_DIR / "LOADS_BASIC.gb", steps=64)
 
 
-@pytest.mark.skipif(
-    not (ROM_DIR / "ALU_FLAGS.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_verify_alu_flags() -> None:
+    require_rom(ROM_DIR / "ALU_FLAGS.gb")
     _verify_no_mismatch(ROM_DIR / "ALU_FLAGS.gb", steps=64)
 
 
-@pytest.mark.skipif(
-    not (ROM_DIR / "ALU16_SP.gb").exists(),
-    reason="Test ROM not found; run `make roms` first.",
-)
 def test_verify_alu16_sp() -> None:
+    require_rom(ROM_DIR / "ALU16_SP.gb")
     _verify_no_mismatch(ROM_DIR / "ALU16_SP.gb", steps=64)

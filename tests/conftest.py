@@ -17,6 +17,11 @@ from gbxcule.backends.common import VecBackend
 ROM_PATH = Path(__file__).parent.parent / "bench" / "roms" / "out" / "ALU_LOOP.gb"
 
 
+def require_rom(path: Path) -> None:
+    """Assert that a ROM exists for tests that depend on it."""
+    assert path.exists(), f"Test ROM not found: {path}. Run `make roms` first."
+
+
 class BackendComplianceTests:
     """Base class providing compliance tests for any VecBackend implementation.
 

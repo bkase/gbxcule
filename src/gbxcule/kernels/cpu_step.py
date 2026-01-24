@@ -53,7 +53,7 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
 
     get_warp()
 
-    from gbxcule.kernels.cpu_templates import alu, jumps, loads, misc, post_step
+    from gbxcule.kernels.cpu_templates import alu, jumps, loads, misc, post_step, stack
 
     template_map = {
         "nop": misc.template_nop,
@@ -61,6 +61,10 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "jr_r8": jumps.template_jr_r8,
         "jr_nz_r8": jumps.template_jr_nz_r8,
         "jr_z_r8": jumps.template_jr_z_r8,
+        "jr_nc_r8": jumps.template_jr_nc_r8,
+        "jr_c_r8": jumps.template_jr_c_r8,
+        "jp_cc": jumps.template_jp_cc,
+        "jp_hl": jumps.template_jp_hl,
         "ld_r8_d8": loads.template_ld_r8_d8,
         "ld_r16_d16": loads.template_ld_r16_d16,
         "ld_r8_r8": loads.template_ld_r8_r8,
@@ -124,6 +128,22 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "ccf": alu.template_ccf,
         "ld_hl_r8": loads.template_ld_hl_r8,
         "ld_r8_hl": loads.template_ld_r8_hl,
+        "push_r16": stack.template_push_r16,
+        "pop_r16": stack.template_pop_r16,
+        "push_af": stack.template_push_af,
+        "pop_af": stack.template_pop_af,
+        "call_a16": stack.template_call_a16,
+        "call_nz_a16": stack.template_call_nz_a16,
+        "call_z_a16": stack.template_call_z_a16,
+        "call_nc_a16": stack.template_call_nc_a16,
+        "call_c_a16": stack.template_call_c_a16,
+        "ret": stack.template_ret,
+        "ret_nz": stack.template_ret_nz,
+        "ret_z": stack.template_ret_z,
+        "ret_nc": stack.template_ret_nc,
+        "ret_c": stack.template_ret_c,
+        "reti": stack.template_reti,
+        "rst": stack.template_rst,
     }
 
     opcode_templates: list[OpcodeTemplate] = []

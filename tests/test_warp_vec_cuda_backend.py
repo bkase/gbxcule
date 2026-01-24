@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCudaBackend
 
-from .conftest import ROM_PATH
+from .conftest import ROM_PATH, require_rom
 
 
 def _cuda_available() -> bool:
@@ -20,11 +19,10 @@ def _cuda_available() -> bool:
         return False
 
 
-@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
 def test_warp_vec_cuda_smoke() -> None:
     """CUDA backend can reset, step, and report CPU state."""
-    if not ROM_PATH.exists():
-        pytest.skip(f"Test ROM not found: {ROM_PATH}")
+    assert _cuda_available(), "CUDA not available"
+    require_rom(ROM_PATH)
     backend = WarpVecCudaBackend(str(ROM_PATH), num_envs=1, obs_dim=32)
     try:
         backend.reset()

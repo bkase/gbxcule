@@ -34,11 +34,11 @@ from harness import (  # noqa: E402
 )
 
 from gbxcule.backends.common import ArraySpec, CpuState, Device
-from gbxcule.core.action_codec import LEGACY_V0_ID, get_action_codec
+from gbxcule.core.action_codec import POKERED_PUFFER_V0_ID, get_action_codec
 
-_LEGACY_CODEC = get_action_codec(LEGACY_V0_ID)
-LEGACY_NUM_ACTIONS = _LEGACY_CODEC.num_actions
-LEGACY_ACTION_NAMES = list(_LEGACY_CODEC.action_names)
+_ACTION_CODEC = get_action_codec(POKERED_PUFFER_V0_ID)
+LEGACY_NUM_ACTIONS = _ACTION_CODEC.num_actions
+LEGACY_ACTION_NAMES = list(_ACTION_CODEC.action_names)
 
 # ---------------------------------------------------------------------------
 # Fake Backend for testing
@@ -783,7 +783,7 @@ class TestMismatchBundle:
                 ref_state={"pc": 0x100},
                 dut_state={"pc": 0x200},
                 diff={"pc": {"ref": 0x100, "dut": 0x200}},
-                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
                 actions_trace=[[0], [0], [0], [0], [0], [0]],
                 system_info={"platform": "test"},
                 action_gen_name="noop",
@@ -824,7 +824,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={},
-                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
                 actions_trace=[],
                 system_info={},
                 action_gen_name="noop",
@@ -864,7 +864,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={},
-                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
                 actions_trace=[],
                 system_info={},
                 action_gen_name="noop",
@@ -906,7 +906,7 @@ class TestMismatchBundle:
                 ref_state={},
                 dut_state={},
                 diff={"memory": [{"lo": 0xC000, "hi": 0xC004}]},
-                action_codec=get_action_codec_metadata(LEGACY_V0_ID),
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
                 mem_regions=mem_regions,
                 mem_hash_version=MEM_HASH_VERSION,
                 mem_dumps=mem_dumps,

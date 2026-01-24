@@ -66,7 +66,7 @@ class PyBoySingleBackend:
             frames_per_step: Frames to advance per step call.
             release_after_frames: Frames after which to release button.
             obs_dim: Observation vector dimension.
-            action_codec: Action codec id (e.g., "legacy_v0").
+        action_codec: Action codec id (e.g., "pokemonred_puffer_v0").
             log_level: PyBoy log level (e.g., "ERROR", "WARNING").
         """
         self._rom_path = rom_path

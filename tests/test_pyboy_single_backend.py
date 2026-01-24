@@ -15,7 +15,7 @@ import pytest
 
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests
+from .conftest import ROM_PATH, BackendComplianceTests, require_rom
 
 
 class TestPyBoySingleCompliance(BackendComplianceTests):
@@ -28,8 +28,7 @@ class TestPyBoySingleCompliance(BackendComplianceTests):
     @pytest.fixture
     def backend(self) -> PyBoySingleBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return PyBoySingleBackend(str(ROM_PATH), obs_dim=32)
 
 
@@ -39,8 +38,7 @@ class TestPyBoySingleSpecific:
     @pytest.fixture
     def backend(self) -> PyBoySingleBackend:
         """Create a backend instance for testing."""
-        if not ROM_PATH.exists():
-            pytest.skip(f"Test ROM not found: {ROM_PATH}")
+        require_rom(ROM_PATH)
         return PyBoySingleBackend(str(ROM_PATH), obs_dim=32)
 
     def test_reset_can_be_called_multiple_times(

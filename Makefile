@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -88,6 +88,9 @@ roms: ## Generate micro-ROMs
 	@mkdir -p $(ROM_OUT)
 	@$(PY) bench/roms/build_micro_rom.py > /dev/null
 
+build-warp: fmt ## Compile Warp CPU kernels (warm cache for tests)
+	@$(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'
+
 smoke: roms ## Run minimal sanity check (fast, for commit hook)
 	@# Smoke just ensures ROMs build; tests run separately in check
 
@@ -129,7 +132,7 @@ verify-mismatch: roms ## Exercise mismatch bundle path (expected fail)
 	test -f "$$bundle/rom.gb"; \
 	rm "$$out"
 
-check: lint test smoke ## Run all checks (commit hook gate)
+check: fmt lint roms build-warp test ## Run all checks (commit hook gate)
 
 verify-gpu: roms ## M3 must-pass verify (DGX/CUDA)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }

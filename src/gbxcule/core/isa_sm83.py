@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,9 @@ def _make_unimplemented(opcode: int, prefix: str) -> OpcodeSpec:
     )
 
 
-def _build_table(prefix: str, overrides: Mapping[int, OpcodeSpec]) -> tuple[OpcodeSpec, ...]:
+def _build_table(
+    prefix: str, overrides: Mapping[int, OpcodeSpec]
+) -> tuple[OpcodeSpec, ...]:
     table = [_make_unimplemented(opcode, prefix) for opcode in range(256)]
     for opcode, spec in overrides.items():
         if spec.opcode != opcode:
@@ -782,6 +784,7 @@ def _add_alu16_families() -> None:
             length=2,
             cycles=(12,),
             template_key="ld_hl_sp_e8",
+            replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
             group="alu16",
         )
     )
