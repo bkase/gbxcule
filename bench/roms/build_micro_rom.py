@@ -241,6 +241,56 @@ def build_serial_hello() -> bytes:
     return build_rom("SERIAL_HELLO", program)
 
 
+def build_dma_oam_copy() -> bytes:
+    """Build DMA_OAM_COPY.gb - OAM DMA copy correctness ROM.
+
+    This ROM fills 0xC000..0xC09F with incrementing bytes (0..159),
+    triggers OAM DMA from 0xC000 via 0xFF46, then loops forever.
+
+    Assembly:
+        LD HL, 0xC000
+        LD A, 0x00
+        LD B, 0xA0
+    loop:
+        LD (HL), A
+        INC A
+        INC HL
+        DEC B
+        JR NZ, loop
+        LD A, 0xC0
+        LD (0xFF46), A
+    halt:
+        JR halt
+    """
+    program = bytes(
+        [
+            0x21,
+            0x00,
+            0xC0,  # LD HL, 0xC000
+            0x3E,
+            0x00,  # LD A, 0x00
+            0x06,
+            0xA0,  # LD B, 0xA0 (160 bytes)
+            # loop:
+            0x77,  # LD (HL), A
+            0x3C,  # INC A
+            0x23,  # INC HL
+            0x05,  # DEC B
+            0x20,
+            0xFA,  # JR NZ, -6
+            0x3E,
+            0xC0,  # LD A, 0xC0
+            0xEA,
+            0x46,
+            0xFF,  # LD (0xFF46), A
+            # halt:
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    return build_rom("DMA_OAM_COPY", program)
+
+
 def build_timer_div_basic() -> bytes:
     """Build TIMER_DIV_BASIC.gb - DIV/TIMA sampling + DIV reset glitch.
 
@@ -1075,6 +1125,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("ALU_LOOP.gb", build_alu_loop()),
         ("MEM_RWB.gb", build_mem_rwb()),
         ("SERIAL_HELLO.gb", build_serial_hello()),
+        ("DMA_OAM_COPY.gb", build_dma_oam_copy()),
         ("TIMER_DIV_BASIC.gb", build_timer_div_basic()),
         ("TIMER_IRQ_HALT.gb", build_timer_irq_halt()),
         ("EI_DELAY.gb", build_ei_delay()),

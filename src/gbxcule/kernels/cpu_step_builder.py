@@ -472,6 +472,12 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     tima_reload_delay,
                 )
             return
+        if addr16 == 0xFF46:
+            mem[base + addr16] = val8
+            src = (wp.int32(val) & 0xFF) << 8
+            for offset in range(160):
+                mem[base + 0xFE00 + offset] = mem[base + ((src + offset) & 0xFFFF)]
+            return
         if addr16 == 0xFFFF:
             mem[base + addr16] = val8 & wp.uint8(0x1F)
             return

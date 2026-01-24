@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from gbxcule.core.ppu_helpers import StatIrqConditions, sprite_pixel_visible, stat_irq_edge
+from gbxcule.core.ppu_helpers import (
+    StatIrqConditions,
+    sprite_pixel_visible,
+    stat_irq_edge,
+)
 
 
 def test_stat_irq_edge_requires_enabled_source() -> None:
@@ -40,4 +44,3 @@ def test_sprite_pixel_visible_priority() -> None:
     assert sprite_pixel_visible(obj_color=2, bg_color=0, obj_priority=1) is True
     assert sprite_pixel_visible(obj_color=2, bg_color=1, obj_priority=1) is False
     assert sprite_pixel_visible(obj_color=2, bg_color=3, obj_priority=0) is True
-

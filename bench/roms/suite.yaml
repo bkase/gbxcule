@@ -21,6 +21,12 @@ roms:
     frames_per_step: 24
     release_after_frames: 8
 
+  - id: DMA_OAM_COPY
+    path: bench/roms/out/DMA_OAM_COPY.gb
+    description: "OAM DMA copy from 0xC000 page; verifies 0xFE00..0xFE9F."
+    frames_per_step: 1
+    release_after_frames: 1
+
   - id: TIMER_DIV_BASIC
     path: bench/roms/out/TIMER_DIV_BASIC.gb
     description: "Samples DIV/TIMA at slow clock with an initial DIV reset."
