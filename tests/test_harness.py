@@ -944,14 +944,20 @@ class TestMismatchBundle:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             rom_path = Path(tmpdir) / "test.gb"
-            rom_path.write_bytes(b"\xAA\xBB")
+            rom_path.write_bytes(b"\xaa\xbb")
             ppu_regs = {"ref": {"LCDC": 0x91}, "dut": {"LCDC": 0x90}}
             frame_hash_history = [
                 {"step": 3, "ref_hash": "aaa", "dut_hash": "bbb"},
                 {"step": 4, "ref_hash": "ccc", "dut_hash": "ddd"},
             ]
             ppu_mem_dump_meta = [
-                {"name": "oam", "lo": 0xFE00, "hi": 0xFEA0, "dump_hi": 0xFE10, "truncated": True}
+                {
+                    "name": "oam",
+                    "lo": 0xFE00,
+                    "hi": 0xFEA0,
+                    "dump_hi": 0xFE10,
+                    "truncated": True,
+                }
             ]
             ppu_mem_dump_blobs = [
                 ("oam", 0xFE00, 0xFE10, b"\x01" * 0x10, b"\x02" * 0x10)
