@@ -285,10 +285,14 @@ def _warmup_warp_device(
     zeros_trap_kind = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_scanline_cycle = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_ly = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_window_line = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_lcdc_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_scx_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_scy_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_bgp_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_wx_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_wy_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
+    zeros_win_line_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_f32 = wp.zeros(1, dtype=wp.float32, device=device)
     zeros_obs = wp.zeros(obs_dim, dtype=wp.float32, device=device)
     kernel = get_cpu_step_kernel(stage=stage, obs_dim=obs_dim)
@@ -328,10 +332,14 @@ def _warmup_warp_device(
             zeros_i32,
             zeros_scanline_cycle,
             zeros_ly,
+            zeros_window_line,
             zeros_lcdc_latch,
             zeros_scx_latch,
             zeros_scy_latch,
             zeros_bgp_latch,
+            zeros_wx_latch,
+            zeros_wy_latch,
+            zeros_win_line_latch,
             0,
             zeros_f32,
             zeros_obs,

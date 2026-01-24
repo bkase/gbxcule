@@ -113,10 +113,14 @@ class WarpVecBaseBackend:
         self._tima_reload_delay = None
         self._ppu_scanline_cycle = None
         self._ppu_ly = None
+        self._ppu_window_line = None
         self._bg_lcdc_latch_env0 = None
         self._bg_scx_latch_env0 = None
         self._bg_scy_latch_env0 = None
         self._bg_bgp_latch_env0 = None
+        self._win_wx_latch_env0 = None
+        self._win_wy_latch_env0 = None
+        self._win_line_latch_env0 = None
         self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None
@@ -283,6 +287,9 @@ class WarpVecBaseBackend:
         self._ppu_ly = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
+        self._ppu_window_line = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
         self._bg_lcdc_latch_env0 = self._wp.zeros(
             SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
@@ -293,6 +300,15 @@ class WarpVecBaseBackend:
             SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
         self._bg_bgp_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._win_wx_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._win_wy_latch_env0 = self._wp.zeros(
+            SCREEN_H, dtype=self._wp.uint8, device=self._device
+        )
+        self._win_line_latch_env0 = self._wp.zeros(
             SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
         self._frame_bg_shade_env0 = self._wp.zeros(
@@ -374,10 +390,14 @@ class WarpVecBaseBackend:
                 self._tima_reload_delay,
                 self._ppu_scanline_cycle,
                 self._ppu_ly,
+                self._ppu_window_line,
                 self._bg_lcdc_latch_env0,
                 self._bg_scx_latch_env0,
                 self._bg_scy_latch_env0,
                 self._bg_bgp_latch_env0,
+                self._win_wx_latch_env0,
+                self._win_wy_latch_env0,
+                self._win_line_latch_env0,
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
@@ -398,6 +418,9 @@ class WarpVecBaseBackend:
                     self._bg_scx_latch_env0,
                     self._bg_scy_latch_env0,
                     self._bg_bgp_latch_env0,
+                    self._win_wx_latch_env0,
+                    self._win_wy_latch_env0,
+                    self._win_line_latch_env0,
                     self._frame_bg_shade_env0,
                 ],
                 device=self._device,
@@ -563,10 +586,14 @@ class WarpVecBaseBackend:
         self._tima_reload_delay = None
         self._ppu_scanline_cycle = None
         self._ppu_ly = None
+        self._ppu_window_line = None
         self._bg_lcdc_latch_env0 = None
         self._bg_scx_latch_env0 = None
         self._bg_scy_latch_env0 = None
         self._bg_bgp_latch_env0 = None
+        self._win_wx_latch_env0 = None
+        self._win_wy_latch_env0 = None
+        self._win_line_latch_env0 = None
         self._frame_bg_shade_env0 = None
         self._reward = None
         self._obs = None

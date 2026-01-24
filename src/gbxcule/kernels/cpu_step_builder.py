@@ -347,12 +347,16 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     def ppu_capture_latches_env0(
         i: wp.int32,
         ly_val: wp.int32,
+        window_line: wp.int32,
         base: wp.int32,
         mem: wp.array(dtype=wp.uint8),
         bg_lcdc_latch_env0: wp.array(dtype=wp.uint8),
         bg_scx_latch_env0: wp.array(dtype=wp.uint8),
         bg_scy_latch_env0: wp.array(dtype=wp.uint8),
         bg_bgp_latch_env0: wp.array(dtype=wp.uint8),
+        win_wx_latch_env0: wp.array(dtype=wp.uint8),
+        win_wy_latch_env0: wp.array(dtype=wp.uint8),
+        win_line_latch_env0: wp.array(dtype=wp.uint8),
     ) -> None:
         if i != 0:
             return
@@ -363,6 +367,9 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         bg_scx_latch_env0[idx] = mem[base + 0xFF43]
         bg_scy_latch_env0[idx] = mem[base + 0xFF42]
         bg_bgp_latch_env0[idx] = mem[base + 0xFF47]
+        win_wx_latch_env0[idx] = mem[base + 0xFF4B]
+        win_wy_latch_env0[idx] = mem[base + 0xFF4A]
+        win_line_latch_env0[idx] = wp.uint8(window_line & 0xFF)
 
     @wp.func
     def read8(
@@ -520,10 +527,14 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         tima_reload_delay: wp.array(dtype=wp.int32),
         ppu_scanline_cycle: wp.array(dtype=wp.int32),
         ppu_ly: wp.array(dtype=wp.int32),
+        ppu_window_line: wp.array(dtype=wp.int32),
         bg_lcdc_latch_env0: wp.array(dtype=wp.uint8),
         bg_scx_latch_env0: wp.array(dtype=wp.uint8),
         bg_scy_latch_env0: wp.array(dtype=wp.uint8),
         bg_bgp_latch_env0: wp.array(dtype=wp.uint8),
+        win_wx_latch_env0: wp.array(dtype=wp.uint8),
+        win_wy_latch_env0: wp.array(dtype=wp.uint8),
+        win_line_latch_env0: wp.array(dtype=wp.uint8),
         action_codec_id: wp.int32,
         reward_out: wp.array(dtype=wp.float32),
         obs_out: wp.array(dtype=wp.float32),
@@ -553,6 +564,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         trap_kind_i = trap_kind[i]
         scanline_cycle_i = ppu_scanline_cycle[i]
         ppu_ly_i = ppu_ly[i]
+        window_line_i = ppu_window_line[i]
 
         frames_done = wp.int32(0)
 
@@ -575,6 +587,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 if (lcdc & 0x80) == 0:
                     scanline_cycle_i = 0
                     ppu_ly_i = 0
+                    window_line_i = 0
                     mem[base + 0xFF44] = wp.uint8(0)
                     ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
                 else:
@@ -585,16 +598,27 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         ppu_capture_latches_env0(
                             i,
                             ppu_ly_i,
+                            window_line_i,
                             base,
                             mem,
                             bg_lcdc_latch_env0,
                             bg_scx_latch_env0,
                             bg_scy_latch_env0,
                             bg_bgp_latch_env0,
+                            win_wx_latch_env0,
+                            win_wy_latch_env0,
+                            win_line_latch_env0,
                         )
                     while lines > 0:
                         prev_ly = ppu_ly_i
+                        if prev_ly < SCREEN_H:
+                            if (lcdc & 0x20) != 0:
+                                wy = wp.int32(mem[base + 0xFF4A]) & 0xFF
+                                if prev_ly >= wy:
+                                    window_line_i = window_line_i + 1
                         ppu_ly_i = (ppu_ly_i + 1) % LINES_PER_FRAME
+                        if ppu_ly_i == 0:
+                            window_line_i = 0
                         mem[base + 0xFF44] = wp.uint8(ppu_ly_i)
                         mode = wp.int32(0)
                         if ppu_ly_i >= SCREEN_H:
@@ -607,12 +631,16 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             ppu_capture_latches_env0(
                                 i,
                                 ppu_ly_i,
+                                window_line_i,
                                 base,
                                 mem,
                                 bg_lcdc_latch_env0,
                                 bg_scx_latch_env0,
                                 bg_scy_latch_env0,
                                 bg_bgp_latch_env0,
+                                win_wx_latch_env0,
+                                win_wy_latch_env0,
+                                win_line_latch_env0,
                             )
                         lines = lines - 1
                 pending = (
@@ -736,6 +764,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             if (lcdc & 0x80) == 0:
                 scanline_cycle_i = 0
                 ppu_ly_i = 0
+                window_line_i = 0
                 mem[base + 0xFF44] = wp.uint8(0)
                 ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
             else:
@@ -746,16 +775,27 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     ppu_capture_latches_env0(
                         i,
                         ppu_ly_i,
+                        window_line_i,
                         base,
                         mem,
                         bg_lcdc_latch_env0,
                         bg_scx_latch_env0,
                         bg_scy_latch_env0,
                         bg_bgp_latch_env0,
+                        win_wx_latch_env0,
+                        win_wy_latch_env0,
+                        win_line_latch_env0,
                     )
                 while lines > 0:
                     prev_ly = ppu_ly_i
+                    if prev_ly < SCREEN_H:
+                        if (lcdc & 0x20) != 0:
+                            wy = wp.int32(mem[base + 0xFF4A]) & 0xFF
+                            if prev_ly >= wy:
+                                window_line_i = window_line_i + 1
                     ppu_ly_i = (ppu_ly_i + 1) % LINES_PER_FRAME
+                    if ppu_ly_i == 0:
+                        window_line_i = 0
                     mem[base + 0xFF44] = wp.uint8(ppu_ly_i)
                     mode = wp.int32(0)
                     if ppu_ly_i >= SCREEN_H:
@@ -768,12 +808,16 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         ppu_capture_latches_env0(
                             i,
                             ppu_ly_i,
+                            window_line_i,
                             base,
                             mem,
                             bg_lcdc_latch_env0,
                             bg_scx_latch_env0,
                             bg_scy_latch_env0,
                             bg_bgp_latch_env0,
+                            win_wx_latch_env0,
+                            win_wy_latch_env0,
+                            win_line_latch_env0,
                         )
                     lines = lines - 1
 
@@ -882,6 +926,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         cycle_in_frame[i] = cycle_frame
         ppu_scanline_cycle[i] = scanline_cycle_i
         ppu_ly[i] = ppu_ly_i
+        ppu_window_line[i] = window_line_i
         trap_flag[i] = trap_i
         trap_pc[i] = trap_pc_i
         trap_opcode[i] = trap_opcode_i

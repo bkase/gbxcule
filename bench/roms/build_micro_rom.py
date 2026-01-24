@@ -1028,6 +1028,98 @@ def build_bg_static() -> bytes:
     return build_rom("BG_STATIC", program)
 
 
+def build_ppu_window() -> bytes:
+    """Build PPU_WINDOW.gb - window overlay over BG (scanline-latch safe)."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    # LCD off
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x40)  # LDH (LCDC),A
+    emit(0x3E, 0xE4)  # LD A,0xE4 (BGP)
+    emit(0xE0, 0x47)  # LDH (BGP),A
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x42)  # LDH (SCY),A
+    emit(0xE0, 0x43)  # LDH (SCX),A
+    emit(0x3E, 0x20)  # LD A,0x20 (WX = 32)
+    emit(0xE0, 0x4B)  # LDH (WX),A
+    emit(0x3E, 0x08)  # LD A,0x08 (WY = 8)
+    emit(0xE0, 0x4A)  # LDH (WY),A
+
+    # Tile data: tile 0 = 0x00, tile 1 = 0xFF/0x00 per row
+    emit(0x21, 0x00, 0x80)  # LD HL,0x8000
+    emit(0x06, 0x10)  # LD B,16
+    emit(0xAF)  # XOR A
+    label("tile0")
+    emit(0x22)  # LD (HL+),A
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "tile0")
+
+    emit(0x06, 0x08)  # LD B,8
+    emit(0x3E, 0xFF)  # LD A,0xFF
+    label("tile1")
+    emit(0x22)  # LD (HL+),A
+    emit(0xAF)  # XOR A
+    emit(0x22)  # LD (HL+),A
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "tile1")
+
+    # BG map: fill with tile 0
+    emit(0x21, 0x00, 0x98)  # LD HL,0x9800
+    emit(0x06, 0x20)  # LD B,32
+    emit(0xAF)  # XOR A
+    label("bg_row")
+    emit(0x0E, 0x20)  # LD C,32
+    label("bg_col")
+    emit(0x22)  # LD (HL+),A
+    emit(0x0D)  # DEC C
+    emit_jr(0x20, "bg_col")
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "bg_row")
+
+    # Window map: fill with tile 1
+    emit(0x21, 0x00, 0x9C)  # LD HL,0x9C00
+    emit(0x06, 0x20)  # LD B,32
+    emit(0x3E, 0x01)  # LD A,0x01
+    label("win_row")
+    emit(0x0E, 0x20)  # LD C,32
+    label("win_col")
+    emit(0x22)  # LD (HL+),A
+    emit(0x0D)  # DEC C
+    emit_jr(0x20, "win_col")
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "win_row")
+
+    # LCD on: BG + window + unsigned tiles + window map @ 0x9C00
+    emit(0x3E, 0xF1)  # LD A,0xF1
+    emit(0xE0, 0x40)  # LDH (LCDC),A
+    label("halt")
+    emit_jr(0x18, "halt")
+
+    # Resolve JR fixups
+    for pc, target in jr_fixups:
+        if target not in labels:
+            raise ValueError(f"Unknown JR label: {target}")
+        offset = labels[target] - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError(f"JR offset out of range for {target}: {offset}")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom("PPU_WINDOW", bytes(code))
+
+
 def build_bg_scroll_signed() -> bytes:
     """Build BG_SCROLL_SIGNED.gb - scrolled background with signed tiles."""
     program = bytes(
@@ -1136,6 +1228,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("FLOW_STACK.gb", build_flow_stack()),
         ("CB_BITOPS.gb", build_cb_bitops()),
         ("BG_STATIC.gb", build_bg_static()),
+        ("PPU_WINDOW.gb", build_ppu_window()),
         ("BG_SCROLL_SIGNED.gb", build_bg_scroll_signed()),
     ]
 

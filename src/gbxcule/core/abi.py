@@ -14,13 +14,17 @@ ABI v3 migration note:
 ABI v4 migration note:
 - Added scanline-accurate PPU buffers (scanline cycle + LY), env0 BG latch arrays,
   and env0 BG shade framebuffer for Milestone D.
+
+ABI v5 migration note:
+- Added window latches (WX/WY + window line) and per-env window line counter
+  for Milestone E.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 4
+ABI_VERSION: Final[int] = 5
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536

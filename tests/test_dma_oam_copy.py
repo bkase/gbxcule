@@ -45,4 +45,3 @@ def test_dma_oam_copy_matches_pyboy() -> None:
     finally:
         ref.close()
         dut.close()
-
