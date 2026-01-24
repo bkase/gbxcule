@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gbxcule.backends.common import Stage
-from gbxcule.core.abi import OBS_DIM_DEFAULT, SCREEN_H, SERIAL_MAX
+from gbxcule.core.abi import CYCLES_PER_SCANLINE, OBS_DIM_DEFAULT, SCREEN_H, SERIAL_MAX
 from gbxcule.core.isa_sm83 import iter_cb, iter_unprefixed
 from gbxcule.kernels.cpu_step_builder import (
     OpcodeTemplate,
@@ -17,6 +17,7 @@ from gbxcule.kernels.cpu_step_builder import (
 
 MEM_SIZE = 65_536
 CYCLES_PER_FRAME = 70_224
+LINES_PER_FRAME = 154
 
 ROM_LIMIT = 0x8000
 CART_RAM_START = 0xA000
@@ -223,6 +224,9 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
     constants = {
         "MEM_SIZE": MEM_SIZE,
         "CYCLES_PER_FRAME": CYCLES_PER_FRAME,
+        "CYCLES_PER_SCANLINE": CYCLES_PER_SCANLINE,
+        "LINES_PER_FRAME": LINES_PER_FRAME,
+        "SCREEN_H": SCREEN_H,
         "ROM_LIMIT": ROM_LIMIT,
         "CART_RAM_START": CART_RAM_START,
         "CART_RAM_END": CART_RAM_END,
