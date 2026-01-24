@@ -30,6 +30,7 @@ from gbxcule.kernels.cpu_step import (
     warmup_warp_cpu,
     warmup_warp_cuda,
 )
+from gbxcule.kernels.ppu_step import get_ppu_render_bg_kernel
 
 BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
 
@@ -50,6 +51,7 @@ class WarpVecBaseBackend:
         device_name: str,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
         stage: Stage = "emulate_only",
+        render_bg: bool = False,
     ) -> None:
         """Initialize the warp_vec backend."""
         self.num_envs = num_envs
@@ -67,6 +69,8 @@ class WarpVecBaseBackend:
         self._device_name = device_name
         self._sync_after_step = True
         self._stage = stage
+        self._render_bg = render_bg
+        self._ppu_render_kernel = None
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
@@ -382,6 +386,22 @@ class WarpVecBaseBackend:
             ],
             device=self._device,
         )
+        if self._render_bg:
+            if self._ppu_render_kernel is None:
+                self._ppu_render_kernel = get_ppu_render_bg_kernel()
+            self._wp.launch(
+                self._ppu_render_kernel,
+                dim=SCREEN_W * SCREEN_H,
+                inputs=[
+                    self._mem,
+                    self._bg_lcdc_latch_env0,
+                    self._bg_scx_latch_env0,
+                    self._bg_scy_latch_env0,
+                    self._bg_bgp_latch_env0,
+                    self._frame_bg_shade_env0,
+                ],
+                device=self._device,
+            )
         self._synchronize()
 
         obs = empty_obs(self.num_envs, self._obs_dim)
@@ -409,6 +429,13 @@ class WarpVecBaseBackend:
         base = env_idx * MEM_SIZE
         mem_np = self._mem.numpy()
         return mem_np[base + lo : base + hi].tobytes()
+
+    def read_frame_bg_shade_env0(self) -> bytes:
+        """Read env0 BG shade framebuffer (CPU backend only)."""
+        if self._frame_bg_shade_env0 is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        self._wp.synchronize()
+        return self._frame_bg_shade_env0.numpy().tobytes()
 
     def read_serial(self, env_idx: int) -> bytes:
         """Read captured serial bytes for a specific env (CPU only)."""
@@ -561,6 +588,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
         stage: Stage = "emulate_only",
+        render_bg: bool = False,
     ) -> None:
         super().__init__(
             rom_path,
@@ -573,6 +601,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             device_name="cpu",
             action_codec=action_codec,
             stage=stage,
+            render_bg=render_bg,
         )
 
 
@@ -592,6 +621,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
         stage: Stage = "emulate_only",
+        render_bg: bool = False,
     ) -> None:
         super().__init__(
             rom_path,
@@ -604,10 +634,13 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             device_name="cuda:0",
             action_codec=action_codec,
             stage=stage,
+            render_bg=render_bg,
         )
         self._sync_after_step = False
         self._mem_readback = None
         self._mem_readback_capacity = 0
+        self._frame_readback = None
+        self._frame_readback_capacity = 0
         self._serial_readback = None
         self._serial_readback_capacity = 0
 
@@ -636,6 +669,25 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         )
         self._wp.synchronize()
         return self._mem_readback.numpy()[:count].tobytes()
+
+    def read_frame_bg_shade_env0(self) -> bytes:
+        if self._frame_bg_shade_env0 is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        count = SCREEN_W * SCREEN_H
+        if self._frame_readback is None or self._frame_readback_capacity < count:
+            self._frame_readback = self._wp.empty(
+                count, dtype=self._wp.uint8, device="cpu", pinned=True
+            )
+            self._frame_readback_capacity = count
+        self._wp.copy(
+            self._frame_readback,
+            self._frame_bg_shade_env0,
+            dest_offset=0,
+            src_offset=0,
+            count=count,
+        )
+        self._wp.synchronize()
+        return self._frame_readback.numpy()[:count].tobytes()
 
     def read_serial(self, env_idx: int) -> bytes:
         if self._serial_buf is None or self._serial_len is None:
@@ -673,6 +725,8 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         super().close()
         self._mem_readback = None
         self._mem_readback_capacity = 0
+        self._frame_readback = None
+        self._frame_readback_capacity = 0
         self._serial_readback = None
         self._serial_readback_capacity = 0
 
