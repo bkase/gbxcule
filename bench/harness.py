@@ -635,6 +635,11 @@ def compute_rom_sha256(rom_path: str) -> str:
     return sha256.hexdigest()
 
 
+def format_serial_ascii(data: bytes) -> str:
+    """Return a readable ASCII-only string for serial bytes."""
+    return "".join(chr(b) if 32 <= b < 127 else "." for b in data)
+
+
 # ---------------------------------------------------------------------------
 # Benchmark Runner
 # ---------------------------------------------------------------------------
@@ -1045,6 +1050,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default="bench/runs",
         help="Output directory for artifacts",
+    )
+    parser.add_argument(
+        "--dump-serial",
+        action="store_true",
+        help="Print serial output from env0 if the backend supports it",
     )
 
     return parser.parse_args(argv)
@@ -1961,6 +1971,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Per-env SPS: {results['per_env_sps']:.1f}")
         print(f"Frames/sec: {results['frames_per_sec']:.1f}")
         print(f"Artifact: {artifact_path}")
+        if args.dump_serial:
+            serial_fn = getattr(backend, "read_serial", None)
+            if callable(serial_fn):
+                serial_bytes = serial_fn(0)
+                ascii_view = format_serial_ascii(serial_bytes)
+                print(f"Serial bytes (len={len(serial_bytes)}): {ascii_view}")
+            else:
+                print("Serial bytes: unavailable (backend lacks read_serial)")
 
         return 0
 

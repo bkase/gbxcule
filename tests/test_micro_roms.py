@@ -19,6 +19,7 @@ from bench.roms.build_micro_rom import (
     build_alu_loop,
     build_joy_diverge_persist,
     build_mem_rwb,
+    build_serial_hello,
     compute_global_checksum,
     compute_header_checksum,
     sha256_bytes,
@@ -33,7 +34,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates both ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 3
+    assert len(results) == 4
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -50,6 +51,10 @@ def test_roms_are_deterministic() -> None:
     mem1 = build_mem_rwb()
     mem2 = build_mem_rwb()
     assert mem1 == mem2, "MEM_RWB is not deterministic"
+
+    serial1 = build_serial_hello()
+    serial2 = build_serial_hello()
+    assert serial1 == serial2, "SERIAL_HELLO is not deterministic"
 
     joy1 = build_joy_diverge_persist()
     joy2 = build_joy_diverge_persist()
@@ -100,6 +105,16 @@ def test_joy_diverge_persist_header_checksum() -> None:
     )
 
 
+def test_serial_hello_header_checksum() -> None:
+    """SERIAL_HELLO has valid header checksum."""
+    rom = build_serial_hello()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
 def test_alu_loop_global_checksum() -> None:
     """ALU_LOOP has valid global checksum."""
     rom = build_alu_loop()
@@ -123,6 +138,16 @@ def test_mem_rwb_global_checksum() -> None:
 def test_joy_diverge_persist_global_checksum() -> None:
     """JOY_DIVERGE_PERSIST has valid global checksum."""
     rom = build_joy_diverge_persist()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_serial_hello_global_checksum() -> None:
+    """SERIAL_HELLO has valid global checksum."""
+    rom = build_serial_hello()
     stored = (rom[0x014E] << 8) | rom[0x014F]
     computed = compute_global_checksum(rom)
     assert stored == computed, (
@@ -170,6 +195,22 @@ def test_pyboy_headless_mem_rwb(rom_dir: Path) -> None:
     pyboy.set_emulation_speed(0)  # No speed limit
 
     # Tick 120 frames without rendering
+    for _ in range(120):
+        pyboy.tick(render=False)
+
+    pyboy.stop(save=False)
+
+
+def test_pyboy_headless_serial_hello(rom_dir: Path) -> None:
+    """PyBoy can run SERIAL_HELLO headless without crashing."""
+    from pyboy import PyBoy
+
+    rom_path = rom_dir / "SERIAL_HELLO.gb"
+    assert rom_path.exists()
+
+    pyboy = PyBoy(str(rom_path), window="null", sound_emulated=False)
+    pyboy.set_emulation_speed(0)
+
     for _ in range(120):
         pyboy.tick(render=False)
 

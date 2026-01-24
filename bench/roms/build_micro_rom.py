@@ -177,6 +177,56 @@ def build_mem_rwb() -> bytes:
     return build_rom("MEM_RWB", program)
 
 
+def build_serial_hello() -> bytes:
+    """Build SERIAL_HELLO.gb - serial output smoke test.
+
+    This ROM writes "OK" to the serial port using SB/SC.
+
+    Assembly:
+        LD HL, 0xFF01
+        LD A, 'O'
+        LD (HL), A       ; SB
+        INC HL           ; SC
+        LD A, 0x81
+        LD (HL), A       ; trigger transfer
+        LD HL, 0xFF01
+        LD A, 'K'
+        LD (HL), A
+        INC HL
+        LD A, 0x81
+        LD (HL), A
+    loop:
+        JR loop
+    """
+    program = bytes(
+        [
+            0x21,
+            0x01,
+            0xFF,  # LD HL, 0xFF01
+            0x3E,
+            0x4F,  # LD A, 'O'
+            0x77,  # LD (HL), A
+            0x23,  # INC HL
+            0x3E,
+            0x81,  # LD A, 0x81
+            0x77,  # LD (HL), A
+            0x21,
+            0x01,
+            0xFF,  # LD HL, 0xFF01
+            0x3E,
+            0x4B,  # LD A, 'K'
+            0x77,  # LD (HL), A
+            0x23,  # INC HL
+            0x3E,
+            0x81,  # LD A, 0x81
+            0x77,  # LD (HL), A
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    return build_rom("SERIAL_HELLO", program)
+
+
 def build_joy_diverge_persist() -> bytes:
     """Build JOY_DIVERGE_PERSIST.gb - JOYP-driven divergence benchmark.
 
@@ -380,6 +430,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
     roms = [
         ("ALU_LOOP.gb", build_alu_loop()),
         ("MEM_RWB.gb", build_mem_rwb()),
+        ("SERIAL_HELLO.gb", build_serial_hello()),
         ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
     ]
 
