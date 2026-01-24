@@ -63,7 +63,10 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "jr_z_r8": jumps.template_jr_z_r8,
         "jr_nc_r8": jumps.template_jr_nc_r8,
         "jr_c_r8": jumps.template_jr_c_r8,
-        "jp_cc": jumps.template_jp_cc,
+        "jp_nz_a16": jumps.template_jp_nz_a16,
+        "jp_z_a16": jumps.template_jp_z_a16,
+        "jp_nc_a16": jumps.template_jp_nc_a16,
+        "jp_c_a16": jumps.template_jp_c_a16,
         "jp_hl": jumps.template_jp_hl,
         "ld_r8_d8": loads.template_ld_r8_d8,
         "ld_r16_d16": loads.template_ld_r16_d16,
@@ -143,7 +146,14 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "ret_nc": stack.template_ret_nc,
         "ret_c": stack.template_ret_c,
         "reti": stack.template_reti,
-        "rst": stack.template_rst,
+        "rst_00": stack.template_rst_00,
+        "rst_08": stack.template_rst_08,
+        "rst_10": stack.template_rst_10,
+        "rst_18": stack.template_rst_18,
+        "rst_20": stack.template_rst_20,
+        "rst_28": stack.template_rst_28,
+        "rst_30": stack.template_rst_30,
+        "rst_38": stack.template_rst_38,
     }
 
     opcode_templates: list[OpcodeTemplate] = []

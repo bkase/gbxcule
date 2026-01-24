@@ -19,6 +19,7 @@ from bench.roms.build_micro_rom import (
     build_alu16_sp,
     build_alu_flags,
     build_alu_loop,
+    build_flow_stack,
     build_joy_diverge_persist,
     build_loads_basic,
     build_mem_rwb,
@@ -37,7 +38,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 7
+    assert len(results) == 8
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -74,6 +75,10 @@ def test_roms_are_deterministic() -> None:
     alu16_1 = build_alu16_sp()
     alu16_2 = build_alu16_sp()
     assert alu16_1 == alu16_2, "ALU16_SP is not deterministic"
+
+    flow1 = build_flow_stack()
+    flow2 = build_flow_stack()
+    assert flow1 == flow2, "FLOW_STACK is not deterministic"
 
 
 def test_sha256_is_deterministic() -> None:
@@ -160,6 +165,16 @@ def test_alu16_sp_header_checksum() -> None:
     )
 
 
+def test_flow_stack_header_checksum() -> None:
+    """FLOW_STACK has valid header checksum."""
+    rom = build_flow_stack()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
 def test_alu_loop_global_checksum() -> None:
     """ALU_LOOP has valid global checksum."""
     rom = build_alu_loop()
@@ -193,6 +208,16 @@ def test_joy_diverge_persist_global_checksum() -> None:
 def test_serial_hello_global_checksum() -> None:
     """SERIAL_HELLO has valid global checksum."""
     rom = build_serial_hello()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_flow_stack_global_checksum() -> None:
+    """FLOW_STACK has valid global checksum."""
+    rom = build_flow_stack()
     stored = (rom[0x014E] << 8) | rom[0x014F]
     computed = compute_global_checksum(rom)
     assert stored == computed, (

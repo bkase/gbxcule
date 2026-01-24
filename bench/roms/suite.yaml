@@ -45,3 +45,9 @@ roms:
     description: "16-bit ALU + SP coverage loop (ADD HL,rr; INC/DEC rr; ADD SP,e8)."
     frames_per_step: 24
     release_after_frames: 8
+
+  - id: FLOW_STACK
+    path: bench/roms/out/FLOW_STACK.gb
+    description: "Control flow + stack coverage loop (CALL/RET/JR/JP/PUSH/POP)."
+    frames_per_step: 24
+    release_after_frames: 8

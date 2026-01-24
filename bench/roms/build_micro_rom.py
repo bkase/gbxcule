@@ -582,6 +582,93 @@ def build_alu16_sp() -> bytes:
     return build_rom("ALU16_SP", program)
 
 
+def build_flow_stack() -> bytes:
+    """Build FLOW_STACK.gb - control flow + stack opcode coverage loop."""
+    program = bytes(
+        [
+            0x31,
+            0xF0,
+            0xFF,  # LD SP,0xFFF0
+            0x21,
+            0x84,
+            0x01,  # LD HL,0x0184 (JP target)
+            0x01,
+            0x34,
+            0x12,  # LD BC,0x1234
+            0xC5,  # PUSH BC
+            0xD1,  # POP DE
+            0xAF,  # XOR A (Z=1, C=0)
+            0xC4,
+            0x7A,
+            0x01,  # CALL NZ,0x017A (not taken)
+            0xCC,
+            0x7C,
+            0x01,  # CALL Z,0x017C (taken)
+            0x20,
+            0x02,  # JR NZ,+2 (not taken)
+            0x28,
+            0x01,  # JR Z,+1 (taken)
+            0x00,  # NOP (skipped if JR Z taken)
+            0x3E,
+            0x01,  # LD A,0x01 (Z=0)
+            0xB7,  # OR A
+            0x30,
+            0x03,  # JR NC,+3 (taken)
+            0x38,
+            0x04,  # JR C,+4 (not taken)
+            0x00,  # NOP
+            0xC4,
+            0x7E,
+            0x01,  # CALL NZ,0x017E (taken)
+            0x37,  # SCF (C=1)
+            0xD4,
+            0x80,
+            0x01,  # CALL NC,0x0180 (not taken)
+            0xDC,
+            0x82,
+            0x01,  # CALL C,0x0182 (taken)
+            0xE9,  # JP (HL)
+            0xC0,  # RET NZ
+            0xC9,  # RET
+            0xC8,  # RET Z
+            0xC9,  # RET
+            0xC0,  # RET NZ
+            0xC9,  # RET
+            0xD0,  # RET NC
+            0xC9,  # RET
+            0xD8,  # RET C
+            0xC9,  # RET
+            0xAF,  # XOR A (Z=1)
+            0xC2,
+            0x98,
+            0x01,  # JP NZ,0x0198 (not taken)
+            0xCA,
+            0x8E,
+            0x01,  # JP Z,0x018E (taken)
+            0x00,  # NOP
+            0x00,  # NOP
+            0x00,  # NOP
+            0x37,  # SCF (C=1)
+            0xD2,
+            0x98,
+            0x01,  # JP NC,0x0198 (not taken)
+            0xDA,
+            0x9B,
+            0x01,  # JP C,0x019B (taken)
+            0x00,  # NOP
+            0x00,  # NOP
+            0x00,  # NOP
+            0xC3,
+            0x50,
+            0x01,  # JP 0x0150
+            0xC3,
+            0x50,
+            0x01,  # JP 0x0150
+        ]
+    )
+    return build_rom("FLOW_STACK", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -623,6 +710,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("LOADS_BASIC.gb", build_loads_basic()),
         ("ALU_FLAGS.gb", build_alu_flags()),
         ("ALU16_SP.gb", build_alu16_sp()),
+        ("FLOW_STACK.gb", build_flow_stack()),
     ]
 
     results: list[tuple[str, Path, str]] = []

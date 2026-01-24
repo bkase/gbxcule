@@ -69,3 +69,8 @@ def test_verify_alu_flags() -> None:
 def test_verify_alu16_sp() -> None:
     require_rom(ROM_DIR / "ALU16_SP.gb")
     _verify_no_mismatch(ROM_DIR / "ALU16_SP.gb", steps=64)
+
+
+def test_verify_flow_stack() -> None:
+    require_rom(ROM_DIR / "FLOW_STACK.gb")
+    _verify_no_mismatch(ROM_DIR / "FLOW_STACK.gb", steps=96)

@@ -793,6 +793,213 @@ def _add_alu16_families() -> None:
 _add_alu16_families()
 
 
+def _add_control_flow_families() -> None:
+    # JR NC/C
+    _add_spec(
+        _spec(
+            opcode=0x30,
+            mnemonic="JR NC,r8",
+            length=2,
+            cycles=(12, 8),
+            template_key="jr_nc_r8",
+            group="jumps",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0x38,
+            mnemonic="JR C,r8",
+            length=2,
+            cycles=(12, 8),
+            template_key="jr_c_r8",
+            group="jumps",
+        )
+    )
+
+    # JP cc, a16
+    jp_cc = [
+        (0xC2, "NZ", "jp_nz_a16"),
+        (0xCA, "Z", "jp_z_a16"),
+        (0xD2, "NC", "jp_nc_a16"),
+        (0xDA, "C", "jp_c_a16"),
+    ]
+    for opcode, cond, template_key in jp_cc:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"JP {cond},a16",
+                length=3,
+                cycles=(16, 12),
+                template_key=template_key,
+                group="jumps",
+            )
+        )
+
+    # JP (HL)
+    _add_spec(
+        _spec(
+            opcode=0xE9,
+            mnemonic="JP (HL)",
+            length=1,
+            cycles=(4,),
+            template_key="jp_hl",
+            replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+            group="jumps",
+        )
+    )
+
+    # CALL a16 + CALL cc
+    _add_spec(
+        _spec(
+            opcode=0xCD,
+            mnemonic="CALL a16",
+            length=3,
+            cycles=(24,),
+            template_key="call_a16",
+            group="stack",
+        )
+    )
+    call_cc = [
+        (0xC4, "NZ", "call_nz_a16"),
+        (0xCC, "Z", "call_z_a16"),
+        (0xD4, "NC", "call_nc_a16"),
+        (0xDC, "C", "call_c_a16"),
+    ]
+    for opcode, cond, template_key in call_cc:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"CALL {cond},a16",
+                length=3,
+                cycles=(24, 12),
+                template_key=template_key,
+                group="stack",
+            )
+        )
+
+    # RET + RETI + RET cc
+    _add_spec(
+        _spec(
+            opcode=0xC9,
+            mnemonic="RET",
+            length=1,
+            cycles=(16,),
+            template_key="ret",
+            group="stack",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0xD9,
+            mnemonic="RETI",
+            length=1,
+            cycles=(16,),
+            template_key="reti",
+            group="stack",
+        )
+    )
+    ret_cc = [
+        (0xC0, "NZ", "ret_nz"),
+        (0xC8, "Z", "ret_z"),
+        (0xD0, "NC", "ret_nc"),
+        (0xD8, "C", "ret_c"),
+    ]
+    for opcode, cond, template_key in ret_cc:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"RET {cond}",
+                length=1,
+                cycles=(20, 8),
+                template_key=template_key,
+                group="stack",
+            )
+        )
+
+    # RST n
+    rst_ops = [
+        (0xC7, "00H", "rst_00"),
+        (0xCF, "08H", "rst_08"),
+        (0xD7, "10H", "rst_10"),
+        (0xDF, "18H", "rst_18"),
+        (0xE7, "20H", "rst_20"),
+        (0xEF, "28H", "rst_28"),
+        (0xF7, "30H", "rst_30"),
+        (0xFF, "38H", "rst_38"),
+    ]
+    for opcode, vec, template_key in rst_ops:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"RST {vec}",
+                length=1,
+                cycles=(16,),
+                template_key=template_key,
+                group="stack",
+            )
+        )
+
+    # PUSH rr + POP rr
+    push_rr = [
+        (0xC5, "BC", ("b_i", "c_i"), "push_r16"),
+        (0xD5, "DE", ("d_i", "e_i"), "push_r16"),
+        (0xE5, "HL", ("h_i", "l_i"), "push_r16"),
+    ]
+    for opcode, reg, regs, template_key in push_rr:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"PUSH {reg}",
+                length=1,
+                cycles=(16,),
+                template_key=template_key,
+                replacements={"HREG_i": regs[0], "LREG_i": regs[1]},
+                group="stack",
+            )
+        )
+    _add_spec(
+        _spec(
+            opcode=0xF5,
+            mnemonic="PUSH AF",
+            length=1,
+            cycles=(16,),
+            template_key="push_af",
+            group="stack",
+        )
+    )
+
+    pop_rr = [
+        (0xC1, "BC", ("b_i", "c_i"), "pop_r16"),
+        (0xD1, "DE", ("d_i", "e_i"), "pop_r16"),
+        (0xE1, "HL", ("h_i", "l_i"), "pop_r16"),
+    ]
+    for opcode, reg, regs, template_key in pop_rr:
+        _add_spec(
+            _spec(
+                opcode=opcode,
+                mnemonic=f"POP {reg}",
+                length=1,
+                cycles=(12,),
+                template_key=template_key,
+                replacements={"HREG_i": regs[0], "LREG_i": regs[1]},
+                group="stack",
+            )
+        )
+    _add_spec(
+        _spec(
+            opcode=0xF1,
+            mnemonic="POP AF",
+            length=1,
+            cycles=(12,),
+            template_key="pop_af",
+            group="stack",
+        )
+    )
+
+
+_add_control_flow_families()
+
+
 UNPREFIXED_SPECS = _build_table("OP", _UNPREFIXED_OVERRIDES)
 CB_SPECS = _build_table("CB", {})
 
