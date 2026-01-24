@@ -177,8 +177,7 @@ _REGISTRY: dict[str, ActionCodecDef] = {
 
 # Kernel-facing codec ids (stable numeric mapping for Warp kernels)
 KERNEL_CODEC_IDS: dict[str, int] = {
-    LEGACY_V0_ID: 0,
-    POKERED_PUFFER_V0_ID: 1,
+    POKERED_PUFFER_V0_ID: 0,
 }
 
 

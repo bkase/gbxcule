@@ -134,8 +134,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     OBS_DIM = {OBS_DIM}
     SERIAL_MAX = {SERIAL_MAX}
 
-    ACTION_CODEC_LEGACY = 0
-    ACTION_CODEC_POKERED = 1
+    ACTION_CODEC_POKERED = 0
 
     DPAD_RIGHT = 1
     DPAD_LEFT = 2
@@ -158,45 +157,25 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     @wp.func
     def action_dpad_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
         dpad = wp.int32(0)
-        if codec_id == ACTION_CODEC_LEGACY:
-            if action == 1:
-                dpad = DPAD_UP
-            elif action == 2:
-                dpad = DPAD_DOWN
-            elif action == 3:
-                dpad = DPAD_LEFT
-            elif action == 4:
-                dpad = DPAD_RIGHT
-        else:
-            if action == 3:
-                dpad = DPAD_UP
-            elif action == 4:
-                dpad = DPAD_DOWN
-            elif action == 5:
-                dpad = DPAD_LEFT
-            elif action == 6:
-                dpad = DPAD_RIGHT
+        if action == 3:
+            dpad = DPAD_UP
+        elif action == 4:
+            dpad = DPAD_DOWN
+        elif action == 5:
+            dpad = DPAD_LEFT
+        elif action == 6:
+            dpad = DPAD_RIGHT
         return dpad
 
     @wp.func
     def action_button_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
         btn = wp.int32(0)
-        if codec_id == ACTION_CODEC_LEGACY:
-            if action == 5:
-                btn = BUTTON_A
-            elif action == 6:
-                btn = BUTTON_B
-            elif action == 7:
-                btn = BUTTON_START
-            elif action == 8:
-                btn = BUTTON_SELECT
-        else:
-            if action == 0:
-                btn = BUTTON_A
-            elif action == 1:
-                btn = BUTTON_B
-            elif action == 2:
-                btn = BUTTON_START
+        if action == 0:
+            btn = BUTTON_A
+        elif action == 1:
+            btn = BUTTON_B
+        elif action == 2:
+            btn = BUTTON_START
         return btn
 
     @wp.func
