@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from gbxcule.core.state_io import PyBoyState
 
 import numpy as np
 
@@ -728,6 +731,54 @@ class WarpVecBaseBackend:
             trap_opcode=trap_opcode,
             trap_kind=trap_kind,
         )
+
+    def save_state(self, env_idx: int = 0) -> PyBoyState:
+        """Save the current state of an environment as a PyBoyState.
+
+        Args:
+            env_idx: Environment index to save.
+
+        Returns:
+            PyBoyState object containing the complete emulator state.
+        """
+        from gbxcule.core.state_io import state_from_warp_backend
+
+        return state_from_warp_backend(self, env_idx)
+
+    def save_state_file(self, path: str, env_idx: int = 0) -> None:
+        """Save the current state of an environment to a PyBoy v9 state file.
+
+        Args:
+            path: Path to write the .state file.
+            env_idx: Environment index to save.
+        """
+        from gbxcule.core.state_io import save_pyboy_state, state_from_warp_backend
+
+        state = state_from_warp_backend(self, env_idx)
+        save_pyboy_state(state, path)
+
+    def load_state(self, state: PyBoyState, env_idx: int = 0) -> None:
+        """Load a PyBoyState into an environment.
+
+        Args:
+            state: The state to load.
+            env_idx: Environment index to modify.
+        """
+        from gbxcule.core.state_io import apply_state_to_warp_backend
+
+        apply_state_to_warp_backend(state, self, env_idx)
+
+    def load_state_file(self, path: str, env_idx: int = 0) -> None:
+        """Load a PyBoy v9 state file into an environment.
+
+        Args:
+            path: Path to the .state file.
+            env_idx: Environment index to modify.
+        """
+        from gbxcule.core.state_io import apply_state_to_warp_backend, load_pyboy_state
+
+        state = load_pyboy_state(path)
+        apply_state_to_warp_backend(state, self, env_idx)
 
     def close(self) -> None:
         """Close the backend and release resources."""
