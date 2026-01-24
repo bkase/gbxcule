@@ -1,5 +1,5 @@
 """ALU instruction templates for Warp CPU stepping."""
-# ruff: noqa: F841
+# ruff: noqa: F821, F841
 
 from __future__ import annotations
 
@@ -47,7 +47,17 @@ def template_add_a_r8(pc_i: int, a_i: int, f_i: int, REG_i: int) -> None:
 
 def template_and_a_d8(pc_i: int, a_i: int, f_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
     """AND A, d8 template."""
-    val = wp.int32(mem[base + ((pc_i + 1) & 0xFFFF)])
+    val = read8(
+        i,
+        base,
+        (pc_i + 1) & 0xFFFF,
+        mem,
+        actions,
+        joyp_select,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
+    )
     res = a_i & val
     a_i = res & 0xFF
     z = wp.where(a_i == 0, 1, 0)
