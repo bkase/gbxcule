@@ -321,6 +321,36 @@ class WarpVecBaseBackend:
         mem_np = self._mem.numpy()
         return mem_np[base + lo : base + hi].tobytes()
 
+    def read_serial(self, env_idx: int) -> bytes:
+        """Read captured serial bytes for a specific env (CPU only)."""
+        if self._serial_buf is None or self._serial_len is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        lengths = self._serial_len.numpy()
+        length = int(lengths[env_idx])
+        if length <= 0:
+            return b""
+        length = min(length, SERIAL_MAX)
+        base = env_idx * SERIAL_MAX
+        buf_np = self._serial_buf.numpy()
+        return buf_np[base : base + length].tobytes()
+
+    def drain_serial(self, env_idx: int) -> bytes:
+        """Read and clear captured serial bytes for a specific env."""
+        data = self.read_serial(env_idx)
+        if self._serial_len is None or self._serial_overflow is None:
+            return data
+        lengths = self._serial_len.numpy()
+        overflow = self._serial_overflow.numpy()
+        lengths[env_idx] = 0
+        overflow[env_idx] = 0
+        if hasattr(self._serial_len, "assign"):
+            self._serial_len.assign(lengths)
+        if hasattr(self._serial_overflow, "assign"):
+            self._serial_overflow.assign(overflow)
+        return data
+
     def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
         """Write bytes into memory starting at addr for a given env."""
         if self._mem is None or not self._initialized:
@@ -463,6 +493,8 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._sync_after_step = False
         self._mem_readback = None
         self._mem_readback_capacity = 0
+        self._serial_readback = None
+        self._serial_readback_capacity = 0
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         if self._mem is None or not self._initialized:
@@ -490,6 +522,33 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._wp.synchronize()
         return self._mem_readback.numpy()[:count].tobytes()
 
+    def read_serial(self, env_idx: int) -> bytes:
+        if self._serial_buf is None or self._serial_len is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        self._wp.synchronize()
+        lengths = self._serial_len.numpy()
+        length = int(lengths[env_idx])
+        if length <= 0:
+            return b""
+        length = min(length, SERIAL_MAX)
+        if self._serial_readback is None or self._serial_readback_capacity < length:
+            self._serial_readback = self._wp.empty(
+                length, dtype=self._wp.uint8, device="cpu", pinned=True
+            )
+            self._serial_readback_capacity = length
+        base = env_idx * SERIAL_MAX
+        self._wp.copy(
+            self._serial_readback,
+            self._serial_buf,
+            dest_offset=0,
+            src_offset=base,
+            count=length,
+        )
+        self._wp.synchronize()
+        return self._serial_readback.numpy()[:length].tobytes()
+
     def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
         raise NotImplementedError(
             "CUDA write_memory is not implemented yet (debug-only for CPU)."
@@ -499,6 +558,8 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         super().close()
         self._mem_readback = None
         self._mem_readback_capacity = 0
+        self._serial_readback = None
+        self._serial_readback_capacity = 0
 
 
 class WarpVecBackend(WarpVecCpuBackend):
