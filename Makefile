@@ -45,6 +45,7 @@ E4_ACTION_GEN ?= seeded_random
 E4_ACTIONS_SEED ?= 1234
 E4_ACTION_CODEC ?= pokemonred_puffer_v0
 E4_SUITE ?= bench/roms/suite.yaml
+WARP_BUILD_TIMEOUT ?= 900
 
 # Default target
 .DEFAULT_GOAL := help
@@ -89,7 +90,11 @@ roms: ## Generate micro-ROMs
 	@$(PY) bench/roms/build_micro_rom.py > /dev/null
 
 build-warp: fmt ## Compile Warp CPU kernels (warm cache for tests)
-	@$(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'
+	@if command -v timeout >/dev/null 2>&1; then \
+		timeout $(WARP_BUILD_TIMEOUT) $(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
+	else \
+		$(PY) -c 'from gbxcule.kernels.cpu_step import warmup_warp_cpu; [warmup_warp_cpu(stage=s, obs_dim=32) for s in ("emulate_only","full_step","reward_only","obs_only")]'; \
+	fi
 
 smoke: roms ## Run minimal sanity check (fast, for commit hook)
 	@# Smoke just ensures ROMs build; tests run separately in check
