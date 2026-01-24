@@ -156,6 +156,9 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     CART_STATE_RTC_DAYS_LOW = {CART_STATE_RTC_DAYS_LOW}
     CART_STATE_RTC_DAYS_HIGH = {CART_STATE_RTC_DAYS_HIGH}
     CART_STATE_RTC_LAST_CYCLE = {CART_STATE_RTC_LAST_CYCLE}
+    MBC_KIND_ROM_ONLY = {MBC_KIND_ROM_ONLY}
+    MBC_KIND_MBC1 = {MBC_KIND_MBC1}
+    MBC_KIND_MBC3 = {MBC_KIND_MBC3}
     OBS_DIM = {OBS_DIM}
     SERIAL_MAX = {SERIAL_MAX}
 
@@ -457,6 +460,18 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         obj_obp1_latch_env0[idx] = mem[base + 0xFF49]
 
     @wp.func
+    def clamp_bank(
+        bank: wp.int32,
+        bank_count: wp.int32,
+        bank_mask: wp.int32,
+    ) -> wp.int32:
+        if bank_count <= 0:
+            return wp.int32(0)
+        if bank_mask >= 0:
+            return bank & bank_mask
+        return bank % bank_count
+
+    @wp.func
     def read8(
         i: wp.int32,
         base: wp.int32,
@@ -482,9 +497,34 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         ] != 0:
             return wp.int32(bootrom[addr16])
         if addr16 < ROM_LIMIT:
-            limit = rom_bank_count * CART_ROM_BANK_SIZE
-            if addr16 < limit:
-                return wp.int32(rom[addr16])
+            mbc_kind = cart_state[state_base + CART_STATE_MBC_KIND]
+            rom_bank_lo_raw = cart_state[state_base + CART_STATE_ROM_BANK_LO]
+            rom_bank_lo = rom_bank_lo_raw & 0x1F
+            rom_bank_hi = cart_state[state_base + CART_STATE_ROM_BANK_HI] & 0x03
+            bank_mode = cart_state[state_base + CART_STATE_BANK_MODE] & 0x01
+            bank = wp.int32(0)
+            if addr16 < 0x4000:
+                if mbc_kind == MBC_KIND_MBC1 and bank_mode != 0:
+                    bank = (rom_bank_hi & 0x03) << 5
+            else:
+                if mbc_kind == MBC_KIND_ROM_ONLY:
+                    bank = wp.int32(1)
+                elif mbc_kind == MBC_KIND_MBC1:
+                    bank = (rom_bank_hi << 5) | rom_bank_lo
+                    if bank == 0:
+                        bank = wp.int32(1)
+                else:
+                    bank = rom_bank_lo_raw & 0x7F
+                    if bank == 0:
+                        bank = wp.int32(1)
+            bank = clamp_bank(bank, rom_bank_count, rom_bank_mask)
+            rom_index = wp.int32(0)
+            if addr16 < 0x4000:
+                rom_index = bank * CART_ROM_BANK_SIZE + addr16
+            else:
+                rom_index = bank * CART_ROM_BANK_SIZE + (addr16 - 0x4000)
+            if rom_index < rom_bank_count * CART_ROM_BANK_SIZE:
+                return wp.int32(rom[rom_index])
             return 0xFF
         if addr16 == 0xFF00:
             action_i = wp.int32(actions[i])
@@ -497,7 +537,39 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 action_codec_id,
             )
         if addr16 >= CART_RAM_START and addr16 < CART_RAM_END:
-            return 0xFF
+            if ram_bank_count <= 0:
+                return 0xFF
+            if cart_state[state_base + CART_STATE_RAM_ENABLE] == 0:
+                return 0xFF
+            mbc_kind = cart_state[state_base + CART_STATE_MBC_KIND]
+            if mbc_kind == MBC_KIND_MBC3:
+                rtc_sel = cart_state[state_base + CART_STATE_RTC_SELECT] & 0x0F
+                if rtc_sel == 0x08:
+                    return cart_state[state_base + CART_STATE_RTC_SECONDS] & 0xFF
+                if rtc_sel == 0x09:
+                    return cart_state[state_base + CART_STATE_RTC_MINUTES] & 0xFF
+                if rtc_sel == 0x0A:
+                    return cart_state[state_base + CART_STATE_RTC_HOURS] & 0xFF
+                if rtc_sel == 0x0B:
+                    return cart_state[state_base + CART_STATE_RTC_DAYS_LOW] & 0xFF
+                if rtc_sel == 0x0C:
+                    return cart_state[state_base + CART_STATE_RTC_DAYS_HIGH] & 0xFF
+            ram_bank = wp.int32(0)
+            if mbc_kind == MBC_KIND_MBC1:
+                bank_mode = cart_state[state_base + CART_STATE_BANK_MODE] & 0x01
+                if bank_mode != 0:
+                    ram_bank = cart_state[state_base + CART_STATE_RAM_BANK] & 0x03
+            elif mbc_kind == MBC_KIND_MBC3:
+                ram_bank = cart_state[state_base + CART_STATE_RAM_BANK] & 0x03
+            ram_bank = clamp_bank(ram_bank, ram_bank_count, wp.int32(-1))
+            ram_env_bytes = ram_bank_count * CART_RAM_BANK_SIZE
+            if ram_env_bytes <= 0:
+                return 0xFF
+            offset = ram_bank * CART_RAM_BANK_SIZE + (addr16 - CART_RAM_START)
+            if offset >= ram_env_bytes:
+                return 0xFF
+            ram_index = i * ram_env_bytes + offset
+            return wp.int32(cart_ram[ram_index])
         return wp.int32(mem[base + addr16])
 
     @wp.func
@@ -525,6 +597,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     ) -> None:
         addr16 = addr & 0xFFFF
         val8 = wp.uint8(val)
+        state_base = i * CART_STATE_STRIDE
         if addr16 == 0xFF00:
             joyp_select[i] = val8 & wp.uint8(0x30)
             return
@@ -547,6 +620,10 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 mem[base + addr16] = wp.uint8(val & 0x7F)
                 if_addr = base + 0xFF0F
                 mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x08))
+            return
+        if addr16 == 0xFF50:
+            if val != 0:
+                cart_state[state_base + CART_STATE_BOOTROM_ENABLED] = 0
             return
         if addr16 == 0xFF04:
             tac = wp.int32(mem[base + 0xFF07]) & 0x07
@@ -597,10 +674,49 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         if addr16 == 0xFFFF:
             mem[base + addr16] = val8 & wp.uint8(0x1F)
             return
-        if addr16 >= ROM_LIMIT and not (
-            addr16 >= CART_RAM_START and addr16 < CART_RAM_END
-        ):
-            mem[base + addr16] = val8
+        if addr16 >= CART_RAM_START and addr16 < CART_RAM_END:
+            if ram_bank_count <= 0:
+                return
+            if cart_state[state_base + CART_STATE_RAM_ENABLE] == 0:
+                return
+            mbc_kind = cart_state[state_base + CART_STATE_MBC_KIND]
+            if mbc_kind == MBC_KIND_MBC3:
+                rtc_sel = cart_state[state_base + CART_STATE_RTC_SELECT] & 0x0F
+                if rtc_sel == 0x08:
+                    cart_state[state_base + CART_STATE_RTC_SECONDS] = val & 0xFF
+                    return
+                if rtc_sel == 0x09:
+                    cart_state[state_base + CART_STATE_RTC_MINUTES] = val & 0xFF
+                    return
+                if rtc_sel == 0x0A:
+                    cart_state[state_base + CART_STATE_RTC_HOURS] = val & 0xFF
+                    return
+                if rtc_sel == 0x0B:
+                    cart_state[state_base + CART_STATE_RTC_DAYS_LOW] = val & 0xFF
+                    return
+                if rtc_sel == 0x0C:
+                    cart_state[state_base + CART_STATE_RTC_DAYS_HIGH] = val & 0xFF
+                    return
+            ram_bank = wp.int32(0)
+            if mbc_kind == MBC_KIND_MBC1:
+                bank_mode = cart_state[state_base + CART_STATE_BANK_MODE] & 0x01
+                if bank_mode != 0:
+                    ram_bank = cart_state[state_base + CART_STATE_RAM_BANK] & 0x03
+            elif mbc_kind == MBC_KIND_MBC3:
+                ram_bank = cart_state[state_base + CART_STATE_RAM_BANK] & 0x03
+            ram_bank = clamp_bank(ram_bank, ram_bank_count, wp.int32(-1))
+            ram_env_bytes = ram_bank_count * CART_RAM_BANK_SIZE
+            if ram_env_bytes <= 0:
+                return
+            offset = ram_bank * CART_RAM_BANK_SIZE + (addr16 - CART_RAM_START)
+            if offset >= ram_env_bytes:
+                return
+            ram_index = i * ram_env_bytes + offset
+            cart_ram[ram_index] = val8
+            return
+        if addr16 < ROM_LIMIT:
+            return
+        mem[base + addr16] = val8
 
     @wp.kernel
     def cpu_step(

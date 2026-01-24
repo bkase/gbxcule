@@ -28,6 +28,9 @@ from gbxcule.core.cartridge import (
     CART_STATE_RTC_SECONDS,
     CART_STATE_RTC_SELECT,
     CART_STATE_STRIDE,
+    MBC_KIND_MBC1,
+    MBC_KIND_MBC3,
+    MBC_KIND_ROM_ONLY,
 )
 from gbxcule.core.isa_sm83 import iter_cb, iter_unprefixed
 from gbxcule.kernels.cpu_step_builder import (
@@ -270,6 +273,9 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "CART_STATE_RTC_DAYS_LOW": CART_STATE_RTC_DAYS_LOW,
         "CART_STATE_RTC_DAYS_HIGH": CART_STATE_RTC_DAYS_HIGH,
         "CART_STATE_RTC_LAST_CYCLE": CART_STATE_RTC_LAST_CYCLE,
+        "MBC_KIND_ROM_ONLY": MBC_KIND_ROM_ONLY,
+        "MBC_KIND_MBC1": MBC_KIND_MBC1,
+        "MBC_KIND_MBC3": MBC_KIND_MBC3,
         "OBS_DIM": obs_dim,
         "SERIAL_MAX": SERIAL_MAX,
     }
