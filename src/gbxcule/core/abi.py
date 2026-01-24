@@ -1,4 +1,4 @@
-"""ABI v2: Authoritative device buffer layouts.
+"""ABI v3: Authoritative device buffer layouts.
 
 This module defines the canonical layouts for state buffers used by Warp kernels
 and downstream consumers. It is intentionally tiny and pure.
@@ -7,13 +7,16 @@ See ARCHITECTURE.md §6 for rationale and versioning policy.
 
 ABI v2 migration note:
 - Added serial output buffers (SERIAL_MAX, serial_buf/serial_len/serial_overflow).
+
+ABI v3 migration note:
+- Added interrupt + timer state buffers (IME/IME delay/HALT, DIV/TIMA edge tracking).
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 2
+ABI_VERSION: Final[int] = 3
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536

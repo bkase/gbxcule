@@ -100,6 +100,13 @@ class WarpVecBaseBackend:
         self._serial_buf = None
         self._serial_len = None
         self._serial_overflow = None
+        self._ime = None
+        self._ime_delay = None
+        self._halted = None
+        self._div_counter = None
+        self._timer_prev_in = None
+        self._tima_reload_pending = None
+        self._tima_reload_delay = None
         self._reward = None
         self._obs = None
 
@@ -238,6 +245,27 @@ class WarpVecBaseBackend:
         self._serial_overflow = self._wp.zeros(
             self.num_envs, dtype=self._wp.uint8, device=self._device
         )
+        self._ime = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._ime_delay = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._halted = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._div_counter = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._timer_prev_in = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._tima_reload_pending = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
+        self._tima_reload_delay = self._wp.zeros(
+            self.num_envs, dtype=self._wp.int32, device=self._device
+        )
         self._reward = self._wp.zeros(
             self.num_envs, dtype=self._wp.float32, device=self._device
         )
@@ -305,6 +333,13 @@ class WarpVecBaseBackend:
                 self._serial_buf,
                 self._serial_len,
                 self._serial_overflow,
+                self._ime,
+                self._ime_delay,
+                self._halted,
+                self._div_counter,
+                self._timer_prev_in,
+                self._tima_reload_pending,
+                self._tima_reload_delay,
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
@@ -458,6 +493,13 @@ class WarpVecBaseBackend:
         self._serial_buf = None
         self._serial_len = None
         self._serial_overflow = None
+        self._ime = None
+        self._ime_delay = None
+        self._halted = None
+        self._div_counter = None
+        self._timer_prev_in = None
+        self._tima_reload_pending = None
+        self._tima_reload_delay = None
         self._reward = None
         self._obs = None
 
