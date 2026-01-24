@@ -1069,14 +1069,22 @@ def build_ppu_window() -> bytes:
 
     # Tile 1: rows use colors 1,2,3,0 (repeat) for visible shading
     for val in (
-        0xFF, 0x00,  # color 1
-        0x00, 0xFF,  # color 2
-        0xFF, 0xFF,  # color 3
-        0x00, 0x00,  # color 0
-        0xFF, 0x00,
-        0x00, 0xFF,
-        0xFF, 0xFF,
-        0x00, 0x00,
+        0xFF,
+        0x00,  # color 1
+        0x00,
+        0xFF,  # color 2
+        0xFF,
+        0xFF,  # color 3
+        0x00,
+        0x00,  # color 0
+        0xFF,
+        0x00,
+        0x00,
+        0xFF,
+        0xFF,
+        0xFF,
+        0x00,
+        0x00,
     ):
         emit(0x3E, val)  # LD A,val
         emit(0x22)  # LD (HL+),A
@@ -1266,6 +1274,71 @@ def build_ppu_sprites() -> bytes:
     return build_rom("PPU_SPRITES", bytes(code))
 
 
+def build_ppu_stat_irq() -> bytes:
+    """Build PPU_STAT_IRQ.gb - STAT interrupt counter ROM."""
+    program = bytes(
+        [
+            0x31,
+            0x00,
+            0xC1,  # LD SP,0xC100
+            0xAF,  # XOR A
+            0xEA,
+            0x00,
+            0xC0,  # LD (0xC000),A
+            0xEA,
+            0x01,
+            0xC0,  # LD (0xC001),A
+            0x3E,
+            0x02,  # LD A,0x02 (LYC)
+            0xEA,
+            0x45,
+            0xFF,  # LD (0xFF45),A
+            0x3E,
+            0x58,  # LD A,0x58 (STAT: LYC + Mode1 + Mode0)
+            0xEA,
+            0x41,
+            0xFF,  # LD (0xFF41),A
+            0x3E,
+            0x02,  # LD A,0x02 (IE: STAT)
+            0xEA,
+            0xFF,
+            0xFF,  # LD (0xFFFF),A
+            0xAF,  # XOR A
+            0xEA,
+            0x0F,
+            0xFF,  # LD (0xFF0F),A
+            0x3E,
+            0x91,  # LD A,0x91 (LCD on)
+            0xEA,
+            0x40,
+            0xFF,  # LD (0xFF40),A
+            0xFB,  # EI
+            0x76,  # HALT
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    rom = build_rom("PPU_STAT", program)
+    isr = bytes(
+        [
+            0x21,
+            0x00,
+            0xC0,  # LD HL,0xC000
+            0x7E,  # LD A,(HL)
+            0x3C,  # INC A
+            0x77,  # LD (HL),A
+            0x20,
+            0x04,  # JR NZ,+4
+            0x23,  # INC HL
+            0x7E,  # LD A,(HL)
+            0x3C,  # INC A
+            0x77,  # LD (HL),A
+            0xD9,  # RETI
+        ]
+    )
+    return apply_rom_patches(rom, {0x0048: isr})
+
+
 def build_bg_scroll_signed() -> bytes:
     """Build BG_SCROLL_SIGNED.gb - scrolled background with signed tiles."""
     program = bytes(
@@ -1376,6 +1449,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("BG_STATIC.gb", build_bg_static()),
         ("PPU_WINDOW.gb", build_ppu_window()),
         ("PPU_SPRITES.gb", build_ppu_sprites()),
+        ("PPU_STAT_IRQ.gb", build_ppu_stat_irq()),
         ("BG_SCROLL_SIGNED.gb", build_bg_scroll_signed()),
     ]
 

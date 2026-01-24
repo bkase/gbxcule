@@ -100,6 +100,12 @@ roms:
     frames_per_step: 1
     release_after_frames: 1
 
+  - id: PPU_STAT_IRQ
+    path: bench/roms/out/PPU_STAT_IRQ.gb
+    description: "STAT interrupt counter in WRAM (edge-triggered)."
+    frames_per_step: 1
+    release_after_frames: 1
+
   - id: BG_SCROLL_SIGNED
     path: bench/roms/out/BG_SCROLL_SIGNED.gb
     description: "Signed tile data with SCX/SCY scroll for frame-hash compare."

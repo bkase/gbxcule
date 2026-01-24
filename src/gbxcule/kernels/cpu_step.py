@@ -286,6 +286,7 @@ def _warmup_warp_device(
     zeros_scanline_cycle = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_ly = wp.zeros(1, dtype=wp.int32, device=device)
     zeros_window_line = wp.zeros(1, dtype=wp.int32, device=device)
+    zeros_stat_prev = wp.zeros(1, dtype=wp.uint8, device=device)
     zeros_lcdc_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_scx_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
     zeros_scy_latch = wp.zeros(SCREEN_H, dtype=wp.uint8, device=device)
@@ -335,6 +336,7 @@ def _warmup_warp_device(
             zeros_scanline_cycle,
             zeros_ly,
             zeros_window_line,
+            zeros_stat_prev,
             zeros_lcdc_latch,
             zeros_scx_latch,
             zeros_scy_latch,

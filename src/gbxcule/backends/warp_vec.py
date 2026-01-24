@@ -114,6 +114,7 @@ class WarpVecBaseBackend:
         self._ppu_scanline_cycle = None
         self._ppu_ly = None
         self._ppu_window_line = None
+        self._ppu_stat_prev = None
         self._bg_lcdc_latch_env0 = None
         self._bg_scx_latch_env0 = None
         self._bg_scy_latch_env0 = None
@@ -292,6 +293,9 @@ class WarpVecBaseBackend:
         self._ppu_window_line = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
+        self._ppu_stat_prev = self._wp.zeros(
+            self.num_envs, dtype=self._wp.uint8, device=self._device
+        )
         self._bg_lcdc_latch_env0 = self._wp.zeros(
             SCREEN_H, dtype=self._wp.uint8, device=self._device
         )
@@ -399,6 +403,7 @@ class WarpVecBaseBackend:
                 self._ppu_scanline_cycle,
                 self._ppu_ly,
                 self._ppu_window_line,
+                self._ppu_stat_prev,
                 self._bg_lcdc_latch_env0,
                 self._bg_scx_latch_env0,
                 self._bg_scy_latch_env0,
@@ -599,6 +604,7 @@ class WarpVecBaseBackend:
         self._ppu_scanline_cycle = None
         self._ppu_ly = None
         self._ppu_window_line = None
+        self._ppu_stat_prev = None
         self._bg_lcdc_latch_env0 = None
         self._bg_scx_latch_env0 = None
         self._bg_scy_latch_env0 = None

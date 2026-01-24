@@ -344,6 +344,65 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         mem[base + 0xFF41] = wp.uint8(stat_keep | (coincidence << 2) | mode)
 
     @wp.func
+    def ppu_update_stat_irq(
+        i: wp.int32,
+        base: wp.int32,
+        mem: wp.array(dtype=wp.uint8),
+        ly_val: wp.int32,
+        mode: wp.int32,
+        stat_prev: wp.array(dtype=wp.uint8),
+    ) -> None:
+        lyc = wp.int32(mem[base + 0xFF45]) & 0xFF
+        coincidence = wp.int32(0)
+        if ly_val == lyc:
+            coincidence = 1
+        stat_keep = wp.int32(mem[base + 0xFF41]) & 0xF8
+        mem[base + 0xFF41] = wp.uint8(stat_keep | (coincidence << 2) | mode)
+
+        enable_mode0 = (stat_keep >> 3) & 1
+        enable_mode1 = (stat_keep >> 4) & 1
+        enable_mode2 = (stat_keep >> 5) & 1
+        enable_lyc = (stat_keep >> 6) & 1
+
+        curr_mode0 = wp.int32(0)
+        curr_mode1 = wp.int32(0)
+        curr_mode2 = wp.int32(0)
+        if mode == 0:
+            curr_mode0 = 1
+        elif mode == 1:
+            curr_mode1 = 1
+        elif mode == 2:
+            curr_mode2 = 1
+        curr_lyc = coincidence
+
+        prev = wp.int32(stat_prev[i]) & 0x0F
+        prev_mode0 = prev & 1
+        prev_mode1 = (prev >> 1) & 1
+        prev_mode2 = (prev >> 2) & 1
+        prev_lyc = (prev >> 3) & 1
+
+        edge = wp.int32(0)
+        if enable_mode0 != 0 and prev_mode0 == 0 and curr_mode0 != 0:
+            edge = 1
+        elif enable_mode1 != 0 and prev_mode1 == 0 and curr_mode1 != 0:
+            edge = 1
+        elif enable_mode2 != 0 and prev_mode2 == 0 and curr_mode2 != 0:
+            edge = 1
+        elif enable_lyc != 0 and prev_lyc == 0 and curr_lyc != 0:
+            edge = 1
+
+        if edge != 0:
+            if_addr = base + 0xFF0F
+            mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x02))
+
+        stat_prev[i] = wp.uint8(
+            (curr_mode0 & 1)
+            | ((curr_mode1 & 1) << 1)
+            | ((curr_mode2 & 1) << 2)
+            | ((curr_lyc & 1) << 3)
+        )
+
+    @wp.func
     def ppu_capture_latches_env0(
         i: wp.int32,
         ly_val: wp.int32,
@@ -532,6 +591,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         ppu_scanline_cycle: wp.array(dtype=wp.int32),
         ppu_ly: wp.array(dtype=wp.int32),
         ppu_window_line: wp.array(dtype=wp.int32),
+        ppu_stat_prev: wp.array(dtype=wp.uint8),
         bg_lcdc_latch_env0: wp.array(dtype=wp.uint8),
         bg_scx_latch_env0: wp.array(dtype=wp.uint8),
         bg_scy_latch_env0: wp.array(dtype=wp.uint8),
@@ -596,6 +656,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     window_line_i = 0
                     mem[base + 0xFF44] = wp.uint8(0)
                     ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
+                    ppu_stat_prev[i] = wp.uint8(0)
                 else:
                     total = scanline_cycle_i + cycles
                     lines = total // CYCLES_PER_SCANLINE
@@ -631,7 +692,14 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                         mode = wp.int32(0)
                         if ppu_ly_i >= SCREEN_H:
                             mode = 1
-                        ppu_update_stat(base, mem, ppu_ly_i, mode)
+                        ppu_update_stat_irq(
+                            i,
+                            base,
+                            mem,
+                            ppu_ly_i,
+                            mode,
+                            ppu_stat_prev,
+                        )
                         if prev_ly == 143 and ppu_ly_i == 144:
                             if_addr = base + 0xFF0F
                             mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x01))
@@ -777,6 +845,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 window_line_i = 0
                 mem[base + 0xFF44] = wp.uint8(0)
                 ppu_update_stat(base, mem, wp.int32(0), wp.int32(0))
+                ppu_stat_prev[i] = wp.uint8(0)
             else:
                 total = scanline_cycle_i + cycles
                 lines = total // CYCLES_PER_SCANLINE
@@ -812,7 +881,14 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     mode = wp.int32(0)
                     if ppu_ly_i >= SCREEN_H:
                         mode = 1
-                    ppu_update_stat(base, mem, ppu_ly_i, mode)
+                    ppu_update_stat_irq(
+                        i,
+                        base,
+                        mem,
+                        ppu_ly_i,
+                        mode,
+                        ppu_stat_prev,
+                    )
                     if prev_ly == 143 and ppu_ly_i == 144:
                         if_addr = base + 0xFF0F
                         mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x01))

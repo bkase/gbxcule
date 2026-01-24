@@ -21,13 +21,16 @@ ABI v5 migration note:
 
 ABI v6 migration note:
 - Added OBJ palette latches (OBP0/OBP1) for Milestone E sprites.
+
+ABI v7 migration note:
+- Added STAT previous-condition buffer for edge-triggered STAT IRQs.
 """
 
 from __future__ import annotations
 
 from typing import Final
 
-ABI_VERSION: Final[int] = 6
+ABI_VERSION: Final[int] = 7
 
 # Flat 64KB per environment (Game Boy address space).
 MEM_SIZE: Final[int] = 65_536
