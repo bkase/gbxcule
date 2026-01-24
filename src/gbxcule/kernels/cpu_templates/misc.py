@@ -1,11 +1,26 @@
 """Misc instruction templates for Warp CPU stepping."""
-# ruff: noqa: F841
+# ruff: noqa: F821, F841
 
 from __future__ import annotations
 
 
 def template_nop(pc_i: int) -> None:
     """NOP template."""
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 4
+
+
+def template_di(pc_i: int) -> None:
+    """DI template."""
+    ime[i] = 0
+    ime_delay[i] = 0
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 4
+
+
+def template_ei(pc_i: int) -> None:
+    """EI template."""
+    ime_delay[i] = 1
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 4
 

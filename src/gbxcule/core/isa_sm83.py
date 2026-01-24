@@ -968,6 +968,28 @@ def _add_control_flow_families() -> None:
             )
         )
 
+    # CPU control
+    _add_spec(
+        _spec(
+            opcode=0xF3,
+            mnemonic="DI",
+            length=1,
+            cycles=(4,),
+            template_key="di",
+            group="misc",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0xFB,
+            mnemonic="EI",
+            length=1,
+            cycles=(4,),
+            template_key="ei",
+            group="misc",
+        )
+    )
+
     # PUSH rr + POP rr
     push_rr = [
         (0xC5, "BC", ("b_i", "c_i"), "push_r16"),

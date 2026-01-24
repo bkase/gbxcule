@@ -666,7 +666,7 @@ def template_ret_c(pc_i: int, sp_i: int, f_i: int, base: int, mem: wp.array) -> 
 
 
 def template_reti(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # type: ignore[name-defined]
-    """RETI template (IME not yet modeled)."""
+    """RETI template."""
     lo = read8(
         i,
         base,
@@ -692,6 +692,8 @@ def template_reti(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # ty
     )
     sp_i = (sp_i + 1) & 0xFFFF
     pc_i = ((hi << 8) | lo) & 0xFFFF
+    ime[i] = 1
+    ime_delay[i] = 0
     cycles = 16
 
 
