@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 from gbxcule.core.abi import CYCLES_PER_SCANLINE
