@@ -24,6 +24,7 @@ ENV/
 # Generated artifacts
 bench/roms/out/
 bench/runs/
+tetris.gb
 
 # OS
 .DS_Store
