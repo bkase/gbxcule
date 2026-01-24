@@ -115,6 +115,7 @@ def create_backend(
             release_after_frames=release_after_frames,
             obs_dim=obs_dim,
             action_codec=action_codec,
+            render_frames=render_bg,
         )
     elif name == "pyboy_puffer_vec":
         return backend_cls(
@@ -386,8 +387,9 @@ def _quantize_rgba_to_shades(frame: np.ndarray) -> np.ndarray:
     )
     order = np.argsort(luminance)
     shade_map = np.empty(colors.shape[0], dtype=np.uint8)
+    max_rank = colors.shape[0] - 1
     for rank, idx in enumerate(order):
-        shade_map[idx] = rank
+        shade_map[idx] = max_rank - rank
     shades = shade_map[inverse].reshape(SCREEN_H, SCREEN_W)
     return shades
 

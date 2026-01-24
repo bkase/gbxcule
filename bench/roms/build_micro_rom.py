@@ -914,6 +914,130 @@ def build_cb_bitops() -> bytes:
     return build_rom("CB_BITOPS", program)
 
 
+def build_bg_static() -> bytes:
+    """Build BG_STATIC.gb - static background with unsigned tiles."""
+    program = bytes(
+        [
+            0xAF,  # XOR A
+            0xE0,
+            0x40,  # LDH (LCDC),A (LCD off)
+            0x3E,
+            0xE4,  # LD A,0xE4 (BGP)
+            0xE0,
+            0x47,  # LDH (BGP),A
+            0xAF,  # XOR A
+            0xE0,
+            0x42,  # LDH (SCY),A
+            0xE0,
+            0x43,  # LDH (SCX),A
+            0x21,
+            0x00,
+            0x80,  # LD HL,0x8000 (tile data)
+            0x06,
+            0x10,  # LD B,16
+            0xAF,  # XOR A
+            0x22,  # LD (HL+),A
+            0x05,  # DEC B
+            0x20,
+            0xFB,  # JR NZ,-5
+            0x06,
+            0x08,  # LD B,8
+            0x3E,
+            0xFF,  # LD A,0xFF
+            0x22,  # LD (HL+),A
+            0xAF,  # XOR A
+            0x22,  # LD (HL+),A
+            0x05,  # DEC B
+            0x20,
+            0xF8,  # JR NZ,-8
+            0x21,
+            0x00,
+            0x98,  # LD HL,0x9800 (BG map)
+            0x06,
+            0x20,  # LD B,32
+            0xAF,  # XOR A
+            0x0E,
+            0x20,  # LD C,32
+            0x22,  # LD (HL+),A
+            0xEE,
+            0x01,  # XOR 0x01
+            0x0D,  # DEC C
+            0x20,
+            0xFA,  # JR NZ,-6
+            0x05,  # DEC B
+            0x20,
+            0xF4,  # JR NZ,-12
+            0x3E,
+            0x91,  # LD A,0x91 (LCD on, unsigned tiles)
+            0xE0,
+            0x40,  # LDH (LCDC),A
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    return build_rom("BG_STATIC", program)
+
+
+def build_bg_scroll_signed() -> bytes:
+    """Build BG_SCROLL_SIGNED.gb - scrolled background with signed tiles."""
+    program = bytes(
+        [
+            0xAF,  # XOR A
+            0xE0,
+            0x40,  # LDH (LCDC),A (LCD off)
+            0x3E,
+            0xE4,  # LD A,0xE4 (BGP)
+            0xE0,
+            0x47,  # LDH (BGP),A
+            0x3E,
+            0x08,  # LD A,0x08 (SCY)
+            0xE0,
+            0x42,  # LDH (SCY),A
+            0x3E,
+            0x04,  # LD A,0x04 (SCX)
+            0xE0,
+            0x43,  # LDH (SCX),A
+            0x21,
+            0x00,
+            0x88,  # LD HL,0x8800 (signed tile data)
+            0x06,
+            0x08,  # LD B,8
+            0x3E,
+            0xAA,  # LD A,0xAA
+            0x22,  # LD (HL+),A
+            0x3E,
+            0xCC,  # LD A,0xCC
+            0x22,  # LD (HL+),A
+            0x05,  # DEC B
+            0x20,
+            0xF7,  # JR NZ,-9
+            0x21,
+            0x00,
+            0x98,  # LD HL,0x9800 (BG map)
+            0x3E,
+            0x80,  # LD A,0x80 (tile index -128)
+            0x06,
+            0x20,  # LD B,32
+            0x0E,
+            0x20,  # LD C,32
+            0x22,  # LD (HL+),A
+            0x0D,  # DEC C
+            0x20,
+            0xFC,  # JR NZ,-4
+            0x05,  # DEC B
+            0x20,
+            0xF7,  # JR NZ,-9
+            0x3E,
+            0x81,  # LD A,0x81 (LCD on, signed tiles)
+            0xE0,
+            0x40,  # LDH (LCDC),A
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    return build_rom("BG_SCROLL", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -960,6 +1084,8 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("ALU16_SP.gb", build_alu16_sp()),
         ("FLOW_STACK.gb", build_flow_stack()),
         ("CB_BITOPS.gb", build_cb_bitops()),
+        ("BG_STATIC.gb", build_bg_static()),
+        ("BG_SCROLL_SIGNED.gb", build_bg_scroll_signed()),
     ]
 
     results: list[tuple[str, Path, str]] = []

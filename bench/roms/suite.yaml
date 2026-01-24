@@ -75,3 +75,15 @@ roms:
     description: "Rotate/shift + CB bit ops coverage (BIT/RES/SET, r8 + (HL))."
     frames_per_step: 24
     release_after_frames: 8
+
+  - id: BG_STATIC
+    path: bench/roms/out/BG_STATIC.gb
+    description: "Static BG map with unsigned tiles for frame-hash compare."
+    frames_per_step: 1
+    release_after_frames: 1
+
+  - id: BG_SCROLL_SIGNED
+    path: bench/roms/out/BG_SCROLL_SIGNED.gb
+    description: "Signed tile data with SCX/SCY scroll for frame-hash compare."
+    frames_per_step: 1
+    release_after_frames: 1

@@ -58,6 +58,7 @@ class PyBoySingleBackend:
         obs_dim: int = 32,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
         log_level: str = "ERROR",
+        render_frames: bool = False,
     ) -> None:
         """Initialize the backend.
 
@@ -68,6 +69,7 @@ class PyBoySingleBackend:
             obs_dim: Observation vector dimension.
         action_codec: Action codec id (e.g., "pokemonred_puffer_v0").
             log_level: PyBoy log level (e.g., "ERROR", "WARNING").
+            render_frames: Whether to render frames for screen reads.
         """
         self._rom_path = rom_path
         validate_schedule(frames_per_step, release_after_frames)
@@ -75,6 +77,7 @@ class PyBoySingleBackend:
         self._release_after_frames = release_after_frames
         self._obs_dim = obs_dim
         self._log_level = log_level
+        self._render_frames = render_frames
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
@@ -167,18 +170,18 @@ class PyBoySingleBackend:
                 self._frames_per_step, self._release_after_frames
             )
             for _ in range(pressed_ticks):
-                self._pyboy.tick(render=False)
+                self._pyboy.tick(render=self._render_frames)
 
             # Release button
             self._pyboy.button_release(button)
 
             # Tick remaining frames
             for _ in range(remaining_ticks):
-                self._pyboy.tick(render=False)
+                self._pyboy.tick(render=self._render_frames)
         else:
             # Noop: just tick all frames
             for _ in range(self._frames_per_step):
-                self._pyboy.tick(render=False)
+                self._pyboy.tick(render=self._render_frames)
 
         # Build outputs
         obs = self._build_obs()

@@ -68,6 +68,7 @@ class PyBoyPufferSingleBackend:
         obs_dim: int = 32,
         action_codec: str = "pokemonred_puffer_v0",
         log_level: str = "ERROR",
+        render_frames: bool = False,
     ) -> None:
         self._rom_path = rom_path
         validate_schedule(frames_per_step, release_after_frames)
@@ -77,6 +78,7 @@ class PyBoyPufferSingleBackend:
         self._release_after_frames = release_after_frames
         self._obs_dim = obs_dim
         self._log_level = log_level
+        self._render_frames = render_frames
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
@@ -204,8 +206,8 @@ class PyBoyPufferSingleBackend:
 
     def _tick_frames(self) -> None:
         if self._frames_per_step > 1:
-            self._pyboy.tick(self._frames_per_step - 1, render=False)
-        self._pyboy.tick(1, render=False)
+            self._pyboy.tick(self._frames_per_step - 1, render=self._render_frames)
+        self._pyboy.tick(1, render=self._render_frames)
 
     def _build_obs(self) -> NDArrayF32:
         obs = empty_obs(self.num_envs, self._obs_dim)
