@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from gbxcule.backends.common import Stage, VecBackend
 
 from gbxcule.backends.common import DEFAULT_ACTION_CODEC_ID
+from gbxcule.core.abi import SCREEN_H, SCREEN_W
 from gbxcule.core.action_codec import get_action_codec, list_action_codecs
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,7 @@ def create_backend(
     base_seed: int | None = None,
     action_codec: str = DEFAULT_ACTION_CODEC_ID,
     puffer_vec_backend: str = "puffer_mp_sync",
+    render_bg: bool = False,
 ) -> VecBackend:
     """Create a backend instance by name.
 
@@ -148,6 +150,7 @@ def create_backend(
             obs_dim=obs_dim,
             base_seed=base_seed,
             action_codec=action_codec,
+            render_bg=render_bg,
         )
     else:
         # Generic fallback
@@ -353,6 +356,90 @@ def hash_memory(data: bytes) -> str:
     import hashlib
 
     return hashlib.blake2b(data, digest_size=16).hexdigest()
+
+
+def _frame_from_pyboy(backend: Any) -> np.ndarray:
+    pyboy = getattr(backend, "_pyboy", None)
+    if pyboy is None:
+        raise ValueError("PyBoy backend is not initialized")
+    frame = pyboy.screen.ndarray
+    if frame.ndim != 3 or frame.shape[0] != SCREEN_H or frame.shape[1] != SCREEN_W:
+        raise ValueError(f"Unexpected PyBoy frame shape: {frame.shape}")
+    if frame.shape[2] == 3:
+        alpha = np.full((SCREEN_H, SCREEN_W, 1), 255, dtype=frame.dtype)
+        frame = np.concatenate([frame, alpha], axis=2)
+    if frame.shape[2] != 4:
+        raise ValueError(f"Unexpected PyBoy frame channels: {frame.shape[2]}")
+    return frame
+
+
+def _quantize_rgba_to_shades(frame: np.ndarray) -> np.ndarray:
+    """Map RGBA frame to shade indices 0..3 by luminance ordering."""
+    flat = frame.reshape(-1, 4)
+    colors, inverse = np.unique(flat, axis=0, return_inverse=True)
+    if colors.shape[0] > 4:
+        raise ValueError(f"Expected <=4 unique colors, got {colors.shape[0]}")
+    luminance = (
+        colors[:, 0].astype(np.float32) * 0.2126
+        + colors[:, 1].astype(np.float32) * 0.7152
+        + colors[:, 2].astype(np.float32) * 0.0722
+    )
+    order = np.argsort(luminance)
+    shade_map = np.empty(colors.shape[0], dtype=np.uint8)
+    for rank, idx in enumerate(order):
+        shade_map[idx] = rank
+    shades = shade_map[inverse].reshape(SCREEN_H, SCREEN_W)
+    return shades
+
+
+def _frame_shades_from_backend(backend: Any) -> np.ndarray:
+    """Return env0 frame as shade indices (0..3)."""
+    reader = getattr(backend, "read_frame_bg_shade_env0", None)
+    if callable(reader):
+        data = reader()
+        return np.frombuffer(data, dtype=np.uint8).reshape(SCREEN_H, SCREEN_W)
+    if getattr(backend, "_pyboy", None) is not None:
+        frame = _frame_from_pyboy(backend)
+        return _quantize_rgba_to_shades(frame)
+    raise ValueError(
+        f"Backend '{getattr(backend, 'name', 'unknown')}' does not support frame reads"
+    )
+
+
+def _read_ppu_regs(backend: Any) -> dict[str, int] | None:
+    reader = getattr(backend, "read_memory", None)
+    if not callable(reader):
+        return None
+    regs = {
+        "LCDC": 0xFF40,
+        "STAT": 0xFF41,
+        "SCY": 0xFF42,
+        "SCX": 0xFF43,
+        "LY": 0xFF44,
+        "LYC": 0xFF45,
+        "BGP": 0xFF47,
+        "IF": 0xFF0F,
+    }
+    out: dict[str, int] = {}
+    for name, addr in regs.items():
+        out[name] = reader(0, addr, addr + 1)[0]
+    return out
+
+
+def _write_shade_png(shades: np.ndarray, path: Path) -> None:
+    from PIL import Image
+
+    palette = np.array(
+        [
+            [255, 255, 255, 255],
+            [170, 170, 170, 255],
+            [85, 85, 85, 255],
+            [0, 0, 0, 255],
+        ],
+        dtype=np.uint8,
+    )
+    rgba = palette[shades]
+    Image.fromarray(rgba, mode="RGBA").save(path)
 
 
 def _coerce_memory_slice(data: Any, expected_len: int) -> bytes:
@@ -1043,6 +1130,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Compare states every N steps",
     )
     parser.add_argument(
+        "--compare-frame",
+        action="store_true",
+        help="Compare frame hashes (env0) between ref and DUT",
+    )
+    parser.add_argument(
+        "--dump-frame-on-mismatch",
+        action="store_true",
+        help="Write ref/dut frame PNGs on mismatch (requires --compare-frame)",
+    )
+    parser.add_argument(
+        "--frame-warmup",
+        type=int,
+        default=0,
+        help="Number of initial steps to skip before frame hash compare",
+    )
+    parser.add_argument(
         "--mem-region",
         action="append",
         default=None,
@@ -1421,6 +1524,9 @@ def write_mismatch_bundle(
     release_after_frames: int,
     compare_every: int,
     verify_steps: int,
+    compare_frame: bool = False,
+    dump_frame_on_mismatch: bool = False,
+    frame_warmup: int = 0,
 ) -> Path:
     """Write a mismatch repro bundle atomically.
 
@@ -1451,6 +1557,9 @@ def write_mismatch_bundle(
         release_after_frames: Release after frames setting.
         compare_every: Compare every N steps setting.
         verify_steps: Total verification steps setting.
+        compare_frame: Whether frame hash comparison was enabled.
+        dump_frame_on_mismatch: Whether frame PNG dumping was enabled.
+        frame_warmup: Frame hash warmup steps.
 
     Returns:
         Path to the final bundle directory.
@@ -1490,6 +1599,9 @@ def write_mismatch_bundle(
             "compare_every": compare_every,
             "frames_per_step": frames_per_step,
             "release_after_frames": release_after_frames,
+            "compare_frame": compare_frame,
+            "dump_frame_on_mismatch": dump_frame_on_mismatch,
+            "frame_warmup": frame_warmup,
             "action_generator": {
                 "name": action_gen_name,
                 "version": ACTION_GEN_VERSION,
@@ -1535,6 +1647,14 @@ def write_mismatch_bundle(
         mem_region_lines = "".join(
             [f"    --mem-region {flag} \\\n" for flag in mem_region_args]
         )
+        compare_frame_lines = ""
+        if compare_frame:
+            compare_frame_lines += "    --compare-frame \\\n"
+            if dump_frame_on_mismatch:
+                compare_frame_lines += "    --dump-frame-on-mismatch \\\n"
+            if frame_warmup:
+                compare_frame_lines += f"    --frame-warmup {frame_warmup} \\\n"
+        actions_file_line = '    --actions-file "$(dirname "$0")/actions.jsonl"'
 
         # Write repro.sh
         repro_script = f"""#!/bin/bash
@@ -1557,7 +1677,7 @@ uv run python bench/harness.py \\
     --frames-per-step {frames_per_step} \\
     --release-after-frames {release_after_frames} \\
     --action-codec {action_codec["id"]} \\
-{mem_region_lines}    --actions-file "$(dirname "$0")/actions.jsonl"
+{mem_region_lines}{compare_frame_lines}{actions_file_line}
 """
         repro_path = temp_dir / "repro.sh"
         with open(repro_path, "w") as f:
@@ -1630,6 +1750,13 @@ def run_verify(
         print(f"Memory regions: {', '.join(mem_region_flags)}")
     print()
 
+    if args.compare_frame and args.frames_per_step != 1:
+        print(
+            "Warning: --compare-frame is most reliable with --frames-per-step=1 "
+            f"(got {args.frames_per_step})",
+            file=sys.stderr,
+        )
+
     # Use seed for seeded_random generator, None for noop
     effective_seed = args.actions_seed if args.action_gen == "seeded_random" else None
     action_codec_meta = get_action_codec_metadata(args.action_codec)
@@ -1645,6 +1772,7 @@ def run_verify(
             stage=args.stage,
             base_seed=effective_seed,
             action_codec=args.action_codec,
+            render_bg=args.compare_frame,
         )
     except Exception as e:
         print(f"Error creating ref backend: {e}", file=sys.stderr)
@@ -1661,6 +1789,7 @@ def run_verify(
             stage=args.stage,
             base_seed=effective_seed,
             action_codec=args.action_codec,
+            render_bg=args.compare_frame,
         )
     except Exception as e:
         ref_backend.close()
@@ -1686,6 +1815,14 @@ def run_verify(
                         file=sys.stderr,
                     )
                     return 1
+
+        if args.compare_frame:
+            try:
+                _frame_shades_from_backend(ref_backend)
+                _frame_shades_from_backend(dut_backend)
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
 
         # Action trace for recording
         actions_trace: list[list[int]] = []
@@ -1719,6 +1856,7 @@ def run_verify(
 
                 diff = diff_states(ref_state, dut_state)
                 mem_dumps: list[tuple[int, int, bytes, bytes]] = []
+                frame_shades: tuple[np.ndarray, np.ndarray] | None = None
 
                 if mem_regions:
                     mem_diffs: list[dict[str, Any]] = []
@@ -1753,7 +1891,30 @@ def run_verify(
                             diff = {}
                         diff["memory"] = mem_diffs
 
+                if args.compare_frame and step_idx >= args.frame_warmup:
+                    try:
+                        ref_shades = _frame_shades_from_backend(ref_backend)
+                        dut_shades = _frame_shades_from_backend(dut_backend)
+                        ref_hash = hash_memory(ref_shades.tobytes())
+                        dut_hash = hash_memory(dut_shades.tobytes())
+                        if ref_hash != dut_hash:
+                            if diff is None:
+                                diff = {}
+                            diff["frame_hash"] = {
+                                "ref_hash": ref_hash,
+                                "dut_hash": dut_hash,
+                            }
+                            frame_shades = (ref_shades, dut_shades)
+                    except Exception as e:
+                        print(f"Error reading frame data: {e}", file=sys.stderr)
+                        return 1
+
                 if diff is not None:
+                    if args.compare_frame:
+                        ppu_ref = _read_ppu_regs(ref_backend)
+                        ppu_dut = _read_ppu_regs(dut_backend)
+                        if ppu_ref is not None and ppu_dut is not None:
+                            diff["ppu_regs"] = {"ref": ppu_ref, "dut": ppu_dut}
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
                     print(f"First differing fields: {list(diff.keys())[:5]}")
@@ -1788,7 +1949,20 @@ def run_verify(
                         release_after_frames=args.release_after_frames,
                         compare_every=args.compare_every,
                         verify_steps=args.verify_steps,
+                        compare_frame=args.compare_frame,
+                        dump_frame_on_mismatch=args.dump_frame_on_mismatch,
+                        frame_warmup=args.frame_warmup,
                     )
+
+                    if (
+                        args.compare_frame
+                        and args.dump_frame_on_mismatch
+                        and frame_shades is not None
+                    ):
+                        ref_png = bundle_path / "ref_frame.png"
+                        dut_png = bundle_path / "dut_frame.png"
+                        _write_shade_png(frame_shades[0], ref_png)
+                        _write_shade_png(frame_shades[1], dut_png)
 
                     print(f"Bundle: {bundle_path}")
                     print(f"Repro: {bundle_path / 'repro.sh'}")
