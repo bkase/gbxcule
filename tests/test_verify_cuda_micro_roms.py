@@ -133,6 +133,28 @@ def test_cuda_verify_mem_rwb() -> None:
     )
 
 
+def test_cuda_verify_mbc1_switch() -> None:
+    if not _cuda_available():
+        pytest.skip("CUDA disabled for dev runs")
+    require_rom(ROM_DIR / "MBC1_SWITCH.gb")
+    _verify_no_mismatch_cuda(
+        ROM_DIR / "MBC1_SWITCH.gb",
+        steps=64,
+        mem_region=(0xC000, 0xC010),
+    )
+
+
+def test_cuda_verify_mbc3_switch() -> None:
+    if not _cuda_available():
+        pytest.skip("CUDA disabled for dev runs")
+    require_rom(ROM_DIR / "MBC3_SWITCH.gb")
+    _verify_no_mismatch_cuda(
+        ROM_DIR / "MBC3_SWITCH.gb",
+        steps=64,
+        mem_region=(0xC000, 0xC010),
+    )
+
+
 def test_cuda_parity_dma_oam_copy() -> None:
     if not _cuda_available():
         pytest.skip("CUDA disabled for dev runs")

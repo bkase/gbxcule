@@ -26,6 +26,10 @@ from bench.roms.build_micro_rom import (
     build_flow_stack,
     build_joy_diverge_persist,
     build_loads_basic,
+    build_mbc1_ram,
+    build_mbc1_switch,
+    build_mbc3_ram,
+    build_mbc3_switch,
     build_mem_rwb,
     build_serial_hello,
     build_timer_div_basic,
@@ -44,11 +48,14 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 18
+    assert len(results) == 22
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
-        assert path.stat().st_size == 32 * 1024, f"{name} is not 32KB"
+        assert path.stat().st_size in {
+            32 * 1024,
+            64 * 1024,
+        }, f"{name} has unexpected size"
         assert len(sha) == 64, f"{name} sha256 is wrong length"
 
 
@@ -101,6 +108,22 @@ def test_roms_are_deterministic() -> None:
     cb1 = build_cb_bitops()
     cb2 = build_cb_bitops()
     assert cb1 == cb2, "CB_BITOPS is not deterministic"
+
+    mbc1_sw1 = build_mbc1_switch()
+    mbc1_sw2 = build_mbc1_switch()
+    assert mbc1_sw1 == mbc1_sw2, "MBC1_SWITCH is not deterministic"
+
+    mbc1_ram1 = build_mbc1_ram()
+    mbc1_ram2 = build_mbc1_ram()
+    assert mbc1_ram1 == mbc1_ram2, "MBC1_RAM is not deterministic"
+
+    mbc3_sw1 = build_mbc3_switch()
+    mbc3_sw2 = build_mbc3_switch()
+    assert mbc3_sw1 == mbc3_sw2, "MBC3_SWITCH is not deterministic"
+
+    mbc3_ram1 = build_mbc3_ram()
+    mbc3_ram2 = build_mbc3_ram()
+    assert mbc3_ram1 == mbc3_ram2, "MBC3_RAM is not deterministic"
 
     bg_static1 = build_bg_static()
     bg_static2 = build_bg_static()

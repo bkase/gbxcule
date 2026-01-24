@@ -12,6 +12,8 @@ import os
 import tempfile
 from pathlib import Path
 
+from gbxcule.core.cartridge import RAM_SIZE_MAP, ROM_SIZE_MAP
+
 # Default output directory
 DEFAULT_OUT_DIR = Path(__file__).parent / "out"
 
@@ -52,18 +54,34 @@ def compute_global_checksum(rom: bytes) -> int:
     return total
 
 
-def build_rom(title: str, program: bytes) -> bytes:
+def build_rom(
+    title: str,
+    program: bytes,
+    *,
+    cart_type: int = 0x00,
+    rom_size_code: int = 0x00,
+    ram_size_code: int = 0x00,
+    bank_payloads: dict[int, bytes] | None = None,
+) -> bytes:
     """Build a valid Game Boy ROM with the given title and program code.
 
     Args:
         title: ROM title (max 11 characters, uppercase ASCII).
         program: Machine code to place at 0x0150.
+        cart_type: Cartridge type byte (0x0147).
+        rom_size_code: ROM size code (0x0148).
+        ram_size_code: RAM size code (0x0149).
+        bank_payloads: Optional mapping of bank index -> payload bytes.
 
     Returns:
-        Complete 32KB ROM bytes with valid checksums.
+        Complete ROM bytes with valid checksums.
     """
-    # ROM is 32KB (rom_size_code = 0x00)
-    rom = bytearray(32 * 1024)
+    if rom_size_code not in ROM_SIZE_MAP:
+        raise ValueError(f"Unsupported ROM size code: 0x{rom_size_code:02X}")
+    if ram_size_code not in RAM_SIZE_MAP:
+        raise ValueError(f"Unsupported RAM size code: 0x{ram_size_code:02X}")
+
+    rom = bytearray(ROM_SIZE_MAP[rom_size_code])
 
     # Entry point at 0x0100: NOP; JP 0x0150
     rom[0x0100] = 0x00  # NOP
@@ -78,14 +96,14 @@ def build_rom(title: str, program: bytes) -> bytes:
     title_bytes = title.upper().encode("ascii")[:11]
     rom[0x0134 : 0x0134 + len(title_bytes)] = title_bytes
 
-    # Cartridge type at 0x0147: ROM ONLY (0x00)
-    rom[0x0147] = 0x00
+    # Cartridge type at 0x0147
+    rom[0x0147] = cart_type & 0xFF
 
-    # ROM size at 0x0148: 32KB (code 0x00)
-    rom[0x0148] = 0x00
+    # ROM size at 0x0148
+    rom[0x0148] = rom_size_code & 0xFF
 
-    # RAM size at 0x0149: No RAM (0x00)
-    rom[0x0149] = 0x00
+    # RAM size at 0x0149
+    rom[0x0149] = ram_size_code & 0xFF
 
     # Destination code at 0x014A: Non-Japanese (0x01)
     rom[0x014A] = 0x01
@@ -96,8 +114,24 @@ def build_rom(title: str, program: bytes) -> bytes:
     # ROM version at 0x014C: 0x00
     rom[0x014C] = 0x00
 
-    # Program code at 0x0150
+    # Program code at 0x0150 (bank 0)
     rom[0x0150 : 0x0150 + len(program)] = program
+
+    if bank_payloads:
+        for bank_idx, payload in bank_payloads.items():
+            if bank_idx < 0:
+                raise ValueError(f"Invalid bank index: {bank_idx}")
+            bank_base = bank_idx * 0x4000
+            if bank_base >= len(rom):
+                raise ValueError(
+                    f"Bank {bank_idx} out of range for ROM size {len(rom)}"
+                )
+            end = bank_base + len(payload)
+            if end > len(rom):
+                raise ValueError(
+                    f"Payload for bank {bank_idx} exceeds ROM size {len(rom)}"
+                )
+            rom[bank_base:end] = payload
 
     # Header checksum at 0x014D (must be computed after title/metadata)
     rom[0x014D] = compute_header_checksum(rom)
@@ -964,6 +998,253 @@ def build_cb_bitops() -> bytes:
     return build_rom("CB_BITOPS", program)
 
 
+def build_mbc1_switch() -> bytes:
+    """Build MBC1_SWITCH.gb - ROM bank switching sanity test."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    label("start")
+    emit(0x21, 0x00, 0xC0)  # LD HL, 0xC000
+    emit(0x3E, 0x00)  # LD A, 0
+    emit(0x77)  # LD (HL), A
+    emit(0x21, 0x00, 0x40)  # LD HL, 0x4000
+    emit(0x3E, 0x01)  # LD A, 1
+    emit(0xEA, 0x00, 0x20)  # LD (0x2000), A
+    emit(0x7E)  # LD A, (HL)
+    emit(0xFE, 0x42)  # CP 0x42
+    emit_jr(0x20, "fail")  # JR NZ, fail
+    emit(0x3E, 0x02)  # LD A, 2
+    emit(0xEA, 0x00, 0x20)  # LD (0x2000), A
+    emit(0x7E)  # LD A, (HL)
+    emit(0xFE, 0x99)  # CP 0x99
+    emit_jr(0x20, "fail")  # JR NZ, fail
+    emit(0x3E, 0xA1)  # LD A, 0xA1
+    emit(0xEA, 0x00, 0xC0)  # LD (0xC000), A
+    label("done")
+    emit_jr(0x18, "done")  # JR done
+    label("fail")
+    emit(0x3E, 0xEE)  # LD A, 0xEE
+    emit(0xEA, 0x00, 0xC0)  # LD (0xC000), A
+    emit_jr(0x18, "fail")  # JR fail
+
+    for pc, target in jr_fixups:
+        dest = labels[target]
+        offset = dest - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError("JR offset out of range")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom(
+        "MBC1_SW",
+        bytes(code),
+        cart_type=0x01,
+        rom_size_code=0x01,
+        ram_size_code=0x00,
+        bank_payloads={
+            1: bytes([0x42]),
+            2: bytes([0x99]),
+        },
+    )
+
+
+def build_mbc1_ram() -> bytes:
+    """Build MBC1_RAM.gb - RAM enable + RAM bank switching test."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    emit(0x3E, 0x0A)  # LD A, 0x0A
+    emit(0xEA, 0x00, 0x00)  # LD (0x0000), A (RAM enable)
+    emit(0x3E, 0x01)  # LD A, 1
+    emit(0xEA, 0x00, 0x60)  # LD (0x6000), A (mode 1)
+    emit(0x3E, 0x01)  # LD A, 1
+    emit(0xEA, 0x00, 0x40)  # LD (0x4000), A (RAM bank 1)
+    emit(0x3E, 0x55)  # LD A, 0x55
+    emit(0xEA, 0x00, 0xA0)  # LD (0xA000), A
+    emit(0x3E, 0x00)  # LD A, 0
+    emit(0xEA, 0x00, 0x40)  # LD (0x4000), A (RAM bank 0)
+    emit(0x3E, 0xAA)  # LD A, 0xAA
+    emit(0xEA, 0x00, 0xA0)  # LD (0xA000), A
+    emit(0x3E, 0x01)  # LD A, 1
+    emit(0xEA, 0x00, 0x40)  # LD (0x4000), A (RAM bank 1)
+    emit(0xFA, 0x00, 0xA0)  # LD A, (0xA000)
+    emit(0xFE, 0x55)  # CP 0x55
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0x00)  # LD A, 0
+    emit(0xEA, 0x00, 0x40)  # LD (0x4000), A (RAM bank 0)
+    emit(0xFA, 0x00, 0xA0)  # LD A, (0xA000)
+    emit(0xFE, 0xAA)  # CP 0xAA
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0xB1)  # LD A, 0xB1
+    emit(0xEA, 0x00, 0xC0)  # LD (0xC000), A
+    label("done")
+    emit_jr(0x18, "done")
+    label("fail")
+    emit(0x3E, 0xEE)
+    emit(0xEA, 0x00, 0xC0)
+    emit_jr(0x18, "fail")
+
+    for pc, target in jr_fixups:
+        dest = labels[target]
+        offset = dest - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError("JR offset out of range")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom(
+        "MBC1_RAM",
+        bytes(code),
+        cart_type=0x02,
+        rom_size_code=0x00,
+        ram_size_code=0x03,
+    )
+
+
+def build_mbc3_switch() -> bytes:
+    """Build MBC3_SWITCH.gb - ROM bank switching sanity test."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    emit(0x21, 0x00, 0xC0)  # LD HL, 0xC000
+    emit(0x3E, 0x00)  # LD A, 0
+    emit(0x77)  # LD (HL), A
+    emit(0x21, 0x00, 0x40)  # LD HL, 0x4000
+    emit(0x3E, 0x01)  # LD A, 1
+    emit(0xEA, 0x00, 0x20)  # LD (0x2000), A
+    emit(0x7E)  # LD A, (HL)
+    emit(0xFE, 0x42)  # CP 0x42
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0x02)  # LD A, 2
+    emit(0xEA, 0x00, 0x20)  # LD (0x2000), A
+    emit(0x7E)  # LD A, (HL)
+    emit(0xFE, 0x99)  # CP 0x99
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0xA3)
+    emit(0xEA, 0x00, 0xC0)
+    label("done")
+    emit_jr(0x18, "done")
+    label("fail")
+    emit(0x3E, 0xEE)
+    emit(0xEA, 0x00, 0xC0)
+    emit_jr(0x18, "fail")
+
+    for pc, target in jr_fixups:
+        dest = labels[target]
+        offset = dest - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError("JR offset out of range")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom(
+        "MBC3_SW",
+        bytes(code),
+        cart_type=0x11,
+        rom_size_code=0x01,
+        ram_size_code=0x00,
+        bank_payloads={
+            1: bytes([0x42]),
+            2: bytes([0x99]),
+        },
+    )
+
+
+def build_mbc3_ram() -> bytes:
+    """Build MBC3_RAM.gb - RAM enable + RAM bank switching test."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    emit(0x3E, 0x0A)
+    emit(0xEA, 0x00, 0x00)  # RAM enable
+    emit(0x3E, 0x01)
+    emit(0xEA, 0x00, 0x40)  # RAM bank 1
+    emit(0x3E, 0x55)
+    emit(0xEA, 0x00, 0xA0)
+    emit(0x3E, 0x00)
+    emit(0xEA, 0x00, 0x40)  # RAM bank 0
+    emit(0x3E, 0xAA)
+    emit(0xEA, 0x00, 0xA0)
+    emit(0x3E, 0x01)
+    emit(0xEA, 0x00, 0x40)  # RAM bank 1
+    emit(0xFA, 0x00, 0xA0)
+    emit(0xFE, 0x55)
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0x00)
+    emit(0xEA, 0x00, 0x40)
+    emit(0xFA, 0x00, 0xA0)
+    emit(0xFE, 0xAA)
+    emit_jr(0x20, "fail")
+    emit(0x3E, 0xB3)
+    emit(0xEA, 0x00, 0xC0)
+    label("done")
+    emit_jr(0x18, "done")
+    label("fail")
+    emit(0x3E, 0xEE)
+    emit(0xEA, 0x00, 0xC0)
+    emit_jr(0x18, "fail")
+
+    for pc, target in jr_fixups:
+        dest = labels[target]
+        offset = dest - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError("JR offset out of range")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom(
+        "MBC3_RAM",
+        bytes(code),
+        cart_type=0x12,
+        rom_size_code=0x00,
+        ram_size_code=0x03,
+    )
+
+
 def build_bg_static() -> bytes:
     """Build BG_STATIC.gb - static background with unsigned tiles."""
     program = bytes(
@@ -1446,6 +1727,10 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("ALU16_SP.gb", build_alu16_sp()),
         ("FLOW_STACK.gb", build_flow_stack()),
         ("CB_BITOPS.gb", build_cb_bitops()),
+        ("MBC1_SWITCH.gb", build_mbc1_switch()),
+        ("MBC1_RAM.gb", build_mbc1_ram()),
+        ("MBC3_SWITCH.gb", build_mbc3_switch()),
+        ("MBC3_RAM.gb", build_mbc3_ram()),
         ("BG_STATIC.gb", build_bg_static()),
         ("PPU_WINDOW.gb", build_ppu_window()),
         ("PPU_SPRITES.gb", build_ppu_sprites()),

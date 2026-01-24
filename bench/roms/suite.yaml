@@ -82,6 +82,30 @@ roms:
     frames_per_step: 24
     release_after_frames: 8
 
+  - id: MBC1_SWITCH
+    path: bench/roms/out/MBC1_SWITCH.gb
+    description: "MBC1 ROM bank switching sanity (banked read signature)."
+    frames_per_step: 24
+    release_after_frames: 8
+
+  - id: MBC1_RAM
+    path: bench/roms/out/MBC1_RAM.gb
+    description: "MBC1 RAM enable + RAM bank switching (WRAM signature)."
+    frames_per_step: 24
+    release_after_frames: 8
+
+  - id: MBC3_SWITCH
+    path: bench/roms/out/MBC3_SWITCH.gb
+    description: "MBC3 ROM bank switching sanity (banked read signature)."
+    frames_per_step: 24
+    release_after_frames: 8
+
+  - id: MBC3_RAM
+    path: bench/roms/out/MBC3_RAM.gb
+    description: "MBC3 RAM enable + RAM bank switching (WRAM signature)."
+    frames_per_step: 24
+    release_after_frames: 8
+
   - id: BG_STATIC
     path: bench/roms/out/BG_STATIC.gb
     description: "Static BG map with unsigned tiles for frame-hash compare."
