@@ -543,6 +543,155 @@ def _add_load_families() -> None:
 _add_load_families()
 
 
+def _add_alu_families() -> None:
+    alu_ops = [
+        ("ADD A,", 0x80, "add_a_r8", "add_a_hl", "add_a_d8", 0xC6),
+        ("ADC A,", 0x88, "adc_a_r8", "adc_a_hl", "adc_a_d8", 0xCE),
+        ("SUB ", 0x90, "sub_a_r8", "sub_a_hl", "sub_a_d8", 0xD6),
+        ("SBC A,", 0x98, "sbc_a_r8", "sbc_a_hl", "sbc_a_d8", 0xDE),
+        ("AND ", 0xA0, "and_a_r8", "and_a_hl", "and_a_d8", 0xE6),
+        ("XOR ", 0xA8, "xor_a_r8", "xor_a_hl", "xor_a_d8", 0xEE),
+        ("OR ", 0xB0, "or_a_r8", "or_a_hl", "or_a_d8", 0xF6),
+        ("CP ", 0xB8, "cp_a_r8", "cp_a_hl", "cp_a_d8", 0xFE),
+    ]
+
+    for prefix, base, tmpl_r, tmpl_hl, tmpl_d8, imm_opcode in alu_ops:
+        for idx, reg in enumerate(_REG_ORDER):
+            opcode = base + idx
+            if reg == "(HL)":
+                _add_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"{prefix}(HL)",
+                        length=1,
+                        cycles=(8,),
+                        template_key=tmpl_hl,
+                        replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                        group="alu",
+                    )
+                )
+            else:
+                _add_spec(
+                    _spec(
+                        opcode=opcode,
+                        mnemonic=f"{prefix}{reg}",
+                        length=1,
+                        cycles=(4,),
+                        template_key=tmpl_r,
+                        replacements={"REG_i": _REG_VAR[reg]},
+                        group="alu",
+                    )
+                )
+        _add_spec(
+            _spec(
+                opcode=imm_opcode,
+                mnemonic=f"{prefix}d8",
+                length=2,
+                cycles=(8,),
+                template_key=tmpl_d8,
+                group="alu",
+            )
+        )
+
+    # INC/DEC r8 (including (HL))
+    inc_codes = [0x04, 0x0C, 0x14, 0x1C, 0x24, 0x2C, 0x34, 0x3C]
+    dec_codes = [0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D]
+    for idx, reg in enumerate(_REG_ORDER):
+        inc_opcode = inc_codes[idx]
+        dec_opcode = dec_codes[idx]
+        if reg == "(HL)":
+            _add_spec(
+                _spec(
+                    opcode=inc_opcode,
+                    mnemonic="INC (HL)",
+                    length=1,
+                    cycles=(12,),
+                    template_key="inc_hl",
+                    replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                    group="alu",
+                )
+            )
+            _add_spec(
+                _spec(
+                    opcode=dec_opcode,
+                    mnemonic="DEC (HL)",
+                    length=1,
+                    cycles=(12,),
+                    template_key="dec_hl",
+                    replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
+                    group="alu",
+                )
+            )
+        else:
+            _add_spec(
+                _spec(
+                    opcode=inc_opcode,
+                    mnemonic=f"INC {reg}",
+                    length=1,
+                    cycles=(4,),
+                    template_key="inc_r8",
+                    replacements={"REG_i": _REG_VAR[reg]},
+                    group="alu",
+                )
+            )
+            _add_spec(
+                _spec(
+                    opcode=dec_opcode,
+                    mnemonic=f"DEC {reg}",
+                    length=1,
+                    cycles=(4,),
+                    template_key="dec_r8",
+                    replacements={"REG_i": _REG_VAR[reg]},
+                    group="alu",
+                )
+            )
+
+    # Misc ALU ops
+    _add_spec(
+        _spec(
+            opcode=0x27,
+            mnemonic="DAA",
+            length=1,
+            cycles=(4,),
+            template_key="daa",
+            group="alu",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0x2F,
+            mnemonic="CPL",
+            length=1,
+            cycles=(4,),
+            template_key="cpl",
+            group="alu",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0x37,
+            mnemonic="SCF",
+            length=1,
+            cycles=(4,),
+            template_key="scf",
+            group="alu",
+        )
+    )
+    _add_spec(
+        _spec(
+            opcode=0x3F,
+            mnemonic="CCF",
+            length=1,
+            cycles=(4,),
+            template_key="ccf",
+            group="alu",
+        )
+    )
+
+
+_add_alu_families()
+
+
 UNPREFIXED_SPECS = _build_table("OP", _UNPREFIXED_OVERRIDES)
 CB_SPECS = _build_table("CB", {})
 

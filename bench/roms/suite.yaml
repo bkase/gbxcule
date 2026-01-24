@@ -33,3 +33,9 @@ roms:
     description: "Load/store opcode coverage loop (register/memory/LDH variants)."
     frames_per_step: 24
     release_after_frames: 8
+
+  - id: ALU_FLAGS
+    path: bench/roms/out/ALU_FLAGS.gb
+    description: "ALU + flags coverage loop (reg/HL/imm ops, DAA/CPL/SCF/CCF)."
+    frames_per_step: 24
+    release_after_frames: 8

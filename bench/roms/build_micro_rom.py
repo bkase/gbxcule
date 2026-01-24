@@ -472,6 +472,76 @@ def build_loads_basic() -> bytes:
     return build_rom("LOADS_BASIC", program)
 
 
+def build_alu_flags() -> bytes:
+    """Build ALU_FLAGS.gb - ALU/flags coverage loop."""
+    program = bytes(
+        [
+            0x21,
+            0x00,
+            0xC0,  # LD HL,0xC000
+            0x3E,
+            0x0F,  # LD A,0x0F
+            0x77,  # LD (HL),A
+            0x3E,
+            0x01,  # LD A,0x01
+            0x06,
+            0x10,  # LD B,0x10
+            0x80,  # ADD A,B
+            0x88,  # ADC A,B
+            0x86,  # ADD A,(HL)
+            0x8E,  # ADC A,(HL)
+            0xC6,
+            0x01,  # ADD A,0x01
+            0x37,  # SCF
+            0xCE,
+            0x01,  # ADC A,0x01
+            0x90,  # SUB B
+            0x37,  # SCF
+            0x98,  # SBC A,B
+            0x96,  # SUB (HL)
+            0x37,  # SCF
+            0x9E,  # SBC A,(HL)
+            0xD6,
+            0x01,  # SUB 0x01
+            0x37,  # SCF
+            0xDE,
+            0x01,  # SBC A,0x01
+            0xA0,  # AND B
+            0xA6,  # AND (HL)
+            0xE6,
+            0x0F,  # AND 0x0F
+            0xB0,  # OR B
+            0xB6,  # OR (HL)
+            0xF6,
+            0x0F,  # OR 0x0F
+            0xA8,  # XOR B
+            0xAE,  # XOR (HL)
+            0xEE,
+            0x0F,  # XOR 0x0F
+            0xB8,  # CP B
+            0xBE,  # CP (HL)
+            0xFE,
+            0x0E,  # CP 0x0E
+            0x3C,  # INC A
+            0x3D,  # DEC A
+            0x34,  # INC (HL)
+            0x35,  # DEC (HL)
+            0x3E,
+            0x09,  # LD A,0x09
+            0xC6,
+            0x01,  # ADD A,0x01
+            0x27,  # DAA
+            0x2F,  # CPL
+            0x37,  # SCF
+            0x3F,  # CCF
+            0xC3,
+            0x50,
+            0x01,  # JP 0x0150
+        ]
+    )
+    return build_rom("ALU_FLAGS", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -511,6 +581,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("SERIAL_HELLO.gb", build_serial_hello()),
         ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
         ("LOADS_BASIC.gb", build_loads_basic()),
+        ("ALU_FLAGS.gb", build_alu_flags()),
     ]
 
     results: list[tuple[str, Path, str]] = []
