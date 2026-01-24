@@ -21,6 +21,24 @@ roms:
     frames_per_step: 24
     release_after_frames: 8
 
+  - id: TIMER_DIV_BASIC
+    path: bench/roms/out/TIMER_DIV_BASIC.gb
+    description: "Samples DIV/TIMA and resets DIV to exercise timer edge/glitch behavior."
+    frames_per_step: 24
+    release_after_frames: 8
+
+  - id: TIMER_IRQ_HALT
+    path: bench/roms/out/TIMER_IRQ_HALT.gb
+    description: "Timer interrupt + HALT wake behavior; ISR writes signature."
+    frames_per_step: 24
+    release_after_frames: 8
+
+  - id: EI_DELAY
+    path: bench/roms/out/EI_DELAY.gb
+    description: "EI delay semantics; ISR captures return address bytes."
+    frames_per_step: 24
+    release_after_frames: 8
+
   - id: JOY_DIVERGE_PERSIST
     path: bench/roms/out/JOY_DIVERGE_PERSIST.gb
     description: "JOYP-driven divergence with persistent mode + WRAM signature."

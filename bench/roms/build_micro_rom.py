@@ -110,6 +110,20 @@ def build_rom(title: str, program: bytes) -> bytes:
     return bytes(rom)
 
 
+def apply_rom_patches(rom: bytes, patches: dict[int, bytes]) -> bytes:
+    """Apply ROM patches at absolute addresses and recompute checksums."""
+    data = bytearray(rom)
+    for addr, payload in patches.items():
+        if addr < 0 or addr + len(payload) > len(data):
+            raise ValueError(f"patch out of range: {addr:04X}")
+        data[addr : addr + len(payload)] = payload
+    data[0x014D] = compute_header_checksum(data)
+    global_checksum = compute_global_checksum(data)
+    data[0x014E] = (global_checksum >> 8) & 0xFF
+    data[0x014F] = global_checksum & 0xFF
+    return bytes(data)
+
+
 def build_alu_loop() -> bytes:
     """Build ALU_LOOP.gb - a tight ALU-heavy loop.
 
@@ -225,6 +239,156 @@ def build_serial_hello() -> bytes:
         ]
     )
     return build_rom("SERIAL_HELLO", program)
+
+
+def build_timer_div_basic() -> bytes:
+    """Build TIMER_DIV_BASIC.gb - DIV/TIMA sampling + DIV reset glitch.
+
+    This ROM enables the timer (TAC=0x04), samples DIV/TIMA into WRAM,
+    and uses the slow clock for stability.
+    """
+    program = bytes(
+        [
+            0x3E,
+            0x00,  # LD A, 0x00
+            0xEA,
+            0x06,
+            0xFF,  # LD (0xFF06), A ; TMA = 0
+            0xEA,
+            0x05,
+            0xFF,  # LD (0xFF05), A ; TIMA = 0
+            0xEA,
+            0x04,
+            0xFF,  # LD (0xFF04), A ; DIV reset
+            0x3E,
+            0x04,  # LD A, 0x04 ; TAC enable, freq=00
+            0xEA,
+            0x07,
+            0xFF,  # LD (0xFF07), A
+            # loop:
+            0xFA,
+            0x04,
+            0xFF,  # LD A, (0xFF04)
+            0xEA,
+            0x00,
+            0xC0,  # LD (0xC000), A
+            0xFA,
+            0x05,
+            0xFF,  # LD A, (0xFF05)
+            0xEA,
+            0x01,
+            0xC0,  # LD (0xC001), A
+            0x18,
+            0xF2,  # JR -14
+        ]
+    )
+    return build_rom("TIMER_DIV", program)
+
+
+def build_timer_irq_halt() -> bytes:
+    """Build TIMER_IRQ_HALT.gb - timer interrupt + HALT wake check."""
+    program = bytes(
+        [
+            0x31,
+            0x00,
+            0xC1,  # LD SP, 0xC100
+            0x3E,
+            0x00,  # LD A, 0x00
+            0xEA,
+            0x0F,
+            0xFF,  # LD (0xFF0F), A ; IF = 0
+            0x3E,
+            0x04,  # LD A, 0x04
+            0xEA,
+            0xFF,
+            0xFF,  # LD (0xFFFF), A ; IE = timer
+            0x3E,
+            0xAB,  # LD A, 0xAB
+            0xEA,
+            0x06,
+            0xFF,  # LD (0xFF06), A ; TMA
+            0x3E,
+            0xFE,  # LD A, 0xFE
+            0xEA,
+            0x05,
+            0xFF,  # LD (0xFF05), A ; TIMA
+            0x3E,
+            0x05,  # LD A, 0x05 ; TAC enable, freq=01
+            0xEA,
+            0x07,
+            0xFF,  # LD (0xFF07), A
+            0xFB,  # EI
+            0x76,  # HALT
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    rom = build_rom("TIMER_IRQ", program)
+    isr = bytes(
+        [
+            0x3E,
+            0x42,  # LD A, 0x42
+            0xEA,
+            0x10,
+            0xC0,  # LD (0xC010), A
+            0xFA,
+            0x11,
+            0xC0,  # LD A, (0xC011)
+            0x3C,  # INC A
+            0xEA,
+            0x11,
+            0xC0,  # LD (0xC011), A
+            0xD9,  # RETI
+        ]
+    )
+    return apply_rom_patches(rom, {0x0050: isr})
+
+
+def build_ei_delay() -> bytes:
+    """Build EI_DELAY.gb - EI delay returns correct PC on IRQ."""
+    program = bytes(
+        [
+            0x31,
+            0x00,
+            0xC1,  # LD SP, 0xC100
+            0x3E,
+            0x01,  # LD A, 0x01
+            0xEA,
+            0xFF,
+            0xFF,  # LD (0xFFFF), A ; IE = VBlank
+            0xEA,
+            0x0F,
+            0xFF,  # LD (0xFF0F), A ; IF = VBlank
+            0xFB,  # EI
+            0x00,  # NOP (next instruction)
+            0x3E,
+            0x42,  # LD A, 0x42
+            0xEA,
+            0x00,
+            0xC0,  # LD (0xC000), A
+            0x18,
+            0xFE,  # JR -2
+        ]
+    )
+    rom = build_rom("EI_DELAY", program)
+    isr = bytes(
+        [
+            0xFA,
+            0xFE,
+            0xC0,  # LD A, (0xC0FE)
+            0xEA,
+            0x10,
+            0xC0,  # LD (0xC010), A
+            0xFA,
+            0xFF,
+            0xC0,  # LD A, (0xC0FF)
+            0xEA,
+            0x11,
+            0xC0,  # LD (0xC011), A
+            0xD9,  # RETI
+        ]
+    )
+    return apply_rom_patches(rom, {0x0040: isr})
 
 
 def build_joy_diverge_persist() -> bytes:
@@ -787,6 +951,9 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("ALU_LOOP.gb", build_alu_loop()),
         ("MEM_RWB.gb", build_mem_rwb()),
         ("SERIAL_HELLO.gb", build_serial_hello()),
+        ("TIMER_DIV_BASIC.gb", build_timer_div_basic()),
+        ("TIMER_IRQ_HALT.gb", build_timer_irq_halt()),
+        ("EI_DELAY.gb", build_ei_delay()),
         ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
         ("LOADS_BASIC.gb", build_loads_basic()),
         ("ALU_FLAGS.gb", build_alu_flags()),

@@ -20,11 +20,14 @@ from bench.roms.build_micro_rom import (
     build_alu_flags,
     build_alu_loop,
     build_cb_bitops,
+    build_ei_delay,
     build_flow_stack,
     build_joy_diverge_persist,
     build_loads_basic,
     build_mem_rwb,
     build_serial_hello,
+    build_timer_div_basic,
+    build_timer_irq_halt,
     compute_global_checksum,
     compute_header_checksum,
     sha256_bytes,
@@ -39,7 +42,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 9
+    assert len(results) == 12
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -60,6 +63,18 @@ def test_roms_are_deterministic() -> None:
     serial1 = build_serial_hello()
     serial2 = build_serial_hello()
     assert serial1 == serial2, "SERIAL_HELLO is not deterministic"
+
+    timer_div1 = build_timer_div_basic()
+    timer_div2 = build_timer_div_basic()
+    assert timer_div1 == timer_div2, "TIMER_DIV_BASIC is not deterministic"
+
+    timer_irq1 = build_timer_irq_halt()
+    timer_irq2 = build_timer_irq_halt()
+    assert timer_irq1 == timer_irq2, "TIMER_IRQ_HALT is not deterministic"
+
+    ei1 = build_ei_delay()
+    ei2 = build_ei_delay()
+    assert ei1 == ei2, "EI_DELAY is not deterministic"
 
     joy1 = build_joy_diverge_persist()
     joy2 = build_joy_diverge_persist()
@@ -133,6 +148,36 @@ def test_joy_diverge_persist_header_checksum() -> None:
 def test_serial_hello_header_checksum() -> None:
     """SERIAL_HELLO has valid header checksum."""
     rom = build_serial_hello()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
+def test_timer_div_basic_header_checksum() -> None:
+    """TIMER_DIV_BASIC has valid header checksum."""
+    rom = build_timer_div_basic()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
+def test_timer_irq_halt_header_checksum() -> None:
+    """TIMER_IRQ_HALT has valid header checksum."""
+    rom = build_timer_irq_halt()
+    stored = rom[0x014D]
+    computed = compute_header_checksum(rom)
+    assert stored == computed, (
+        f"Header checksum mismatch: {stored:02X} != {computed:02X}"
+    )
+
+
+def test_ei_delay_header_checksum() -> None:
+    """EI_DELAY has valid header checksum."""
+    rom = build_ei_delay()
     stored = rom[0x014D]
     computed = compute_header_checksum(rom)
     assert stored == computed, (
@@ -223,6 +268,36 @@ def test_joy_diverge_persist_global_checksum() -> None:
 def test_serial_hello_global_checksum() -> None:
     """SERIAL_HELLO has valid global checksum."""
     rom = build_serial_hello()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_timer_div_basic_global_checksum() -> None:
+    """TIMER_DIV_BASIC has valid global checksum."""
+    rom = build_timer_div_basic()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_timer_irq_halt_global_checksum() -> None:
+    """TIMER_IRQ_HALT has valid global checksum."""
+    rom = build_timer_irq_halt()
+    stored = (rom[0x014E] << 8) | rom[0x014F]
+    computed = compute_global_checksum(rom)
+    assert stored == computed, (
+        f"Global checksum mismatch: {stored:04X} != {computed:04X}"
+    )
+
+
+def test_ei_delay_global_checksum() -> None:
+    """EI_DELAY has valid global checksum."""
+    rom = build_ei_delay()
     stored = (rom[0x014E] << 8) | rom[0x014F]
     computed = compute_global_checksum(rom)
     assert stored == computed, (
