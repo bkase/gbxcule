@@ -27,3 +27,9 @@ roms:
     frames_per_step: 24
     release_after_frames: 8
     action_gen: striped
+
+  - id: LOADS_BASIC
+    path: bench/roms/out/LOADS_BASIC.gb
+    description: "Load/store opcode coverage loop (register/memory/LDH variants)."
+    frames_per_step: 24
+    release_after_frames: 8

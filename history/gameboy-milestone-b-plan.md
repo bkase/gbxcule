@@ -60,6 +60,7 @@ Deliverables:
   - mnemonic/name (string, human)
   - length (bytes)
   - cycles (and conditional cycles when applicable)
+  - source-of-truth for lengths/cycles: https://pastraiser.com/cpu/gameboy/gameboy_opcodes.html
   - template function reference + replacement map
   - tags/group (loads/alu/branch/cb-bit/etc.)
 - Add a hard unit test:

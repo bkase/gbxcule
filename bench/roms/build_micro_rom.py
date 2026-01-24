@@ -394,6 +394,84 @@ def build_joy_diverge_persist() -> bytes:
     return build_rom("JOY_PERSIST", bytes(code))
 
 
+def build_loads_basic() -> bytes:
+    """Build LOADS_BASIC.gb - load/store instruction coverage loop.
+
+    Exercises:
+    - LD r,r (register copies)
+    - LD r,d8 and LD rr,d16
+    - LD (HL),r and LD r,(HL)
+    - LDI/LDD variants
+    - LD (BC)/(DE) and LD A,(BC)/(DE)
+    - LD (a16),A and LD A,(a16)
+    - LDH (a8),A and LDH A,(a8)
+    - LD (C),A and LD A,(C)
+    - LD (a16),SP
+    """
+    program = bytes(
+        [
+            0x3E,
+            0x12,  # LD A,0x12
+            0x47,  # LD B,A
+            0x48,  # LD C,B
+            0x51,  # LD D,C
+            0x5A,  # LD E,D
+            0x63,  # LD H,E
+            0x6C,  # LD L,H
+            0x7D,  # LD A,L
+            0x21,
+            0x00,
+            0xC0,  # LD HL,0xC000
+            0x01,
+            0x10,
+            0xC0,  # LD BC,0xC010
+            0x11,
+            0x20,
+            0xC0,  # LD DE,0xC020
+            0x31,
+            0xF0,
+            0xC0,  # LD SP,0xC0F0
+            0x77,  # LD (HL),A
+            0x22,  # LDI (HL),A
+            0x3E,
+            0x34,  # LD A,0x34
+            0x77,  # LD (HL),A
+            0x32,  # LDD (HL),A
+            0x7E,  # LD A,(HL)
+            0x02,  # LD (BC),A
+            0x0A,  # LD A,(BC)
+            0x12,  # LD (DE),A
+            0x1A,  # LD A,(DE)
+            0x0E,
+            0x80,  # LD C,0x80
+            0xE2,  # LD (C),A
+            0xF2,  # LD A,(C)
+            0xE0,
+            0x81,  # LDH (0x81),A
+            0xF0,
+            0x81,  # LDH A,(0x81)
+            0xEA,
+            0x30,
+            0xC0,  # LD (0xC030),A
+            0xFA,
+            0x30,
+            0xC0,  # LD A,(0xC030)
+            0x08,
+            0x40,
+            0xC0,  # LD (0xC040),SP
+            0x21,
+            0x40,
+            0xC0,  # LD HL,0xC040
+            0x2A,  # LDI A,(HL)
+            0x7E,  # LD A,(HL)
+            0xC3,
+            0x50,
+            0x01,  # JP 0x0150
+        ]
+    )
+    return build_rom("LOADS_BASIC", program)
+
+
 def atomic_write(path: Path, data: bytes) -> None:
     """Write data to path atomically using temp file + rename.
 
@@ -432,6 +510,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("MEM_RWB.gb", build_mem_rwb()),
         ("SERIAL_HELLO.gb", build_serial_hello()),
         ("JOY_DIVERGE_PERSIST.gb", build_joy_diverge_persist()),
+        ("LOADS_BASIC.gb", build_loads_basic()),
     ]
 
     results: list[tuple[str, Path, str]] = []

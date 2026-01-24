@@ -59,3 +59,11 @@ def test_verify_mem_rwb() -> None:
     # MEM_RWB increments HL across the full address space; the first divergence
     # from incorrect ROM write handling shows up after several frames.
     _verify_no_mismatch(ROM_DIR / "MEM_RWB.gb", steps=64)
+
+
+@pytest.mark.skipif(
+    not (ROM_DIR / "LOADS_BASIC.gb").exists(),
+    reason="Test ROM not found; run `make roms` first.",
+)
+def test_verify_loads_basic() -> None:
+    _verify_no_mismatch(ROM_DIR / "LOADS_BASIC.gb", steps=64)
