@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from bench.harness import diff_states, hash_memory, normalize_cpu_state
 from bench.roms.build_micro_rom import build_joy_diverge_persist
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 from gbxcule.core.action_codec import POKERED_PUFFER_V0_ID, get_action_codec
+
 
 def _write_rom(tmp_path: Path) -> str:
     rom_path = tmp_path / "JOY_DIVERGE_PERSIST.gb"

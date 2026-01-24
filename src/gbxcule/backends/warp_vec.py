@@ -617,6 +617,35 @@ class WarpVecBaseBackend:
                 )
         return bytes(out)
 
+    @staticmethod
+    def _cart_state_to_dict(state: np.ndarray) -> dict[str, int]:
+        if state.shape[0] < CART_STATE_STRIDE:
+            raise ValueError(
+                f"cart_state length {state.shape[0]} < {CART_STATE_STRIDE}"
+            )
+        return {
+            "mbc_kind": int(state[CART_STATE_MBC_KIND]),
+            "ram_enable": int(state[CART_STATE_RAM_ENABLE]),
+            "rom_bank_lo": int(state[CART_STATE_ROM_BANK_LO]),
+            "rom_bank_hi": int(state[CART_STATE_ROM_BANK_HI]),
+            "ram_bank": int(state[CART_STATE_RAM_BANK]),
+            "bank_mode": int(state[CART_STATE_BANK_MODE]),
+            "bootrom_enabled": int(state[CART_STATE_BOOTROM_ENABLED]),
+            "rtc_select": int(state[CART_STATE_RTC_SELECT]),
+            "rtc_latch": int(state[CART_STATE_RTC_LATCH]),
+            "rtc_seconds": int(state[CART_STATE_RTC_SECONDS]),
+            "rtc_minutes": int(state[CART_STATE_RTC_MINUTES]),
+            "rtc_hours": int(state[CART_STATE_RTC_HOURS]),
+            "rtc_days_low": int(state[CART_STATE_RTC_DAYS_LOW]),
+            "rtc_days_high": int(state[CART_STATE_RTC_DAYS_HIGH]),
+            "rtc_last_cycle": int(state[CART_STATE_RTC_LAST_CYCLE]),
+            "rtc_latched_seconds": int(state[CART_STATE_RTC_LATCHED_SECONDS]),
+            "rtc_latched_minutes": int(state[CART_STATE_RTC_LATCHED_MINUTES]),
+            "rtc_latched_hours": int(state[CART_STATE_RTC_LATCHED_HOURS]),
+            "rtc_latched_days_low": int(state[CART_STATE_RTC_LATCHED_DAYS_LOW]),
+            "rtc_latched_days_high": int(state[CART_STATE_RTC_LATCHED_DAYS_HIGH]),
+        }
+
     def read_frame_bg_shade_env0(self) -> bytes:
         """Read env0 BG shade framebuffer (CPU backend only)."""
         if self._frame_bg_shade_env0 is None or not self._initialized:
@@ -731,6 +760,19 @@ class WarpVecBaseBackend:
             trap_opcode=trap_opcode,
             trap_kind=trap_kind,
         )
+
+    def get_cart_state(self, env_idx: int) -> dict[str, int]:
+        """Get cart/MBC state snapshot for a specific environment."""
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if not self._initialized or self._cart_state is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if self.device == "cuda":
+            self._wp.synchronize()
+        cart_state_np = self._cart_state.numpy()
+        base = env_idx * CART_STATE_STRIDE
+        state = np.array(cart_state_np[base : base + CART_STATE_STRIDE], copy=True)
+        return self._cart_state_to_dict(state)
 
     def save_state(self, env_idx: int = 0) -> PyBoyState:
         """Save the current state of an environment as a PyBoyState.
@@ -912,6 +954,8 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._frame_readback_capacity = 0
         self._serial_readback = None
         self._serial_readback_capacity = 0
+        self._cart_state_readback = None
+        self._cart_state_readback_capacity = 0
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         if self._mem is None or not self._initialized:
@@ -994,6 +1038,33 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._wp.synchronize()
         return self._serial_readback.numpy()[:length].tobytes()
 
+    def get_cart_state(self, env_idx: int) -> dict[str, int]:
+        """Get cart/MBC state snapshot for a specific environment."""
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if not self._initialized or self._cart_state is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        count = CART_STATE_STRIDE
+        if (
+            self._cart_state_readback is None
+            or self._cart_state_readback_capacity < count
+        ):
+            self._cart_state_readback = self._wp.empty(
+                count, dtype=self._wp.int32, device="cpu", pinned=True
+            )
+            self._cart_state_readback_capacity = count
+        base = env_idx * CART_STATE_STRIDE
+        self._wp.copy(
+            self._cart_state_readback,
+            self._cart_state,
+            dest_offset=0,
+            src_offset=base,
+            count=count,
+        )
+        self._wp.synchronize()
+        state = np.array(self._cart_state_readback.numpy()[:count], copy=True)
+        return self._cart_state_to_dict(state)
+
     def write_memory(self, env_idx: int, addr: int, data: bytes) -> None:
         raise NotImplementedError(
             "CUDA write_memory is not implemented yet (debug-only for CPU)."
@@ -1007,6 +1078,8 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._frame_readback_capacity = 0
         self._serial_readback = None
         self._serial_readback_capacity = 0
+        self._cart_state_readback = None
+        self._cart_state_readback_capacity = 0
 
 
 class WarpVecBackend(WarpVecCpuBackend):

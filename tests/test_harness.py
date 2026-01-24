@@ -889,6 +889,49 @@ class TestMismatchBundle:
             assert "rom.gb" in repro_content
             assert "test.gb" not in repro_content
 
+    def test_mismatch_bundle_cart_state_files(self) -> None:
+        """mismatch bundle writes optional cart state snapshots."""
+        from harness import write_mismatch_bundle
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rom_path = Path(tmpdir) / "test.gb"
+            rom_path.write_bytes(b"\x00")
+            ref_cart_state = {"mbc_kind": 1, "rom_bank_lo": 1}
+            dut_cart_state = {"mbc_kind": 2, "rom_bank_lo": 2}
+            bundle_path = write_mismatch_bundle(
+                output_dir=Path(tmpdir),
+                timestamp="20260101_120000",
+                rom_path=rom_path,
+                rom_sha256="abc123",
+                ref_backend="pyboy_single",
+                dut_backend="warp_vec",
+                mismatch_step=0,
+                env_idx=0,
+                ref_state={},
+                dut_state={},
+                diff={},
+                action_codec=get_action_codec_metadata(POKERED_PUFFER_V0_ID),
+                actions_trace=[],
+                system_info={},
+                action_gen_name="noop",
+                action_gen_seed=None,
+                frames_per_step=24,
+                release_after_frames=8,
+                compare_every=1,
+                verify_steps=1,
+                ref_cart_state=ref_cart_state,
+                dut_cart_state=dut_cart_state,
+            )
+
+            ref_path = bundle_path / "ref_cart_state.json"
+            dut_path = bundle_path / "dut_cart_state.json"
+            assert ref_path.exists()
+            assert dut_path.exists()
+            with open(ref_path) as f:
+                assert json.load(f) == ref_cart_state
+            with open(dut_path) as f:
+                assert json.load(f) == dut_cart_state
+
     def test_mismatch_bundle_mem_regions_and_dumps(self) -> None:
         """mismatch bundle records mem regions and writes dumps."""
         from harness import MEM_HASH_VERSION, write_mismatch_bundle

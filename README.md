@@ -117,6 +117,25 @@ uv run python bench/harness.py \
   --mem-region C000:C100
 ```
 
+### Verify a Real ROM (Fixed Actions)
+
+For deterministic bring-up on a user ROM, replay a fixed action trace:
+
+```bash
+uv run python bench/harness.py \
+  --verify \
+  --ref-backend pyboy_single \
+  --dut-backend warp_vec_cpu \
+  --rom /path/to/rom.gb \
+  --actions-file /path/to/actions.jsonl \
+  --verify-steps 2048 \
+  --compare-every 1 \
+  --frames-per-step 1
+```
+
+`actions.jsonl` is a JSONL file with one list of action indices per step. You can
+reuse the `actions.jsonl` from a mismatch bundle for exact repro.
+
 Example mismatch output:
 
 ```
@@ -192,6 +211,8 @@ When verification fails, a repro bundle is written containing:
 | `metadata.json`  | ROM SHA, backends, seeds, git commit, GPU/driver, Warp version+provenance |
 | `ref_state.json` | Reference CPU registers at mismatch  |
 | `dut_state.json` | DUT CPU registers at mismatch        |
+| `ref_cart_state.json` | Reference cart/MBC state snapshot |
+| `dut_cart_state.json` | DUT cart/MBC state snapshot       |
 | `diff.json`      | Field-by-field differences           |
 | `actions.jsonl`  | Complete action trace for replay     |
 | `repro.sh`       | One-command reproduction script      |
@@ -224,6 +245,8 @@ bench/runs/
         ├── metadata.json
         ├── ref_state.json
         ├── dut_state.json
+        ├── ref_cart_state.json
+        ├── dut_cart_state.json
         ├── diff.json
         ├── actions.jsonl
         ├── rom.gb

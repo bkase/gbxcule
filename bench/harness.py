@@ -16,15 +16,15 @@ import os
 import platform
 import sys
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from gbxcule.backends.common import CpuState, Stage, VecBackend
+    from gbxcule.backends.common import Stage, VecBackend
 
 from gbxcule.backends.common import DEFAULT_ACTION_CODEC_ID
 from gbxcule.core.abi import SCREEN_H, SCREEN_W
@@ -475,6 +475,16 @@ def _read_ppu_dumps(
     if not dump_meta:
         return None
     return dump_meta, dump_blobs
+
+
+def _read_cart_state(backend: Any) -> dict[str, int] | None:
+    reader = getattr(backend, "get_cart_state", None)
+    if not callable(reader):
+        return None
+    try:
+        return cast(dict[str, int], reader(0))
+    except Exception:
+        return None
 
 
 def _write_shade_png(shades: np.ndarray, path: Path) -> None:
@@ -1578,6 +1588,8 @@ def write_mismatch_bundle(
     compare_frame: bool = False,
     dump_frame_on_mismatch: bool = False,
     frame_warmup: int = 0,
+    ref_cart_state: dict[str, Any] | None = None,
+    dut_cart_state: dict[str, Any] | None = None,
     ppu_regs: dict[str, dict[str, int]] | None = None,
     frame_hash_history: list[dict[str, int | str]] | None = None,
     ppu_mem_dump_meta: list[dict[str, Any]] | None = None,
@@ -1615,6 +1627,8 @@ def write_mismatch_bundle(
         compare_frame: Whether frame hash comparison was enabled.
         dump_frame_on_mismatch: Whether frame PNG dumping was enabled.
         frame_warmup: Frame hash warmup steps.
+        ref_cart_state: Optional reference cart state snapshot.
+        dut_cart_state: Optional DUT cart state snapshot.
         ppu_regs: Optional PPU register snapshots (ref/dut).
         frame_hash_history: Optional recent frame hashes (ref/dut).
         ppu_mem_dump_meta: Optional PPU memory dump metadata.
@@ -1688,6 +1702,13 @@ def write_mismatch_bundle(
         # Write dut_state.json
         with open(temp_dir / "dut_state.json", "w") as f:
             json.dump(dut_state, f, indent=2)
+
+        if ref_cart_state is not None:
+            with open(temp_dir / "ref_cart_state.json", "w") as f:
+                json.dump(ref_cart_state, f, indent=2)
+        if dut_cart_state is not None:
+            with open(temp_dir / "dut_cart_state.json", "w") as f:
+                json.dump(dut_cart_state, f, indent=2)
 
         # Write diff.json
         with open(temp_dir / "diff.json", "w") as f:
@@ -2004,6 +2025,8 @@ def run_verify(
                     ppu_dumps = _read_ppu_dumps(ref_backend, dut_backend)
                     if ppu_dumps is not None:
                         ppu_mem_dump_meta, ppu_mem_dump_blobs = ppu_dumps
+                    ref_cart_state = _read_cart_state(ref_backend)
+                    dut_cart_state = _read_cart_state(dut_backend)
                     # Mismatch found
                     print(f"MISMATCH at step {step_idx}")
                     print(f"First differing fields: {list(diff.keys())[:5]}")
@@ -2041,6 +2064,8 @@ def run_verify(
                         compare_frame=args.compare_frame,
                         dump_frame_on_mismatch=args.dump_frame_on_mismatch,
                         frame_warmup=args.frame_warmup,
+                        ref_cart_state=ref_cart_state,
+                        dut_cart_state=dut_cart_state,
                         ppu_regs=ppu_regs,
                         frame_hash_history=(
                             frame_hash_history if args.compare_frame else None

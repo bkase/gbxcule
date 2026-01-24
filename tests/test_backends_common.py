@@ -387,7 +387,6 @@ def test_hash_cpu_state_deterministic() -> None:
 
 def test_hash_cpu_state_different_for_different_states() -> None:
     """hash_cpu_state produces different hashes for different states."""
-    from gbxcule.backends.common import CpuState
     from gbxcule.core.signatures import hash_cpu_state
 
     state1 = {"pc": 0x0150, "sp": 0xFFFE, "a": 0}
@@ -401,7 +400,6 @@ def test_hash_cpu_state_different_for_different_states() -> None:
 
 def test_hash_cpu_state_exclude_counters() -> None:
     """hash_cpu_state can exclude counters from hash."""
-    from gbxcule.backends.common import CpuState
     from gbxcule.core.signatures import hash_cpu_state
 
     state_with = {"pc": 0x0150, "instr_count": 100}
