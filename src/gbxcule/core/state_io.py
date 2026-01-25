@@ -793,9 +793,9 @@ def apply_state_to_warp_backend(
             )
         else:
             cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = 0
-            cart_ram_np[
-                cart_ram_base : cart_ram_base + cart_ram_bytes.size
-            ] = cart_ram_bytes
+            cart_ram_np[cart_ram_base : cart_ram_base + cart_ram_bytes.size] = (
+                cart_ram_bytes
+            )
 
     # VRAM (0x8000-0x9FFF)
     mem[base + 0x8000 : base + 0x8000 + VRAM_SIZE] = np.frombuffer(
