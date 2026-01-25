@@ -1,0 +1,10 @@
+{
+  "rom": "red.gb",
+  "state": "states/pokemonred_bulbasaur_warp.state",
+  "action_codec": "pokemonred_puffer_v0",
+  "frames_per_step": 24,
+  "release_after_frames": 8,
+  "steps": 12,
+  "save_every": 1,
+  "actions": [2, 2, 0, 0, 3, 3, 4, 4, 5, 6, 5, 6]
+}
