@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu bench-tetris-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu bench-tetris-gpu m0 m0-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -196,10 +196,22 @@ TETRIS_WARMUP_STEPS ?= 10
 TETRIS_FRAMES_PER_STEP ?= 24
 TETRIS_RELEASE_AFTER_FRAMES ?= 8
 
+# m0 pixel smoke defaults
+M0_CONFIG ?= configs/m0_pokered_smoke.json
+
 bench-tetris-gpu: ensure-puffer ## Tetris benchmark (PyBoy baseline vs WarpVec CUDA)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
 	@test -f $(TETRIS_ROM) || { echo "Error: Tetris ROM not found: $(TETRIS_ROM)"; exit 1; }
 	@$(PY) bench/tetris_bench.py --rom $(TETRIS_ROM) --state $(TETRIS_STATE) --baseline-env-counts $(TETRIS_BASELINE_ENV_COUNTS) --dut-env-counts $(TETRIS_DUT_ENV_COUNTS) --steps $(TETRIS_STEPS) --warmup-steps $(TETRIS_WARMUP_STEPS) --frames-per-step $(TETRIS_FRAMES_PER_STEP) --release-after-frames $(TETRIS_RELEASE_AFTER_FRAMES)
+
+m0: ## Run m0 pixel smoke (CPU)
+	@test -f $(M0_CONFIG) || { echo "Error: m0 config not found: $(M0_CONFIG)"; exit 1; }
+	@$(PY) tools/pokered_pixel_smoke.py --config $(M0_CONFIG) --backend warp_vec_cpu
+
+m0-gpu: ## Run m0 pixel smoke (CUDA)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@test -f $(M0_CONFIG) || { echo "Error: m0 config not found: $(M0_CONFIG)"; exit 1; }
+	@$(PY) tools/pokered_pixel_smoke.py --config $(M0_CONFIG) --backend warp_vec_cuda
 
 check-gpu: roms ## Fast-ish DGX gate (CUDA smoke)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
