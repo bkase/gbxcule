@@ -1,6 +1,6 @@
 {
   "rom": "red.gb",
-  "state": "states/pokemonred_bulbasaur_warp.state",
+  "state": "states/pokemonred_bulbasaur_roundtrip2.state",
   "action_codec": "pokemonred_puffer_v0",
   "frames_per_step": 24,
   "release_after_frames": 8,
