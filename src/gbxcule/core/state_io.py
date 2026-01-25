@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, BinaryIO
 
 import numpy as np
 
-from gbxcule.core.abi import CYCLES_PER_SCANLINE, MEM_SIZE
+from gbxcule.core.abi import CYCLES_PER_SCANLINE, MEM_SIZE, SCREEN_H
 from gbxcule.core.cartridge import (
     CART_STATE_BANK_MODE,
     CART_STATE_BOOTROM_ENABLED,
@@ -846,6 +846,45 @@ def apply_state_to_warp_backend(
     mem[base + 0xFF4B] = state.wx
     mem[base + 0xFF01] = state.serial_sb & 0xFF
     mem[base + 0xFF02] = state.serial_sc & 0xFF
+
+    # Seed PPU latches from scanline params to render immediately after load.
+    if (
+        backend._bg_lcdc_latch_env0 is not None
+        and backend._bg_scx_latch_env0 is not None
+        and backend._bg_scy_latch_env0 is not None
+        and backend._bg_bgp_latch_env0 is not None
+        and backend._win_wx_latch_env0 is not None
+        and backend._win_wy_latch_env0 is not None
+        and backend._win_line_latch_env0 is not None
+        and backend._obj_obp0_latch_env0 is not None
+        and backend._obj_obp1_latch_env0 is not None
+    ):
+        scan = state.scanline_params
+        if len(scan) >= SCREEN_H * 5:
+            lcdc_latch = backend._bg_lcdc_latch_env0.numpy()
+            scx_latch = backend._bg_scx_latch_env0.numpy()
+            scy_latch = backend._bg_scy_latch_env0.numpy()
+            bgp_latch = backend._bg_bgp_latch_env0.numpy()
+            wx_latch = backend._win_wx_latch_env0.numpy()
+            wy_latch = backend._win_wy_latch_env0.numpy()
+            win_line_latch = backend._win_line_latch_env0.numpy()
+            obp0_latch = backend._obj_obp0_latch_env0.numpy()
+            obp1_latch = backend._obj_obp1_latch_env0.numpy()
+            for y in range(SCREEN_H):
+                idx = y * 5
+                scx = scan[idx + 0]
+                scy = scan[idx + 1]
+                wx = scan[idx + 2]
+                wy = scan[idx + 3]
+                lcdc_latch[y] = state.lcdc
+                scx_latch[y] = scx
+                scy_latch[y] = scy
+                bgp_latch[y] = state.bgp
+                wx_latch[y] = wx
+                wy_latch[y] = wy
+                win_line_latch[y] = (y - wy) & 0xFF if y >= wy else 0
+                obp0_latch[y] = state.obp0
+                obp1_latch[y] = state.obp1
 
     # Interrupts
     mem[base + 0xFF0F] = state.if_reg
