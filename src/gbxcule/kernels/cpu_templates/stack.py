@@ -32,6 +32,10 @@ def template_push_r16(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -55,6 +59,10 @@ def template_push_r16(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 16
@@ -134,6 +142,10 @@ def template_push_af(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -157,6 +169,10 @@ def template_push_af(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 16
@@ -271,6 +287,10 @@ def template_call_a16(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -294,6 +314,10 @@ def template_call_a16(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = ((hi << 8) | lo) & 0xFFFF
     cycles = 24
@@ -365,6 +389,10 @@ def template_call_nz_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         sp_i = (sp_i - 1) & 0xFFFF
         write8(
@@ -388,6 +416,10 @@ def template_call_nz_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         pc_i = ((hi << 8) | lo) & 0xFFFF
         cycles = 24
@@ -462,6 +494,10 @@ def template_call_z_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         sp_i = (sp_i - 1) & 0xFFFF
         write8(
@@ -485,6 +521,10 @@ def template_call_z_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         pc_i = ((hi << 8) | lo) & 0xFFFF
         cycles = 24
@@ -559,6 +599,10 @@ def template_call_nc_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         sp_i = (sp_i - 1) & 0xFFFF
         write8(
@@ -582,6 +626,10 @@ def template_call_nc_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         pc_i = ((hi << 8) | lo) & 0xFFFF
         cycles = 24
@@ -656,6 +704,10 @@ def template_call_c_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         sp_i = (sp_i - 1) & 0xFFFF
         write8(
@@ -679,6 +731,10 @@ def template_call_c_a16(
             timer_prev_in,
             tima_reload_pending,
             tima_reload_delay,
+            actions,
+            frames_done,
+            release_after_frames,
+            action_codec_id,
         )
         pc_i = ((hi << 8) | lo) & 0xFFFF
         cycles = 24
@@ -1002,6 +1058,10 @@ def template_rst(pc_i: int, sp_i: int, base: int, mem: wp.array, vector: int) ->
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1025,6 +1085,10 @@ def template_rst(pc_i: int, sp_i: int, base: int, mem: wp.array, vector: int) ->
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = vector & 0xFFFF
     cycles = 16
@@ -1055,6 +1119,10 @@ def template_rst_00(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1078,6 +1146,10 @@ def template_rst_00(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x00
     cycles = 16
@@ -1108,6 +1180,10 @@ def template_rst_08(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1131,6 +1207,10 @@ def template_rst_08(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x08
     cycles = 16
@@ -1161,6 +1241,10 @@ def template_rst_10(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1184,6 +1268,10 @@ def template_rst_10(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x10
     cycles = 16
@@ -1214,6 +1302,10 @@ def template_rst_18(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1237,6 +1329,10 @@ def template_rst_18(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x18
     cycles = 16
@@ -1267,6 +1363,10 @@ def template_rst_20(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1290,6 +1390,10 @@ def template_rst_20(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x20
     cycles = 16
@@ -1320,6 +1424,10 @@ def template_rst_28(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1343,6 +1451,10 @@ def template_rst_28(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x28
     cycles = 16
@@ -1373,6 +1485,10 @@ def template_rst_30(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1396,6 +1512,10 @@ def template_rst_30(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x30
     cycles = 16
@@ -1426,6 +1546,10 @@ def template_rst_38(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     sp_i = (sp_i - 1) & 0xFFFF
     write8(
@@ -1449,6 +1573,10 @@ def template_rst_38(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None:  # 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = 0x38
     cycles = 16

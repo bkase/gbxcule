@@ -108,6 +108,10 @@ def template_ld_hl_r8(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -191,6 +195,10 @@ def template_ld_hl_d8(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 2) & 0xFFFF
     cycles = 12
@@ -306,6 +314,10 @@ def template_ld_a16_a(pc_i: int, a_i: int, base: int, mem: wp.array) -> None:  #
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 3) & 0xFFFF
     cycles = 16
@@ -414,6 +426,10 @@ def template_ldh_a8_a(pc_i: int, a_i: int, base: int, mem: wp.array) -> None:  #
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 2) & 0xFFFF
     cycles = 12
@@ -486,6 +502,10 @@ def template_ldh_c_a(pc_i: int, a_i: int, c_i: int, base: int, mem: wp.array) ->
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -596,6 +616,10 @@ def template_ld_bc_a(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -627,6 +651,10 @@ def template_ld_de_a(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 8
@@ -658,6 +686,10 @@ def template_ld_hl_inc_a(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     hl = (hl + 1) & 0xFFFF
     HREG_i = (hl >> 8) & 0xFF
@@ -692,6 +724,10 @@ def template_ld_hl_dec_a(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     hl = (hl - 1) & 0xFFFF
     HREG_i = (hl >> 8) & 0xFF
@@ -822,6 +858,10 @@ def template_ld_a16_sp(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None: 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     write8(
         i,
@@ -844,6 +884,10 @@ def template_ld_a16_sp(pc_i: int, sp_i: int, base: int, mem: wp.array) -> None: 
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     pc_i = (pc_i + 3) & 0xFFFF
     cycles = 20

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from pyboy import PyBoy
@@ -94,12 +95,9 @@ def main() -> None:
     args = _parse_args()
     if not args.rom.exists():
         raise FileNotFoundError(f"ROM not found: {args.rom}")
-    if args.no_bootrom:
-        bootrom_path: Path | None = None
-    else:
-        bootrom_path = args.bootrom
-        if not bootrom_path.exists():
-            raise FileNotFoundError(f"Boot ROM not found: {bootrom_path}")
+    bootrom_path = args.bootrom if not args.no_bootrom else None
+    if bootrom_path is not None and not bootrom_path.exists():
+        raise FileNotFoundError(f"Boot ROM not found: {bootrom_path}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.meta.parent.mkdir(parents=True, exist_ok=True)
@@ -121,7 +119,7 @@ def main() -> None:
         pyboy.set_emulation_speed(0)
         return pyboy
 
-    pyboy = _make_pyboy(bootrom_path)
+    pyboy: Any = _make_pyboy(bootrom_path)
     wrapper = pyboy.game_wrapper
     if not isinstance(wrapper, GameWrapperTetris):
         raise RuntimeError("PyBoy did not load the Tetris game wrapper.")
@@ -163,7 +161,7 @@ def main() -> None:
 
     def _screen_is_blank() -> bool:
         frame = np.asarray(pyboy.screen.image, dtype=np.uint8)
-        return frame.size == 0 or np.all(frame == frame.flat[0])
+        return bool(frame.size == 0 or np.all(frame == frame.flat[0]))
 
     # Ensure LCD is on before capturing.
     for _ in range(args.max_frames):

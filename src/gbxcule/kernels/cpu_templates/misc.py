@@ -20,7 +20,8 @@ def template_di(pc_i: int) -> None:
 
 def template_ei(pc_i: int) -> None:
     """EI template."""
-    ime_delay[i] = 1
+    ime[i] = 1
+    ime_delay[i] = 0
     pc_i = (pc_i + 1) & 0xFFFF
     cycles = 4
 

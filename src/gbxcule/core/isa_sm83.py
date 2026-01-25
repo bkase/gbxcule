@@ -1107,7 +1107,7 @@ def _add_cb_families() -> None:
                         opcode=opcode,
                         mnemonic=f"BIT {bit},(HL)",
                         length=2,
-                        cycles=(16,),
+                        cycles=(12,),
                         template_key="cb_bit_hl",
                         replacements={"HREG_i": "h_i", "LREG_i": "l_i"},
                         group="bitops",

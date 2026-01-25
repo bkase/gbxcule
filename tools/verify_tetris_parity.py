@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
-
 from pyboy import PyBoy
 
 from gbxcule.backends.common import flags_from_f, resolve_action_codec
@@ -65,8 +65,12 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+FlagsDict = dict[str, int]
+CpuStateDict = dict[str, int | FlagsDict]
+
+
 def _pyboy_step(
-    pyboy: PyBoy,
+    pyboy: Any,
     button: str | None,
     frames_per_step: int,
     release_after_frames: int,
@@ -86,7 +90,7 @@ def _pyboy_step(
         pyboy.tick(1, False)
 
 
-def _pyboy_cpu_state(pyboy: PyBoy) -> dict[str, int | dict[str, int]]:
+def _pyboy_cpu_state(pyboy: Any) -> CpuStateDict:
     reg = pyboy.register_file
     pc = int(reg.PC) & 0xFFFF
     sp = int(reg.SP) & 0xFFFF
@@ -99,7 +103,7 @@ def _pyboy_cpu_state(pyboy: PyBoy) -> dict[str, int | dict[str, int]]:
     hl = int(reg.HL) & 0xFFFF
     h = (hl >> 8) & 0xFF
     l = hl & 0xFF  # noqa: E741 - canonical register name
-    flags = flags_from_f(f)
+    flags = cast(FlagsDict, dict(flags_from_f(f)))
     return {
         "pc": pc,
         "sp": sp,
@@ -111,12 +115,13 @@ def _pyboy_cpu_state(pyboy: PyBoy) -> dict[str, int | dict[str, int]]:
         "e": e,
         "h": h,
         "l": l,
-        "flags": dict(flags),
+        "flags": flags,
     }
 
 
-def _warp_cpu_state(warp: WarpVecCpuBackend) -> dict[str, int | dict[str, int]]:
+def _warp_cpu_state(warp: WarpVecCpuBackend) -> CpuStateDict:
     state = warp.get_cpu_state(0)
+    flags = cast(FlagsDict, dict(state["flags"]))
     return {
         "pc": int(state["pc"]),
         "sp": int(state["sp"]),
@@ -128,17 +133,17 @@ def _warp_cpu_state(warp: WarpVecCpuBackend) -> dict[str, int | dict[str, int]]:
         "e": int(state["e"]),
         "h": int(state["h"]),
         "l": int(state["l"]),
-        "flags": dict(state["flags"]),
+        "flags": flags,
     }
 
 
-def _diff_states(ref: dict[str, int | dict[str, int]], dut: dict[str, int | dict[str, int]]):
+def _diff_states(ref: CpuStateDict, dut: CpuStateDict) -> dict[str, object] | None:
     diff: dict[str, object] = {}
     for key in ("pc", "sp", "a", "f", "b", "c", "d", "e", "h", "l"):
         if ref[key] != dut[key]:
             diff[key] = {"ref": ref[key], "dut": dut[key]}
-    ref_flags = ref["flags"]
-    dut_flags = dut["flags"]
+    ref_flags = cast(FlagsDict, ref["flags"])
+    dut_flags = cast(FlagsDict, dut["flags"])
     flag_diff: dict[str, object] = {}
     for flag in ("z", "n", "h", "c"):
         if ref_flags[flag] != dut_flags[flag]:

@@ -103,6 +103,10 @@ def template_cb_rlc_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -164,6 +168,10 @@ def template_cb_rrc_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -227,6 +235,10 @@ def template_cb_rl_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -290,6 +302,10 @@ def template_cb_rr_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -351,6 +367,10 @@ def template_cb_sla_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -412,6 +432,10 @@ def template_cb_sra_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -471,6 +495,10 @@ def template_cb_swap_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, 0)
@@ -532,6 +560,10 @@ def template_cb_srl_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     f_i = make_flags(z, 0, 0, cflag)
@@ -576,7 +608,7 @@ def template_cb_bit_hl(
     z = wp.where(bit == 0, 1, 0)
     cflag = (f_i >> 4) & 0x1
     f_i = make_flags(z, 0, 1, cflag)
-    cycles = 16
+    cycles = 12
 
 
 def template_cb_res_r8(pc_i: int, f_i: int, REG_i: int) -> None:
@@ -634,6 +666,10 @@ def template_cb_res_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     cycles = 16
 
@@ -693,5 +729,9 @@ def template_cb_set_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     cycles = 16

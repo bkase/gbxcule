@@ -822,6 +822,10 @@ def template_inc_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     hflag = wp.where((old & 0x0F) == 0x0F, 1, 0)
@@ -877,6 +881,10 @@ def template_dec_hl(
         timer_prev_in,
         tima_reload_pending,
         tima_reload_delay,
+        actions,
+        frames_done,
+        release_after_frames,
+        action_codec_id,
     )
     z = wp.where(val == 0, 1, 0)
     hflag = wp.where((old & 0x0F) == 0x00, 1, 0)

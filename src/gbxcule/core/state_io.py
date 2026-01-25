@@ -118,6 +118,10 @@ class PyBoyState:
     joypad_directional: int  # D-pad bits (0=pressed, 1=released)
     joypad_standard: int  # Button bits (0=pressed, 1=released)
 
+    # Serial (v15+)
+    serial_sb: int
+    serial_sc: int
+
 
 def _read_u8(f: BinaryIO) -> int:
     data = f.read(1)
@@ -227,7 +231,8 @@ def _skip_wave_channel_state(f: BinaryIO) -> None:
 def _skip_noise_channel_state(f: BinaryIO) -> None:
     f.read(8)  # init_length_timer..length_enable
     f.read(1)  # enable
-    f.read(8 * 7)  # lengthtimer, periodtimer, envelopetimer, period, shiftregister, lfsrfeed, volume
+    # lengthtimer, periodtimer, envelopetimer, period, shiftregister, lfsrfeed, volume
+    f.read(8 * 7)
 
 
 def load_pyboy_state(path: str | Path) -> PyBoyState:
@@ -286,10 +291,7 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     if_reg = _read_u8(f)
 
     # v12+ has CPU cycles
-    if version >= 12:
-        cpu_cycles = _read_u64(f)
-    else:
-        cpu_cycles = 0
+    cpu_cycles = _read_u64(f) if version >= 12 else 0
 
     h = (hl >> 8) & 0xFF
     l_reg = hl & 0xFF
@@ -364,10 +366,22 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     # Skip cart RAM if any (we read joypad from end)
 
     # Serial state is written last; joypad state is immediately before it.
-    serial_state_size = 36  # Bytes written by Serial.save_state
-    f.seek(-(serial_state_size + 2), 2)
-    joypad_directional = _read_u8(f)
-    joypad_standard = _read_u8(f)
+    if version >= 15:
+        serial_state_size = 36  # Bytes written by Serial.save_state
+        f.seek(-(serial_state_size + 2), 2)
+        joypad_directional = _read_u8(f)
+        joypad_standard = _read_u8(f)
+        serial_sb = _read_u8(f)
+        serial_sc = _read_u8(f)
+        _serial_transfer_enabled = _read_u8(f)
+        _serial_internal_clock = _read_u8(f)
+        f.read(8 * 4)  # last_cycles, cycles_to_interrupt, clock, clock_target
+    else:
+        f.seek(-2, 2)
+        joypad_directional = _read_u8(f)
+        joypad_standard = _read_u8(f)
+        serial_sb = io_ports[0x01]
+        serial_sc = io_ports[0x02]
 
     return PyBoyState(
         version=version,
@@ -423,6 +437,8 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
         memorymodel=memorymodel,
         joypad_directional=joypad_directional,
         joypad_standard=joypad_standard,
+        serial_sb=serial_sb,
+        serial_sc=serial_sc,
     )
 
 
@@ -483,16 +499,21 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
     _write_u8(f, state.wy)
     _write_u8(f, state.wx)
 
-    # LCD timing/mode
+    # LCD timing/mode (v8+)
     _write_u8(f, 0)  # lcd_cgb = 0 (DMG)
     _write_u8(f, 0)  # lcd_double_speed = 0 (DMG)
+    _write_u8(f, 0)  # frame_done
+    _write_u8(f, 0)  # first_frame
+    _write_u8(f, 0)  # reset_flag
+    _write_u64(f, 0)  # lcd_last_cycles
     _write_u64(f, state.lcd_clock)
     _write_u64(f, state.lcd_clock_target)
     _write_u8(f, state.next_stat_mode)
 
-    # Scanline params
-    assert len(state.scanline_params) == SCANLINE_PARAMS_SIZE
-    f.write(state.scanline_params)
+    # Scanline params (v11+)
+    if PYBOY_STATE_VERSION_SAVE >= 11:
+        assert len(state.scanline_params) == SCANLINE_PARAMS_SIZE
+        f.write(state.scanline_params)
 
     # Sound (write zeros - 138 bytes for v9)
     f.write(b"\x00" * SOUND_SIZE_V9)
@@ -697,6 +718,8 @@ def state_from_warp_backend(
         memorymodel=memorymodel,
         joypad_directional=0x0F,  # All released
         joypad_standard=0x0F,  # All released
+        serial_sb=mem[base + 0xFF01],
+        serial_sc=mem[base + 0xFF02],
     )
 
 
@@ -792,6 +815,8 @@ def apply_state_to_warp_backend(
     mem[base + 0xFF49] = state.obp1
     mem[base + 0xFF4A] = state.wy
     mem[base + 0xFF4B] = state.wx
+    mem[base + 0xFF01] = state.serial_sb & 0xFF
+    mem[base + 0xFF02] = state.serial_sc & 0xFF
 
     # Interrupts
     mem[base + 0xFF0F] = state.if_reg
@@ -827,11 +852,7 @@ def apply_state_to_warp_backend(
 
     # PPU state
     backend._ppu_ly.numpy()[env_idx] = state.ly
-    lcdc_on = (state.lcdc & 0x80) != 0
-    if lcdc_on:
-        scanline_cycle = int(state.lcd_clock % CYCLES_PER_SCANLINE)
-    else:
-        scanline_cycle = 0
+    scanline_cycle = int(state.lcd_clock % CYCLES_PER_SCANLINE)
     backend._ppu_scanline_cycle.numpy()[env_idx] = scanline_cycle
 
     cycles_per_frame = CYCLES_PER_SCANLINE * 154
@@ -839,7 +860,7 @@ def apply_state_to_warp_backend(
         cycle_count = int(state.cpu_cycles)
     else:
         cycle_count = int(state.lcd_clock)
-    cycle_in_frame = int(state.lcd_clock % cycles_per_frame) if lcdc_on else 0
+    cycle_in_frame = int(state.lcd_clock % cycles_per_frame)
     backend._cycle_count.numpy()[env_idx] = cycle_count
     backend._cycle_in_frame.numpy()[env_idx] = cycle_in_frame
 
