@@ -900,6 +900,12 @@ def apply_state_to_warp_backend(
     else:
         cycle_count = int(state.lcd_clock)
     cycle_in_frame = int(state.lcd_clock % cycles_per_frame)
+    cycle_min = np.iinfo(np.int64).min
+    cycle_max = np.iinfo(np.int64).max
+    if cycle_count < cycle_min:
+        cycle_count = cycle_min
+    elif cycle_count > cycle_max:
+        cycle_count = cycle_max
     backend._cycle_count.numpy()[env_idx] = cycle_count
     backend._cycle_in_frame.numpy()[env_idx] = cycle_in_frame
 
