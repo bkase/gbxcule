@@ -113,6 +113,7 @@ class PyBoyState:
     rambank: int
     rambank_enabled: int
     memorymodel: int
+    cart_ram: bytes  # Concatenated cartridge RAM banks
 
     # Joypad
     joypad_directional: int  # D-pad bits (0=pressed, 1=released)
@@ -363,11 +364,25 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     rambank = _read_u8(f)
     rambank_enabled = _read_u8(f)
     memorymodel = _read_u8(f)
-    # Skip cart RAM if any (we read joypad from end)
+    # Cartridge RAM sits between cart header and the trailing joypad/serial bytes.
+    serial_state_size = 36 if version >= 15 else 0
+    tail_size = 2 + serial_state_size
+    cart_ram_start = f.tell()
+    file_end = f.seek(0, 2)
+    cart_ram_size = file_end - tail_size - cart_ram_start
+    if cart_ram_size < 0:
+        raise ValueError(
+            f"State file too small for cart RAM: {cart_ram_size} bytes remaining"
+        )
+    f.seek(cart_ram_start)
+    cart_ram = b""
+    if cart_ram_size:
+        cart_ram = f.read(cart_ram_size)
+        if len(cart_ram) != cart_ram_size:
+            raise EOFError("Unexpected end of file while reading cart RAM")
 
     # Serial state is written last; joypad state is immediately before it.
     if version >= 15:
-        serial_state_size = 36  # Bytes written by Serial.save_state
         f.seek(-(serial_state_size + 2), 2)
         joypad_directional = _read_u8(f)
         joypad_standard = _read_u8(f)
@@ -435,6 +450,7 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
         rambank=rambank,
         rambank_enabled=rambank_enabled,
         memorymodel=memorymodel,
+        cart_ram=cart_ram,
         joypad_directional=joypad_directional,
         joypad_standard=joypad_standard,
         serial_sb=serial_sb,
@@ -547,6 +563,8 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
     _write_u8(f, state.rambank)
     _write_u8(f, state.rambank_enabled)
     _write_u8(f, state.memorymodel)
+    if state.cart_ram:
+        f.write(state.cart_ram)
 
     # Joypad (at end)
     _write_u8(f, state.joypad_directional)
@@ -594,6 +612,12 @@ def state_from_warp_backend(
     rambank = int(cart_state[cart_base + CART_STATE_RAM_BANK]) & 0xFF
     rambank_enabled = int(cart_state[cart_base + CART_STATE_RAM_ENABLE]) & 0x01
     memorymodel = int(cart_state[cart_base + CART_STATE_BANK_MODE]) & 0x01
+    cart_ram = b""
+    ram_byte_length = int(getattr(backend, "_ram_byte_length", 0))
+    if ram_byte_length > 0 and backend._cart_ram is not None:
+        cart_ram_np = backend._cart_ram.numpy()
+        cart_ram_base = env_idx * ram_byte_length
+        cart_ram = bytes(cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length])
 
     # Extract CPU registers
     a = int(backend._a.numpy()[env_idx]) & 0xFF
@@ -716,6 +740,7 @@ def state_from_warp_backend(
         rambank=rambank,
         rambank_enabled=rambank_enabled,
         memorymodel=memorymodel,
+        cart_ram=cart_ram,
         joypad_directional=0x0F,  # All released
         joypad_standard=0x0F,  # All released
         serial_sb=mem[base + 0xFF01],
@@ -767,6 +792,20 @@ def apply_state_to_warp_backend(
     cart_state[cart_base + CART_STATE_RAM_BANK] = state.rambank & 0xFF
     cart_state[cart_base + CART_STATE_RAM_ENABLE] = state.rambank_enabled & 0x01
     cart_state[cart_base + CART_STATE_BANK_MODE] = state.memorymodel & 0x01
+    ram_byte_length = int(getattr(backend, "_ram_byte_length", 0))
+    if ram_byte_length > 0 and backend._cart_ram is not None and state.cart_ram:
+        cart_ram_np = backend._cart_ram.numpy()
+        cart_ram_base = env_idx * ram_byte_length
+        cart_ram_bytes = np.frombuffer(state.cart_ram, dtype=np.uint8)
+        if cart_ram_bytes.size >= ram_byte_length:
+            cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = (
+                cart_ram_bytes[:ram_byte_length]
+            )
+        else:
+            cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = 0
+            cart_ram_np[
+                cart_ram_base : cart_ram_base + cart_ram_bytes.size
+            ] = cart_ram_bytes
 
     # VRAM (0x8000-0x9FFF)
     mem[base + 0x8000 : base + 0x8000 + VRAM_SIZE] = np.frombuffer(
