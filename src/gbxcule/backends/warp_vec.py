@@ -201,8 +201,7 @@ class WarpVecBaseBackend:
         if not rom_path.exists():
             raise FileNotFoundError(f"ROM file not found: {rom_path}")
         rom_bytes = rom_path.read_bytes()
-        if len(rom_bytes) > MEM_SIZE:
-            raise ValueError(f"ROM too large: {len(rom_bytes)} bytes")
+        # Banked cartridges can exceed 64KB; header parsing in reset() validates size.
         return rom_bytes
 
     def _load_bootrom_bytes(self) -> bytes:
