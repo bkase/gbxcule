@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu bench-tetris-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -185,6 +185,21 @@ bench-e4-gpu: roms ensure-puffer ## E4 scaling sweep (DGX/CUDA; puffer baseline 
 		$(PY) bench/analysis/plot_scaling.py --report-dir "$$report_dir/$$rom_id" --out "$$report_dir/$$rom_id/scaling.png"; \
 	done; \
 	echo "Report: $$report_dir"
+
+# Tetris-specific benchmark defaults
+TETRIS_ROM ?= tetris.gb
+TETRIS_STATE ?= states/tetris_gameplay.state
+TETRIS_BASELINE_ENV_COUNTS ?= 1,8,64,128
+TETRIS_DUT_ENV_COUNTS ?= 1,8,64,512,2048,8192,16384
+TETRIS_STEPS ?= 200
+TETRIS_WARMUP_STEPS ?= 10
+TETRIS_FRAMES_PER_STEP ?= 24
+TETRIS_RELEASE_AFTER_FRAMES ?= 8
+
+bench-tetris-gpu: ensure-puffer ## Tetris benchmark (PyBoy baseline vs WarpVec CUDA)
+	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
+	@test -f $(TETRIS_ROM) || { echo "Error: Tetris ROM not found: $(TETRIS_ROM)"; exit 1; }
+	@$(PY) bench/tetris_bench.py --rom $(TETRIS_ROM) --state $(TETRIS_STATE) --baseline-env-counts $(TETRIS_BASELINE_ENV_COUNTS) --dut-env-counts $(TETRIS_DUT_ENV_COUNTS) --steps $(TETRIS_STEPS) --warmup-steps $(TETRIS_WARMUP_STEPS) --frames-per-step $(TETRIS_FRAMES_PER_STEP) --release-after-frames $(TETRIS_RELEASE_AFTER_FRAMES)
 
 check-gpu: roms ## Fast-ish DGX gate (CUDA smoke)
 	@command -v nvidia-smi >/dev/null 2>&1 || { echo "Error: CUDA GPU required (nvidia-smi not found)"; exit 1; }
