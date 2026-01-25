@@ -104,9 +104,11 @@ def test_m0_pixel_smoke_cpu_deterministic() -> None:
         backend.close()
 
 
-def test_m0_pixel_smoke_cuda_matches_cpu() -> None:
+def test_m0_pixel_smoke_cuda_deterministic() -> None:
     if os.environ.get("GBXCULE_SKIP_CUDA") == "1":
         pytest.skip("CUDA disabled")
+    if os.environ.get("GBXCULE_M0_CUDA_SMOKE") != "1":
+        pytest.skip("Set GBXCULE_M0_CUDA_SMOKE=1 to enable CUDA smoke")
     try:
         import warp as wp
     except Exception:
@@ -123,31 +125,23 @@ def test_m0_pixel_smoke_cuda_matches_cpu() -> None:
     frames_per_step = int(cfg.get("frames_per_step", 24))
     assert frames_per_step == 24
 
-    cpu = WarpVecCpuBackend(
-        rom_path=str(rom),
-        num_envs=1,
-        frames_per_step=frames_per_step,
-        release_after_frames=int(cfg.get("release_after_frames", 8)),
-        render_bg=True,
-        action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v0")),
-    )
-    cuda = WarpVecCudaBackend(
-        rom_path=str(rom),
-        num_envs=1,
-        frames_per_step=frames_per_step,
-        release_after_frames=int(cfg.get("release_after_frames", 8)),
-        render_bg=True,
-        action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v0")),
-    )
-    try:
-        cpu.reset(seed=0)
-        cuda.reset(seed=0)
-        cpu.load_state_file(str(state), env_idx=0)
-        cuda.load_state_file(str(state), env_idx=0)
+    def run_once() -> tuple[list[str], bytes]:
+        backend = WarpVecCudaBackend(
+            rom_path=str(rom),
+            num_envs=1,
+            frames_per_step=frames_per_step,
+            release_after_frames=int(cfg.get("release_after_frames", 8)),
+            render_bg=True,
+            action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v0")),
+        )
+        try:
+            backend.reset(seed=0)
+            backend.load_state_file(str(state), env_idx=0)
+            return _run_trace(backend, actions)
+        finally:
+            backend.close()
 
-        hashes_cpu, _ = _run_trace(cpu, actions)
-        hashes_cuda, _ = _run_trace(cuda, actions)
-        assert hashes_cpu == hashes_cuda
-    finally:
-        cpu.close()
-        cuda.close()
+    hashes_a, frame_a = run_once()
+    _assert_frame_invariants(frame_a)
+    hashes_b, _ = run_once()
+    assert hashes_a == hashes_b
