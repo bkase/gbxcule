@@ -44,6 +44,9 @@ SERIAL_MAX: Final[int] = 1024
 # Screen geometry (DMG).
 SCREEN_W: Final[int] = 160
 SCREEN_H: Final[int] = 144
+DOWNSAMPLE_SCALE: Final[int] = 2
+DOWNSAMPLE_W: Final[int] = SCREEN_W // DOWNSAMPLE_SCALE
+DOWNSAMPLE_H: Final[int] = SCREEN_H // DOWNSAMPLE_SCALE
 
 # Scanline timing (DMG).
 CYCLES_PER_SCANLINE: Final[int] = 456

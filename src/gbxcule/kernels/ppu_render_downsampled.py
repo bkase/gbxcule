@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import warp as wp
 
-from gbxcule.core.abi import MEM_SIZE, SCREEN_H, SCREEN_W
+from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W, MEM_SIZE
 from gbxcule.kernels.cpu_step import get_warp
-
-DOWNSAMPLE_W = SCREEN_W // 2
-DOWNSAMPLE_H = SCREEN_H // 2
 
 IO_LCDC = 0xFF40
 IO_SCY = 0xFF42
