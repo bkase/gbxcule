@@ -312,22 +312,17 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     wy = _read_u8(f)
     wx = _read_u8(f)
 
-    # Scanline params (v11+)
-    if version >= 11:
-        scanline_params = f.read(SCANLINE_PARAMS_SIZE)
-    else:
-        scanline_params = bytes(SCANLINE_PARAMS_SIZE)
-
     # LCD timing/mode (v8+)
     _lcd_cgb = _read_u8(f)  # Should be 0 for DMG
     _lcd_double_speed = _read_u8(f)  # speed_shift
-    _frame_done = _read_u8(f)
-    _first_frame = _read_u8(f)
-    _reset_flag = _read_u8(f)
-    _lcd_last_cycles = _read_u64(f)
+    if version >= 13:
+        _lcd_last_cycles = _read_u64(f)
     lcd_clock = _read_u64(f)
     lcd_clock_target = _read_u64(f)
     next_stat_mode = _read_u8(f)
+
+    # Scanline params (v9+)
+    scanline_params = f.read(SCANLINE_PARAMS_SIZE)
 
     # Sound (v8+) - need to skip, but size varies
     # For now, we'll skip to the renderer section by reading field by field
@@ -518,18 +513,13 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
     # LCD timing/mode (v8+)
     _write_u8(f, 0)  # lcd_cgb = 0 (DMG)
     _write_u8(f, 0)  # lcd_double_speed = 0 (DMG)
-    _write_u8(f, 0)  # frame_done
-    _write_u8(f, 0)  # first_frame
-    _write_u8(f, 0)  # reset_flag
-    _write_u64(f, 0)  # lcd_last_cycles
     _write_u64(f, state.lcd_clock)
     _write_u64(f, state.lcd_clock_target)
     _write_u8(f, state.next_stat_mode)
 
-    # Scanline params (v11+)
-    if PYBOY_STATE_VERSION_SAVE >= 11:
-        assert len(state.scanline_params) == SCANLINE_PARAMS_SIZE
-        f.write(state.scanline_params)
+    # Scanline params (v9+)
+    assert len(state.scanline_params) == SCANLINE_PARAMS_SIZE
+    f.write(state.scanline_params)
 
     # Sound (write zeros - 138 bytes for v9)
     f.write(b"\x00" * SOUND_SIZE_V9)
