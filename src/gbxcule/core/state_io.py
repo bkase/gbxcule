@@ -794,99 +794,136 @@ def apply_state_to_warp_backend(
     if not backend._initialized:
         raise RuntimeError("Backend not initialized")
 
+    wp = backend._wp
+    is_cuda = backend.device == "cuda"
+
+    def _write_scalar(dest, value, np_dtype, wp_dtype) -> None:
+        if dest is None:
+            return
+        if is_cuda:
+            host_np = np.array([value], dtype=np_dtype)
+            host = wp.array(host_np, dtype=wp_dtype, device="cpu")
+            wp.copy(dest, host, dest_offset=int(env_idx), src_offset=0, count=1)
+        else:
+            dest.numpy()[env_idx] = value
+
     # CPU registers
-    backend._a.numpy()[env_idx] = state.a
-    backend._f.numpy()[env_idx] = state.f
-    backend._b.numpy()[env_idx] = state.b
-    backend._c.numpy()[env_idx] = state.c
-    backend._d.numpy()[env_idx] = state.d
-    backend._e.numpy()[env_idx] = state.e
-    backend._h.numpy()[env_idx] = state.h
-    backend._l.numpy()[env_idx] = state.l_reg
-    backend._sp.numpy()[env_idx] = state.sp
-    backend._pc.numpy()[env_idx] = state.pc
-    backend._ime.numpy()[env_idx] = state.ime
-    backend._ime_delay.numpy()[env_idx] = 0
-    backend._halted.numpy()[env_idx] = state.halted
+    _write_scalar(backend._a, state.a, np.int32, wp.int32)
+    _write_scalar(backend._f, state.f, np.int32, wp.int32)
+    _write_scalar(backend._b, state.b, np.int32, wp.int32)
+    _write_scalar(backend._c, state.c, np.int32, wp.int32)
+    _write_scalar(backend._d, state.d, np.int32, wp.int32)
+    _write_scalar(backend._e, state.e, np.int32, wp.int32)
+    _write_scalar(backend._h, state.h, np.int32, wp.int32)
+    _write_scalar(backend._l, state.l_reg, np.int32, wp.int32)
+    _write_scalar(backend._sp, state.sp, np.int32, wp.int32)
+    _write_scalar(backend._pc, state.pc, np.int32, wp.int32)
+    _write_scalar(backend._ime, state.ime, np.int32, wp.int32)
+    _write_scalar(backend._ime_delay, 0, np.int32, wp.int32)
+    _write_scalar(backend._halted, state.halted, np.int32, wp.int32)
 
     # Memory
-    mem = backend._mem.numpy()
+    mem_full = backend._mem.numpy()
     base = env_idx * MEM_SIZE
-    cart_state = backend._cart_state.numpy()
+    mem_env = mem_full[base : base + MEM_SIZE].copy() if is_cuda else mem_full
+    mem_offset = 0 if is_cuda else base
+    cart_state_full = backend._cart_state.numpy()
     cart_base = env_idx * CART_STATE_STRIDE
+    cart_state = (
+        cart_state_full[cart_base : cart_base + CART_STATE_STRIDE].copy()
+        if is_cuda
+        else cart_state_full
+    )
 
-    cart_state[cart_base + CART_STATE_BOOTROM_ENABLED] = (
+    cart_state_idx = cart_base if not is_cuda else 0
+    cart_state[cart_state_idx + CART_STATE_BOOTROM_ENABLED] = (
         1 if state.bootrom_enabled != 0 else 0
     )
-    cart_state[cart_base + CART_STATE_ROM_BANK_LO] = state.rombank & 0x7F
-    cart_state[cart_base + CART_STATE_ROM_BANK_HI] = (state.rombank >> 5) & 0x03
-    cart_state[cart_base + CART_STATE_RAM_BANK] = state.rambank & 0xFF
-    cart_state[cart_base + CART_STATE_RAM_ENABLE] = state.rambank_enabled & 0x01
-    cart_state[cart_base + CART_STATE_BANK_MODE] = state.memorymodel & 0x01
+    cart_state[cart_state_idx + CART_STATE_ROM_BANK_LO] = state.rombank & 0x7F
+    cart_state[cart_state_idx + CART_STATE_ROM_BANK_HI] = (state.rombank >> 5) & 0x03
+    cart_state[cart_state_idx + CART_STATE_RAM_BANK] = state.rambank & 0xFF
+    cart_state[cart_state_idx + CART_STATE_RAM_ENABLE] = state.rambank_enabled & 0x01
+    cart_state[cart_state_idx + CART_STATE_BANK_MODE] = state.memorymodel & 0x01
     ram_byte_length = int(getattr(backend, "_ram_byte_length", 0))
     if ram_byte_length > 0 and backend._cart_ram is not None and state.cart_ram:
-        cart_ram_np = backend._cart_ram.numpy()
-        cart_ram_base = env_idx * ram_byte_length
         cart_ram_bytes = np.frombuffer(state.cart_ram, dtype=np.uint8)
+        cart_ram_env = np.zeros((ram_byte_length,), dtype=np.uint8)
         if cart_ram_bytes.size >= ram_byte_length:
-            cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = (
-                cart_ram_bytes[:ram_byte_length]
+            cart_ram_env[:] = cart_ram_bytes[:ram_byte_length]
+        else:
+            cart_ram_env[: cart_ram_bytes.size] = cart_ram_bytes
+        if is_cuda:
+            cart_ram_host = wp.array(cart_ram_env, dtype=wp.uint8, device="cpu")
+            wp.copy(
+                backend._cart_ram,
+                cart_ram_host,
+                dest_offset=int(env_idx) * ram_byte_length,
+                src_offset=0,
+                count=ram_byte_length,
             )
         else:
-            cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = 0
-            cart_ram_np[cart_ram_base : cart_ram_base + cart_ram_bytes.size] = (
-                cart_ram_bytes
-            )
+            cart_ram_np = backend._cart_ram.numpy()
+            cart_ram_base = env_idx * ram_byte_length
+            cart_ram_np[cart_ram_base : cart_ram_base + ram_byte_length] = cart_ram_env
 
     # VRAM (0x8000-0x9FFF)
-    mem[base + 0x8000 : base + 0x8000 + VRAM_SIZE] = np.frombuffer(
+    mem_env[mem_offset + 0x8000 : mem_offset + 0x8000 + VRAM_SIZE] = np.frombuffer(
         state.vram, dtype=np.uint8
     )
 
     # OAM (0xFE00-0xFE9F)
-    mem[base + 0xFE00 : base + 0xFE00 + OAM_SIZE] = np.frombuffer(
+    mem_env[mem_offset + 0xFE00 : mem_offset + 0xFE00 + OAM_SIZE] = np.frombuffer(
         state.oam, dtype=np.uint8
     )
 
     # WRAM (0xC000-0xDFFF)
-    mem[base + 0xC000 : base + 0xC000 + WRAM_SIZE] = np.frombuffer(
+    mem_env[mem_offset + 0xC000 : mem_offset + 0xC000 + WRAM_SIZE] = np.frombuffer(
         state.wram, dtype=np.uint8
     )
 
     # HRAM (0xFF80-0xFFFE)
-    mem[base + 0xFF80 : base + 0xFF80 + HRAM_SIZE] = np.frombuffer(
+    mem_env[mem_offset + 0xFF80 : mem_offset + 0xFF80 + HRAM_SIZE] = np.frombuffer(
         state.hram, dtype=np.uint8
     )
 
     # IO ports (0xFF00-0xFF4B)
-    mem[base + 0xFF00 : base + 0xFF00 + IO_PORTS_SIZE] = np.frombuffer(
+    mem_env[mem_offset + 0xFF00 : mem_offset + 0xFF00 + IO_PORTS_SIZE] = np.frombuffer(
         state.io_ports, dtype=np.uint8
     )
     # Joypad select bits are tracked separately in Warp.
-    backend._joyp_select.numpy()[env_idx] = mem[base + 0xFF00] & 0x30
+    _write_scalar(
+        backend._joyp_select,
+        int(mem_env[mem_offset + 0xFF00] & 0x30),
+        np.uint8,
+        wp.uint8,
+    )
 
     # Non-IO RAM regions
-    mem[base + 0xFEA0 : base + 0xFEA0 + NON_IO_RAM0_SIZE] = np.frombuffer(
+    mem_env[
+        mem_offset + 0xFEA0 : mem_offset + 0xFEA0 + NON_IO_RAM0_SIZE
+    ] = np.frombuffer(
         state.non_io_ram0, dtype=np.uint8
     )
-    mem[base + 0xFF4C : base + 0xFF4C + NON_IO_RAM1_SIZE] = np.frombuffer(
+    mem_env[
+        mem_offset + 0xFF4C : mem_offset + 0xFF4C + NON_IO_RAM1_SIZE
+    ] = np.frombuffer(
         state.non_io_ram1, dtype=np.uint8
     )
 
     # Key LCD registers (may override IO ports)
-    mem[base + 0xFF40] = state.lcdc
-    mem[base + 0xFF41] = state.stat
-    mem[base + 0xFF42] = state.scy
-    mem[base + 0xFF43] = state.scx
-    mem[base + 0xFF44] = state.ly
-    mem[base + 0xFF45] = state.lyc
-    mem[base + 0xFF47] = state.bgp
-    mem[base + 0xFF48] = state.obp0
-    mem[base + 0xFF49] = state.obp1
-    mem[base + 0xFF4A] = state.wy
-    mem[base + 0xFF4B] = state.wx
-    mem[base + 0xFF01] = state.serial_sb & 0xFF
-    mem[base + 0xFF02] = state.serial_sc & 0xFF
+    mem_env[mem_offset + 0xFF40] = state.lcdc
+    mem_env[mem_offset + 0xFF41] = state.stat
+    mem_env[mem_offset + 0xFF42] = state.scy
+    mem_env[mem_offset + 0xFF43] = state.scx
+    mem_env[mem_offset + 0xFF44] = state.ly
+    mem_env[mem_offset + 0xFF45] = state.lyc
+    mem_env[mem_offset + 0xFF47] = state.bgp
+    mem_env[mem_offset + 0xFF48] = state.obp0
+    mem_env[mem_offset + 0xFF49] = state.obp1
+    mem_env[mem_offset + 0xFF4A] = state.wy
+    mem_env[mem_offset + 0xFF4B] = state.wx
+    mem_env[mem_offset + 0xFF01] = state.serial_sb & 0xFF
+    mem_env[mem_offset + 0xFF02] = state.serial_sc & 0xFF
 
     # Seed PPU latches from scanline params to render immediately after load.
     if (
@@ -902,15 +939,26 @@ def apply_state_to_warp_backend(
     ):
         scan = state.scanline_params
         if len(scan) >= SCREEN_H * 5:
-            lcdc_latch = backend._bg_lcdc_latch_env0.numpy()
-            scx_latch = backend._bg_scx_latch_env0.numpy()
-            scy_latch = backend._bg_scy_latch_env0.numpy()
-            bgp_latch = backend._bg_bgp_latch_env0.numpy()
-            wx_latch = backend._win_wx_latch_env0.numpy()
-            wy_latch = backend._win_wy_latch_env0.numpy()
-            win_line_latch = backend._win_line_latch_env0.numpy()
-            obp0_latch = backend._obj_obp0_latch_env0.numpy()
-            obp1_latch = backend._obj_obp1_latch_env0.numpy()
+            if is_cuda:
+                lcdc_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                scx_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                scy_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                bgp_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                wx_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                wy_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                win_line_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                obp0_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+                obp1_latch = np.zeros((SCREEN_H,), dtype=np.uint8)
+            else:
+                lcdc_latch = backend._bg_lcdc_latch_env0.numpy()
+                scx_latch = backend._bg_scx_latch_env0.numpy()
+                scy_latch = backend._bg_scy_latch_env0.numpy()
+                bgp_latch = backend._bg_bgp_latch_env0.numpy()
+                wx_latch = backend._win_wx_latch_env0.numpy()
+                wy_latch = backend._win_wy_latch_env0.numpy()
+                win_line_latch = backend._win_line_latch_env0.numpy()
+                obp0_latch = backend._obj_obp0_latch_env0.numpy()
+                obp1_latch = backend._obj_obp1_latch_env0.numpy()
             for y in range(SCREEN_H):
                 idx = y * 5
                 scx = scan[idx + 0]
@@ -926,20 +974,41 @@ def apply_state_to_warp_backend(
                 win_line_latch[y] = (y - wy) & 0xFF if y >= wy else 0
                 obp0_latch[y] = state.obp0
                 obp1_latch[y] = state.obp1
+            if is_cuda:
+                lcdc_host = wp.array(lcdc_latch, dtype=wp.uint8, device="cpu")
+                scx_host = wp.array(scx_latch, dtype=wp.uint8, device="cpu")
+                scy_host = wp.array(scy_latch, dtype=wp.uint8, device="cpu")
+                bgp_host = wp.array(bgp_latch, dtype=wp.uint8, device="cpu")
+                wx_host = wp.array(wx_latch, dtype=wp.uint8, device="cpu")
+                wy_host = wp.array(wy_latch, dtype=wp.uint8, device="cpu")
+                win_line_host = wp.array(
+                    win_line_latch, dtype=wp.uint8, device="cpu"
+                )
+                obp0_host = wp.array(obp0_latch, dtype=wp.uint8, device="cpu")
+                obp1_host = wp.array(obp1_latch, dtype=wp.uint8, device="cpu")
+                wp.copy(backend._bg_lcdc_latch_env0, lcdc_host, count=SCREEN_H)
+                wp.copy(backend._bg_scx_latch_env0, scx_host, count=SCREEN_H)
+                wp.copy(backend._bg_scy_latch_env0, scy_host, count=SCREEN_H)
+                wp.copy(backend._bg_bgp_latch_env0, bgp_host, count=SCREEN_H)
+                wp.copy(backend._win_wx_latch_env0, wx_host, count=SCREEN_H)
+                wp.copy(backend._win_wy_latch_env0, wy_host, count=SCREEN_H)
+                wp.copy(backend._win_line_latch_env0, win_line_host, count=SCREEN_H)
+                wp.copy(backend._obj_obp0_latch_env0, obp0_host, count=SCREEN_H)
+                wp.copy(backend._obj_obp1_latch_env0, obp1_host, count=SCREEN_H)
 
     # Interrupts
-    mem[base + 0xFF0F] = state.if_reg
-    mem[base + 0xFFFF] = state.ie
+    mem_env[mem_offset + 0xFF0F] = state.if_reg
+    mem_env[mem_offset + 0xFFFF] = state.ie
 
     # Timer registers
-    mem[base + 0xFF04] = state.div
-    mem[base + 0xFF05] = state.tima
-    mem[base + 0xFF06] = state.tma
-    mem[base + 0xFF07] = state.tac
+    mem_env[mem_offset + 0xFF04] = state.div
+    mem_env[mem_offset + 0xFF05] = state.tima
+    mem_env[mem_offset + 0xFF06] = state.tma
+    mem_env[mem_offset + 0xFF07] = state.tac
 
     # Timer internal state
     div_counter_full = ((int(state.div) & 0xFF) << 8) | (int(state.div_counter) & 0xFF)
-    backend._div_counter.numpy()[env_idx] = div_counter_full
+    _write_scalar(backend._div_counter, div_counter_full, np.int32, wp.int32)
     # Align timer edge tracking to current DIV/TAC state.
     tac = int(state.tac)
     if (tac & 0x04) == 0:
@@ -955,14 +1024,14 @@ def apply_state_to_warp_backend(
         else:
             bit = 7
         timer_prev_in = (div_counter_full >> bit) & 0x1
-    backend._timer_prev_in.numpy()[env_idx] = timer_prev_in
-    backend._tima_reload_pending.numpy()[env_idx] = 0
-    backend._tima_reload_delay.numpy()[env_idx] = 0
+    _write_scalar(backend._timer_prev_in, timer_prev_in, np.int32, wp.int32)
+    _write_scalar(backend._tima_reload_pending, 0, np.int32, wp.int32)
+    _write_scalar(backend._tima_reload_delay, 0, np.int32, wp.int32)
 
     # PPU state
-    backend._ppu_ly.numpy()[env_idx] = state.ly
+    _write_scalar(backend._ppu_ly, state.ly, np.int32, wp.int32)
     scanline_cycle = int(state.lcd_clock % CYCLES_PER_SCANLINE)
-    backend._ppu_scanline_cycle.numpy()[env_idx] = scanline_cycle
+    _write_scalar(backend._ppu_scanline_cycle, scanline_cycle, np.int32, wp.int32)
 
     cycles_per_frame = CYCLES_PER_SCANLINE * 154
     if state.cpu_cycles != 0:
@@ -976,14 +1045,14 @@ def apply_state_to_warp_backend(
         cycle_count = cycle_min
     elif cycle_count > cycle_max:
         cycle_count = cycle_max
-    backend._cycle_count.numpy()[env_idx] = cycle_count
-    backend._cycle_in_frame.numpy()[env_idx] = cycle_in_frame
+    _write_scalar(backend._cycle_count, cycle_count, np.int64, wp.int64)
+    _write_scalar(backend._cycle_in_frame, cycle_in_frame, np.int32, wp.int32)
 
     # PPU window line counter (estimate from WY and LY)
     if state.ly >= state.wy:
-        backend._ppu_window_line.numpy()[env_idx] = state.ly - state.wy
+        _write_scalar(backend._ppu_window_line, state.ly - state.wy, np.int32, wp.int32)
     else:
-        backend._ppu_window_line.numpy()[env_idx] = 0
+        _write_scalar(backend._ppu_window_line, 0, np.int32, wp.int32)
 
     # STAT previous state for edge triggering (mode0/mode1/mode2/lyc flags)
     mode = int(state.stat) & 0x03
@@ -991,6 +1060,22 @@ def apply_state_to_warp_backend(
     prev_mode1 = 1 if mode == 1 else 0
     prev_mode2 = 1 if mode == 2 else 0
     prev_lyc = 1 if int(state.ly) == int(state.lyc) else 0
-    backend._ppu_stat_prev.numpy()[env_idx] = (
-        prev_mode0 | (prev_mode1 << 1) | (prev_mode2 << 2) | (prev_lyc << 3)
+    _write_scalar(
+        backend._ppu_stat_prev,
+        prev_mode0 | (prev_mode1 << 1) | (prev_mode2 << 2) | (prev_lyc << 3),
+        np.uint8,
+        wp.uint8,
     )
+
+    if is_cuda:
+        mem_host = wp.array(mem_env, dtype=wp.uint8, device="cpu")
+        wp.copy(backend._mem, mem_host, dest_offset=base, src_offset=0, count=MEM_SIZE)
+
+        cart_host = wp.array(cart_state, dtype=wp.int32, device="cpu")
+        wp.copy(
+            backend._cart_state,
+            cart_host,
+            dest_offset=cart_base,
+            src_offset=0,
+            count=CART_STATE_STRIDE,
+        )
