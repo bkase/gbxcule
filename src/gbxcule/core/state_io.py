@@ -899,15 +899,11 @@ def apply_state_to_warp_backend(
     )
 
     # Non-IO RAM regions
-    mem_env[
-        mem_offset + 0xFEA0 : mem_offset + 0xFEA0 + NON_IO_RAM0_SIZE
-    ] = np.frombuffer(
-        state.non_io_ram0, dtype=np.uint8
+    mem_env[mem_offset + 0xFEA0 : mem_offset + 0xFEA0 + NON_IO_RAM0_SIZE] = (
+        np.frombuffer(state.non_io_ram0, dtype=np.uint8)
     )
-    mem_env[
-        mem_offset + 0xFF4C : mem_offset + 0xFF4C + NON_IO_RAM1_SIZE
-    ] = np.frombuffer(
-        state.non_io_ram1, dtype=np.uint8
+    mem_env[mem_offset + 0xFF4C : mem_offset + 0xFF4C + NON_IO_RAM1_SIZE] = (
+        np.frombuffer(state.non_io_ram1, dtype=np.uint8)
     )
 
     # Key LCD registers (may override IO ports)
@@ -981,9 +977,7 @@ def apply_state_to_warp_backend(
                 bgp_host = wp.array(bgp_latch, dtype=wp.uint8, device="cpu")
                 wx_host = wp.array(wx_latch, dtype=wp.uint8, device="cpu")
                 wy_host = wp.array(wy_latch, dtype=wp.uint8, device="cpu")
-                win_line_host = wp.array(
-                    win_line_latch, dtype=wp.uint8, device="cpu"
-                )
+                win_line_host = wp.array(win_line_latch, dtype=wp.uint8, device="cpu")
                 obp0_host = wp.array(obp0_latch, dtype=wp.uint8, device="cpu")
                 obp1_host = wp.array(obp1_latch, dtype=wp.uint8, device="cpu")
                 wp.copy(backend._bg_lcdc_latch_env0, lcdc_host, count=SCREEN_H)

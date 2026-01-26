@@ -1,0 +1,21 @@
+{
+  "action_codec_id": "pokemonred_puffer_v0",
+  "actions_path": "states/rl_m5_actions_pallet_house.jsonl",
+  "actions_sha256": "631e21d653c4403cc79be7266a9ded76c4f00e70e98fc0ef2bb3d0d0d3e0a09e",
+  "created_at": "2026-01-26T07:13:18.797073+00:00",
+  "dist_metric": "l1_mean_norm",
+  "downsample_h": 72,
+  "downsample_w": 80,
+  "frames_per_step": 24,
+  "k_consecutive": 2,
+  "pipeline_version": 1,
+  "release_after_frames": 8,
+  "rom_path": "red.gb",
+  "rom_sha256": "5ca7ba01642a3b27b0cc0b5349b52792795b62d3ed977e98a09390659af96b7b",
+  "schema_version": 1,
+  "shade_levels": 4,
+  "stack_k": 4,
+  "state_path": "states/pokemonred_bulbasaur_roundtrip2.state",
+  "state_sha256": "e65a2202bd12cb1c6ac132331481d5b5d792897057875ac7f50946f7a3cbdafa",
+  "tau": 0.05
+}
