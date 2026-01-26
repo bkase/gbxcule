@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import hashlib
-from datetime import datetime, timezone
+import json
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 from PIL import Image
@@ -57,7 +57,9 @@ def _validate_actions(actions: Iterable[int]) -> list[int]:
     out: list[int] = []
     for action in actions:
         if action < ACTION_MIN or action > ACTION_MAX:
-            raise ValueError(f"Action {action} out of range [{ACTION_MIN}, {ACTION_MAX}]")
+            raise ValueError(
+                f"Action {action} out of range [{ACTION_MIN}, {ACTION_MAX}]"
+            )
         out.append(int(action))
     if not out:
         raise ValueError("No actions provided")
@@ -129,14 +131,12 @@ def main() -> None:
         cfg.get("release_after_frames", 8)
     )
     steps = args.steps if args.steps is not None else cfg.get("steps")
-    save_every = args.save_every if args.save_every is not None else cfg.get(
-        "save_every", 1
+    save_every = (
+        args.save_every if args.save_every is not None else cfg.get("save_every", 1)
     )
 
     if frames_per_step != 24:
-        raise ValueError(
-            f"frames_per_step must be 24 for m0, got {frames_per_step}"
-        )
+        raise ValueError(f"frames_per_step must be 24 for m0, got {frames_per_step}")
 
     if not rom_path.exists():
         raise FileNotFoundError(f"ROM not found: {rom_path}")
@@ -168,7 +168,7 @@ def main() -> None:
         actions = actions[:steps]
 
     if args.output_dir is None:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_dir = Path("bench/runs/m0_smoke") / stamp
     else:
         output_dir = args.output_dir
@@ -210,9 +210,10 @@ def main() -> None:
     actions_path = output_dir / "actions.jsonl"
     frames_path = output_dir / "frames.jsonl"
 
-    with actions_path.open("w", encoding="utf-8") as actions_f, frames_path.open(
-        "w", encoding="utf-8"
-    ) as frames_f:
+    with (
+        actions_path.open("w", encoding="utf-8") as actions_f,
+        frames_path.open("w", encoding="utf-8") as frames_f,
+    ):
         for step_idx, action in enumerate(actions):
             actions_f.write(json.dumps({"step": step_idx, "action": action}) + "\n")
             backend.step(np.array([action], dtype=np.int32))

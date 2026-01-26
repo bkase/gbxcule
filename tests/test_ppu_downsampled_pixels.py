@@ -109,8 +109,10 @@ def test_downsampled_pixels_multi_env_diverge() -> None:
         )
         backend._wp.synchronize()
 
-        pix = backend.pixels_wp().numpy().reshape(
-            backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W
+        pix = (
+            backend.pixels_wp()
+            .numpy()
+            .reshape(backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W)
         )
         env0_unique = np.unique(pix[0])
         env1_unique = np.unique(pix[1])

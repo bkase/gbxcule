@@ -7,6 +7,7 @@ __version__: str
 class PyBoy:
     memory: Any
     register_file: Any
+    screen: Any
 
     def __init__(
         self,

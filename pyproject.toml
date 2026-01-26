@@ -66,7 +66,11 @@ pythonVersion = "3.11"
 typeCheckingMode = "standard"
 include = ["src", "tests", "bench", "tools"]
 # Exclude template files (transformed at runtime via libcst) and Warp kernel DSL
-exclude = ["src/gbxcule/kernels/cpu_templates", "src/gbxcule/kernels/ppu_step.py"]
+exclude = [
+    "src/gbxcule/kernels/cpu_templates",
+    "src/gbxcule/kernels/ppu_step.py",
+    "src/gbxcule/kernels/ppu_render_downsampled.py",
+]
 stubPath = "typings"
 # Allow tests to import 'harness' from bench/
 extraPaths = ["bench"]

@@ -702,15 +702,13 @@ class WarpVecBaseBackend:
         """Return a torch view of the downsampled pixel buffer."""
         if self._pix is None or not self._initialized:
             raise RuntimeError("Pixel buffer not initialized. Call reset() first.")
-        try:
-            import torch  # noqa: F401
-        except Exception as exc:  # pragma: no cover - depends on torch install
-            raise RuntimeError("Torch not available for pixels_torch().") from exc
+        import importlib.util
+
+        if importlib.util.find_spec("torch") is None:
+            raise RuntimeError("Torch not available for pixels_torch().")
         if self._pix_torch is None:
             pix_t = self._wp.to_torch(self._pix)
-            self._pix_torch = pix_t.view(
-                self.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W
-            )
+            self._pix_torch = pix_t.view(self.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W)
         return self._pix_torch
 
     def read_serial(self, env_idx: int) -> bytes:

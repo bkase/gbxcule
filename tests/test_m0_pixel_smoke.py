@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import pytest
@@ -43,7 +43,9 @@ def _validate_actions(actions: Iterable[int]) -> list[int]:
     for action in actions:
         action = int(action)
         if action < ACTION_MIN or action > ACTION_MAX:
-            raise ValueError(f"Action {action} out of range [{ACTION_MIN}, {ACTION_MAX}]")
+            raise ValueError(
+                f"Action {action} out of range [{ACTION_MIN}, {ACTION_MAX}]"
+            )
         out.append(action)
     if not out:
         raise ValueError("No actions provided")
