@@ -34,6 +34,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--tau", type=float, default=None)
     parser.add_argument("--k-consecutive", type=int, default=None)
+    parser.add_argument("--calibrate", action="store_true")
+    parser.add_argument("--calibrate-output", default=None)
     return parser.parse_args()
 
 
@@ -118,6 +120,7 @@ def main() -> int:
     )
     log_file = None
     dist_curve: list[list[float]] = []
+    dist_env0: list[float] = []
     done_any = False
     record_dist = args.log_jsonl is not None or args.output_dir is not None
     try:
@@ -138,6 +141,7 @@ def main() -> int:
             dist_cpu = dist.detach().cpu().tolist() if record_dist else None
             if dist_cpu is not None:
                 dist_curve.append(dist_cpu)
+            dist_env0.append(float(dist[0].item()))
             if log_file is not None:
                 log_file.write(
                     json.dumps(
@@ -150,8 +154,32 @@ def main() -> int:
                     )
                     + "\n"
                 )
-            if done_any:
+            if done_any and not args.calibrate:
                 break
+        if args.calibrate:
+            dist_arr = np.array(dist_env0, dtype=np.float32)
+            tail = dist_arr[-10:] if dist_arr.size >= 10 else dist_arr
+            hist_bins = np.linspace(0.0, 1.0, 21)
+            hist, edges = np.histogram(dist_arr, bins=hist_bins)
+            summary = {
+                "steps": int(dist_arr.size),
+                "min": float(dist_arr.min()) if dist_arr.size else None,
+                "max": float(dist_arr.max()) if dist_arr.size else None,
+                "mean": float(dist_arr.mean()) if dist_arr.size else None,
+                "tail_min": float(tail.min()) if tail.size else None,
+                "recommended_tau": float(tail.min() + 0.01) if tail.size else None,
+                "histogram": {
+                    "bins": edges.tolist(),
+                    "counts": hist.tolist(),
+                },
+            }
+            if args.calibrate_output:
+                out_path = Path(args.calibrate_output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            else:
+                print(json.dumps(summary, indent=2))
+            return 0
         if done_any:
             return 0
         if args.output_dir is not None:
