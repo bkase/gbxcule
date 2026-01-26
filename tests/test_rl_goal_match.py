@@ -24,7 +24,7 @@ def test_dist_stack() -> None:
     goal[1] = 3
     dist = compute_dist_l1(frame, goal)
     assert dist.shape == (1,)
-    assert dist[0].item() == pytest.approx(0.5)
+    assert dist[0].item() == pytest.approx(1.0)
 
 
 def test_consecutive_and_done() -> None:

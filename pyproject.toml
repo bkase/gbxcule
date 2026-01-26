@@ -27,7 +27,8 @@ dev = [
     "pyright",
 ]
 rl = [
-    "torch",
+    "torch==2.9.1",
+    "torchvision==0.24.1",
 ]
 puffer = [
     "pufferlib @ git+https://github.com/thatguy11325/PufferLib.git@1.0",
@@ -47,6 +48,17 @@ warp-lang = [
     { url = "https://github.com/NVIDIA/warp/releases/download/v1.11.0/warp_lang-1.11.0+cu13-py3-none-manylinux_2_34_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
     { url = "https://github.com/NVIDIA/warp/releases/download/v1.11.0/warp_lang-1.11.0+cu13-py3-none-manylinux_2_28_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 # src-layout packaging: ship the package from src/gbxcule
