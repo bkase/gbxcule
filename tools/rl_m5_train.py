@@ -111,7 +111,9 @@ def _eval_greedy(  # type: ignore[no-untyped-def]
         steps_to_goal.extend(ep_steps[mask].tolist())
         returns.extend(ep_return[mask].tolist())
     success_rate = successes / max(1, len(steps_to_goal))
-    median_steps = int(torch.tensor(steps_to_goal).median().item()) if steps_to_goal else 0
+    median_steps = (
+        int(torch.tensor(steps_to_goal).median().item()) if steps_to_goal else 0
+    )
     mean_return = float(torch.tensor(returns).mean().item()) if returns else 0.0
     return success_rate, median_steps, mean_return
 
@@ -171,7 +173,9 @@ def main() -> int:
     if env.backend.num_actions != 7:
         raise RuntimeError("action space mismatch: expected 7 actions")
 
-    model = PixelActorCriticCNN(num_actions=env.backend.num_actions, in_frames=env.stack_k)
+    model = PixelActorCriticCNN(
+        num_actions=env.backend.num_actions, in_frames=env.stack_k
+    )
     model.to(device="cuda")
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     rollout = RolloutBuffer(
@@ -258,7 +262,11 @@ def main() -> int:
                 "approx_kl": float(losses["approx_kl"].item()),
                 "clipfrac": float(losses["clipfrac"].item()),
                 "reward_mean": float(rollout.rewards.mean().item()),
-                "sps": int(cfg.num_envs * cfg.steps_per_rollout / max(1e-6, time.time() - update_start)),
+                "sps": int(
+                    cfg.num_envs
+                    * cfg.steps_per_rollout
+                    / max(1e-6, time.time() - update_start)
+                ),
                 **eval_metrics,
             }
             log_f.write(json.dumps(record) + "\n")

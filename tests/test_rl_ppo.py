@@ -118,7 +118,5 @@ def test_ppo_gradients_update_params() -> None:
         assert torch.isfinite(param.grad).all()
     opt.step()
     after = list(model.parameters())
-    changed = any(
-        not torch.allclose(b, a) for b, a in zip(before, after, strict=True)
-    )
+    changed = any(not torch.allclose(b, a) for b, a in zip(before, after, strict=True))
     assert changed
