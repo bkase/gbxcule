@@ -208,7 +208,14 @@ def main() -> int:
                 logprobs = logprob_from_logits(logits, actions_i64)
                 actions = actions_i64.to(torch.int32)
                 next_obs, reward, done, trunc, _ = env.step(actions)
-                rollout.add(obs, actions, reward, done | trunc, values, logprobs)
+                rollout.add(
+                    obs,
+                    actions,
+                    reward,
+                    done | trunc,
+                    values.detach(),
+                    logprobs.detach(),
+                )
                 obs = next_obs
 
             with torch.no_grad():
