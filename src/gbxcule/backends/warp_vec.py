@@ -611,22 +611,33 @@ class WarpVecBaseBackend:
                 ],
                 device=self._device,
             )
-        if self._render_pixels:
-            if self._pix is None:
-                raise RuntimeError("Pixel buffer not initialized. Call reset() first.")
-            if self._ppu_render_downsampled_kernel is None:
-                self._ppu_render_downsampled_kernel = (
-                    get_ppu_render_downsampled_kernel()
-                )
-            self._wp.launch(
-                self._ppu_render_downsampled_kernel,
-                dim=self.num_envs * DOWNSAMPLE_W * DOWNSAMPLE_H,
-                inputs=[
-                    self._mem,
-                    self._pix,
-                ],
-                device=self._device,
-            )
+        self._launch_render_pixels()
+        self._synchronize()
+
+    def _launch_render_pixels(self) -> None:
+        if not self._render_pixels:
+            return
+        if self._pix is None:
+            raise RuntimeError("Pixel buffer not initialized. Call reset() first.")
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if self._ppu_render_downsampled_kernel is None:
+            self._ppu_render_downsampled_kernel = get_ppu_render_downsampled_kernel()
+        self._wp.launch(
+            self._ppu_render_downsampled_kernel,
+            dim=self.num_envs * DOWNSAMPLE_W * DOWNSAMPLE_H,
+            inputs=[
+                self._mem,
+                self._pix,
+            ],
+            device=self._device,
+        )
+
+    def render_pixels_snapshot(self) -> None:
+        """Render downsampled pixels without stepping CPU state."""
+        if not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        self._launch_render_pixels()
         self._synchronize()
 
     def get_pc_snapshot(self) -> NDArrayI32:
@@ -1075,6 +1086,28 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         stream = self._wp.stream_from_torch(torch.cuda.current_stream())
         with self._wp.ScopedStream(stream):
             self._launch_step(actions_wp)
+
+    def render_pixels_snapshot_torch(self) -> None:
+        """Render pixels on the current torch CUDA stream (no CPU step)."""
+        if self.device != "cuda":
+            raise RuntimeError(
+                "render_pixels_snapshot_torch() is only supported on CUDA backends."
+            )
+        if not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+
+        import importlib
+
+        try:
+            torch = importlib.import_module("torch")
+        except Exception as exc:
+            raise RuntimeError(
+                "Torch not available for render_pixels_snapshot_torch()."
+            ) from exc
+
+        stream = self._wp.stream_from_torch(torch.cuda.current_stream())
+        with self._wp.ScopedStream(stream):
+            self.render_pixels_snapshot()
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         if self._mem is None or not self._initialized:
