@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from gbxcule.core.state_io import PyBoyState
 
+import os
+
 import numpy as np
 
 from gbxcule.backends.common import (
@@ -508,6 +510,24 @@ class WarpVecBaseBackend:
                     actions, dtype=self._wp.int32, device=self._device
                 )
 
+        self._launch_step(self._actions)
+
+        obs = empty_obs(self.num_envs, self._obs_dim)
+        reward = np.zeros((self.num_envs,), dtype=np.float32)
+        done = np.zeros((self.num_envs,), dtype=np.bool_)
+        trunc = np.zeros((self.num_envs,), dtype=np.bool_)
+
+        return obs, reward, done, trunc, {}
+
+    def _launch_step(self, actions: Any) -> None:
+        if (
+            self._mem is None
+            or self._rom is None
+            or self._bootrom is None
+            or self._cart_ram is None
+            or self._cart_state is None
+        ):
+            raise RuntimeError("Backend not initialized. Call reset() first.")
         self._wp.launch(
             self._kernel,
             dim=self.num_envs,
@@ -537,7 +557,7 @@ class WarpVecBaseBackend:
                 self._trap_pc,
                 self._trap_opcode,
                 self._trap_kind,
-                self._actions,
+                actions,
                 self._joyp_select,
                 self._serial_buf,
                 self._serial_len,
@@ -608,13 +628,6 @@ class WarpVecBaseBackend:
                 device=self._device,
             )
         self._synchronize()
-
-        obs = empty_obs(self.num_envs, self._obs_dim)
-        reward = np.zeros((self.num_envs,), dtype=np.float32)
-        done = np.zeros((self.num_envs,), dtype=np.bool_)
-        trunc = np.zeros((self.num_envs,), dtype=np.bool_)
-
-        return obs, reward, done, trunc, {}
 
     def get_pc_snapshot(self) -> NDArrayI32:
         """Return a snapshot of PC values for all environments."""
@@ -1025,6 +1038,43 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         self._serial_readback_capacity = 0
         self._cart_state_readback = None
         self._cart_state_readback_capacity = 0
+
+    def step_torch(self, actions):  # type: ignore[no-untyped-def]
+        """Step all envs using torch CUDA actions (no host staging).
+
+        This is a CUDA-only fast path intended for RL wrappers.
+        """
+        if self.device != "cuda":
+            raise RuntimeError("step_torch() is only supported on CUDA backends.")
+        if not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+
+        import importlib
+
+        try:
+            torch = importlib.import_module("torch")
+        except Exception as exc:
+            raise RuntimeError("Torch not available for step_torch().") from exc
+
+        tensor_type = getattr(torch, "Tensor", None)
+        if tensor_type is None or not isinstance(actions, tensor_type):
+            raise TypeError("actions must be a torch.Tensor")
+        if actions.device.type != "cuda":
+            raise ValueError("actions must be a CUDA tensor")
+        if actions.ndim != 1 or int(actions.shape[0]) != self.num_envs:
+            raise ValueError(f"actions must have shape ({self.num_envs},)")
+        if actions.dtype is not torch.int32:
+            raise ValueError("actions must have dtype torch.int32 (no implicit cast)")
+
+        if os.environ.get("GBXCULE_VALIDATE_ACTIONS") == "1":
+            invalid = (actions < 0) | (actions >= self.num_actions)
+            if torch.any(invalid).item():
+                raise ValueError("actions contain out-of-range values")
+
+        actions_wp = self._wp.from_torch(actions)
+        stream = self._wp.stream_from_torch(torch.cuda.current_stream())
+        with self._wp.ScopedStream(stream):
+            self._launch_step(actions_wp)
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         if self._mem is None or not self._initialized:
