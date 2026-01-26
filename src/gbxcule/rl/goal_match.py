@@ -26,6 +26,15 @@ class GoalMatchConfig:
     k_consecutive: int
 
 
+@dataclass(frozen=True)
+class RewardShapingConfig:
+    """Reward shaping configuration."""
+
+    step_cost: float
+    alpha: float
+    goal_bonus: float
+
+
 def _validate_goal_shapes(frame, goal) -> None:  # type: ignore[no-untyped-def]
     if frame.ndim not in (3, 4):
         raise ValueError(f"frame must be 3D or 4D, got shape {tuple(frame.shape)}")
@@ -91,3 +100,38 @@ def compute_done(consec, *, k_consecutive: int):  # type: ignore[no-untyped-def]
     if k_consecutive < 1:
         raise ValueError("k_consecutive must be >= 1")
     return consec >= int(k_consecutive)
+
+
+def compute_reward(  # type: ignore[no-untyped-def]
+    prev_dist,
+    dist,
+    done,
+    cfg: RewardShapingConfig,
+):
+    """Compute shaped reward from distance delta and done bonus."""
+    torch = _require_torch()
+    if prev_dist.dtype is not torch.float32:
+        raise ValueError("prev_dist must be float32")
+    if dist.dtype is not torch.float32:
+        raise ValueError("dist must be float32")
+    if done.dtype is not torch.bool:
+        raise ValueError("done must be bool")
+    if prev_dist.shape != dist.shape or prev_dist.shape != done.shape:
+        raise ValueError("prev_dist, dist, and done must have matching shape")
+    base = float(cfg.step_cost) + float(cfg.alpha) * (prev_dist - dist)
+    bonus = done.to(torch.float32) * float(cfg.goal_bonus)
+    return base + bonus
+
+
+def compute_trunc(  # type: ignore[no-untyped-def]
+    episode_step,
+    *,
+    max_steps: int,
+):
+    """Return trunc mask when episode_step reaches max_steps."""
+    torch = _require_torch()
+    if episode_step.dtype is not torch.int32:
+        raise ValueError("episode_step must be int32")
+    if max_steps < 1:
+        raise ValueError("max_steps must be >= 1")
+    return episode_step >= int(max_steps)
