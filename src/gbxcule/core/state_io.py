@@ -839,8 +839,9 @@ def apply_state_to_warp_backend(
     cart_state[cart_state_idx + CART_STATE_BOOTROM_ENABLED] = (
         1 if state.bootrom_enabled != 0 else 0
     )
-    cart_state[cart_state_idx + CART_STATE_ROM_BANK_LO] = state.rombank & 0x7F
-    cart_state[cart_state_idx + CART_STATE_ROM_BANK_HI] = (state.rombank >> 5) & 0x03
+    # Preserve full 9-bit rombank (PyBoy uses 0-511 for 512KB ROMs).
+    cart_state[cart_state_idx + CART_STATE_ROM_BANK_LO] = state.rombank & 0xFF
+    cart_state[cart_state_idx + CART_STATE_ROM_BANK_HI] = (state.rombank >> 8) & 0xFF
     cart_state[cart_state_idx + CART_STATE_RAM_BANK] = state.rambank & 0xFF
     cart_state[cart_state_idx + CART_STATE_RAM_ENABLE] = state.rambank_enabled & 0x01
     cart_state[cart_state_idx + CART_STATE_BANK_MODE] = state.memorymodel & 0x01

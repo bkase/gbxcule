@@ -433,6 +433,10 @@ def warmup_warp_cpu(
     obs_dim: int = OBS_DIM_DEFAULT,
 ) -> None:
     """Warm up Warp on CPU by compiling the CPU kernel once."""
+    import os
+
+    if os.environ.get("GBXCULE_SKIP_WARP_WARMUP") == "1":
+        return
     _warmup_warp_device("cpu", stage=stage, obs_dim=obs_dim)
 
 
@@ -443,4 +447,8 @@ def warmup_warp_cuda(
     obs_dim: int = OBS_DIM_DEFAULT,
 ) -> None:
     """Warm up Warp on CUDA by compiling the CPU kernel once."""
+    import os
+
+    if os.environ.get("GBXCULE_SKIP_WARP_WARMUP") == "1":
+        return
     _warmup_warp_device(device, stage=stage, obs_dim=obs_dim)

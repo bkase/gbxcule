@@ -17,7 +17,7 @@ IO_WY = 0xFF4A
 IO_WX = 0xFF4B
 
 TILE_DATA_0 = 0x8000
-TILE_DATA_1 = 0x8800
+TILE_DATA_1 = 0x9000
 TILE_MAP_0 = 0x9800
 TILE_MAP_1 = 0x9C00
 OAM_BASE = 0xFE00
@@ -134,6 +134,8 @@ def ppu_render_shades_downsampled_all_envs(
             sprite_x = wp.int32(mem[base + oam_addr + 1]) & 0xFF
             tile_id = wp.int32(mem[base + oam_addr + 2]) & 0xFF
             attr = wp.int32(mem[base + oam_addr + 3]) & 0xFF
+            if sprite_x == 0 or sprite_y == 0 or sprite_x >= 168 or sprite_y >= 160:
+                continue
             sprite_y_top = sprite_y - 16
             sprite_x_left = sprite_x - 8
             if y < sprite_y_top or y >= sprite_y_top + sprite_height:

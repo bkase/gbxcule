@@ -97,6 +97,7 @@ class WarpVecBaseBackend:
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        force_lcdc_on_render: bool = False,
     ) -> None:
         """Initialize the warp_vec backend."""
         self.num_envs = num_envs
@@ -116,6 +117,7 @@ class WarpVecBaseBackend:
         self._stage: Stage = stage
         self._render_bg = render_bg
         self._render_pixels = render_pixels
+        self._force_lcdc_on_render = bool(force_lcdc_on_render)
         self._ppu_render_kernel = None
         self._ppu_render_downsampled_kernel = None
         self._action_codec = resolve_action_codec(action_codec)
@@ -186,6 +188,7 @@ class WarpVecBaseBackend:
         self._pix_torch = None
         self._reward = None
         self._obs = None
+        self._lcdc_override = None
 
         self.action_spec = ArraySpec(
             shape=(num_envs,),
@@ -623,6 +626,8 @@ class WarpVecBaseBackend:
             raise RuntimeError("Backend not initialized. Call reset() first.")
         if self._ppu_render_downsampled_kernel is None:
             self._ppu_render_downsampled_kernel = get_ppu_render_downsampled_kernel()
+        if self._force_lcdc_on_render:
+            self._apply_lcdc_override()
         self._wp.launch(
             self._ppu_render_downsampled_kernel,
             dim=self.num_envs * DOWNSAMPLE_W * DOWNSAMPLE_H,
@@ -639,6 +644,31 @@ class WarpVecBaseBackend:
             raise RuntimeError("Backend not initialized. Call reset() first.")
         self._launch_render_pixels()
         self._synchronize()
+
+    def _apply_lcdc_override(self) -> None:
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if self._lcdc_override is None:
+            self._lcdc_override = self._wp.empty(
+                self.num_envs, dtype=self._wp.uint8, device="cpu", pinned=True
+            )
+        override = self._lcdc_override
+        mem = self._mem
+        # Read lcdc per env
+        for env_idx in range(self.num_envs):
+            base = env_idx * MEM_SIZE + 0xFF40
+            self._wp.copy(override, mem, dest_offset=env_idx, src_offset=base, count=1)
+        self._wp.synchronize()
+        host = override.numpy()
+        # If LCDC is off, force on but keep other bits; avoid mutating other bits.
+        for env_idx in range(self.num_envs):
+            if (host[env_idx] & 0x80) == 0:
+                host[env_idx] = host[env_idx] | 0x80
+        if hasattr(override, "assign"):
+            override.assign(host)
+        for env_idx in range(self.num_envs):
+            base = env_idx * MEM_SIZE + 0xFF40
+            self._wp.copy(mem, override, dest_offset=base, src_offset=env_idx, count=1)
 
     def get_pc_snapshot(self) -> NDArrayI32:
         """Return a snapshot of PC values for all environments."""
@@ -990,6 +1020,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
             rom_path,
@@ -1004,6 +1035,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             stage=stage,
             render_bg=render_bg,
             render_pixels=render_pixels,
+            force_lcdc_on_render=force_lcdc_on_render,
         )
 
 
@@ -1025,6 +1057,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
             rom_path,
@@ -1039,6 +1072,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             stage=stage,
             render_bg=render_bg,
             render_pixels=render_pixels,
+            force_lcdc_on_render=force_lcdc_on_render,
         )
         self._sync_after_step = False
         self._mem_readback = None

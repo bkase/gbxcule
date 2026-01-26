@@ -43,6 +43,7 @@ class PokeredPixelsEnv:
         release_after_frames: int = 8,
         stack_k: int = 4,
         action_codec: str | None = None,
+        force_lcdc_on_render: bool = True,
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
@@ -70,6 +71,7 @@ class PokeredPixelsEnv:
             release_after_frames=release_after_frames,
             obs_dim=32,
             render_pixels=True,
+            force_lcdc_on_render=force_lcdc_on_render,
             **backend_kwargs,
         )
 

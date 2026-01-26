@@ -117,6 +117,8 @@ def ppu_render_bg_env0(
             sprite_x = wp.int32(mem[oam_addr + 1]) & 0xFF
             tile_id = wp.int32(mem[oam_addr + 2]) & 0xFF
             attr = wp.int32(mem[oam_addr + 3]) & 0xFF
+            if sprite_x == 0 or sprite_y == 0 or sprite_x >= 168 or sprite_y >= 160:
+                continue
             sprite_y_top = sprite_y - 16
             sprite_x_left = sprite_x - 8
             if y < sprite_y_top or y >= sprite_y_top + sprite_height:
