@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
-
-import json
-import os
-import tempfile
 
 import numpy as np
 
@@ -191,19 +190,13 @@ def validate_meta(
             f"{meta.release_after_frames} != expected {release_after_frames}"
         )
     if downsample_h is not None and meta.downsample_h != downsample_h:
-        raise ValueError(
-            f"downsample_h {meta.downsample_h} != expected {downsample_h}"
-        )
+        raise ValueError(f"downsample_h {meta.downsample_h} != expected {downsample_h}")
     if downsample_w is not None and meta.downsample_w != downsample_w:
-        raise ValueError(
-            f"downsample_w {meta.downsample_w} != expected {downsample_w}"
-        )
+        raise ValueError(f"downsample_w {meta.downsample_w} != expected {downsample_w}")
     if stack_k is not None and meta.stack_k != stack_k:
         raise ValueError(f"stack_k {meta.stack_k} != expected {stack_k}")
     if shade_levels is not None and meta.shade_levels != shade_levels:
-        raise ValueError(
-            f"shade_levels {meta.shade_levels} != expected {shade_levels}"
-        )
+        raise ValueError(f"shade_levels {meta.shade_levels} != expected {shade_levels}")
     if dist_metric is not None and meta.dist_metric != dist_metric:
         raise ValueError(f"dist_metric {meta.dist_metric} != expected {dist_metric}")
     if pipeline_version is not None and meta.pipeline_version != pipeline_version:
@@ -265,4 +258,3 @@ def load_goal_template(
         pipeline_version=pipeline_version,
     )
     return template, meta
-
