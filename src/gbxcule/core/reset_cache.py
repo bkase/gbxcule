@@ -65,7 +65,7 @@ class ResetCache:
     cart_ram_stride: int
 
     @classmethod
-    def from_backend(cls, backend: Any, *, env_idx: int = 0) -> "ResetCache":
+    def from_backend(cls, backend: Any, *, env_idx: int = 0) -> ResetCache:
         """Capture a snapshot from env_idx into device-resident buffers."""
         if not backend._initialized:
             raise RuntimeError("Backend not initialized")
@@ -320,11 +320,15 @@ class ResetCache:
         mem_np = backend._mem.numpy().reshape(self.num_envs, MEM_SIZE)
         mem_np[mask_bool] = self.mem.numpy()
 
-        cart_state_np = backend._cart_state.numpy().reshape(self.num_envs, CART_STATE_STRIDE)
+        cart_state_np = backend._cart_state.numpy().reshape(
+            self.num_envs, CART_STATE_STRIDE
+        )
         cart_state_np[mask_bool] = self.cart_state.numpy()
 
         if self.cart_ram is not None and backend._cart_ram is not None:
-            ram_np = backend._cart_ram.numpy().reshape(self.num_envs, self.cart_ram_stride)
+            ram_np = backend._cart_ram.numpy().reshape(
+                self.num_envs, self.cart_ram_stride
+            )
             ram_np[mask_bool] = self.cart_ram.numpy()
 
         serial_buf_np = backend._serial_buf.numpy().reshape(self.num_envs, SERIAL_MAX)

@@ -43,9 +43,16 @@ def test_reset_cache_cpu_masked_restore() -> None:
         backend.reset(seed=0)
         backend.render_pixels_snapshot()
         cache = ResetCache.from_backend(backend, env_idx=0)
+        assert backend._pc is not None
+        assert backend._cart_state is not None
+        assert backend._mem is not None
+        assert cache.mem is not None
+        assert cache.pc is not None
+        assert cache.cart_state is not None
+        assert cache.pix is not None
 
-        backend.write_memory(1, 0xC000, b"\xAA\xBB")
-        backend.write_memory(2, 0xC000, b"\xCC\xDD")
+        backend.write_memory(1, 0xC000, b"\xaa\xbb")
+        backend.write_memory(2, 0xC000, b"\xcc\xdd")
         backend._pc.numpy()[1] = 0x1234
         backend._pc.numpy()[2] = 0x5678
         cart_state = backend._cart_state.numpy()
@@ -77,9 +84,10 @@ def test_reset_cache_cpu_masked_restore() -> None:
         cart_state = backend._cart_state.numpy().reshape(
             backend.num_envs, CART_STATE_STRIDE
         )
-        assert cart_state[1, CART_STATE_ROM_BANK_LO] == cache.cart_state.numpy()[
-            CART_STATE_ROM_BANK_LO
-        ]
+        assert (
+            cart_state[1, CART_STATE_ROM_BANK_LO]
+            == cache.cart_state.numpy()[CART_STATE_ROM_BANK_LO]
+        )
         assert cart_state[2, CART_STATE_ROM_BANK_LO] == 7
 
         pix = (

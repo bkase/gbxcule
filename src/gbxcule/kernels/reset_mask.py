@@ -1,5 +1,7 @@
 """Warp kernels for masked reset copies."""
 
+# pyright: reportInvalidTypeForm=false
+
 from __future__ import annotations
 
 import warp as wp
