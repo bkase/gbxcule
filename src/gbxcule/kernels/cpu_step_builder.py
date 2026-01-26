@@ -167,6 +167,10 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     MBC_KIND_MBC3 = {MBC_KIND_MBC3}
     OBS_DIM = {OBS_DIM}
     SERIAL_MAX = {SERIAL_MAX}
+    DEBUG_TRAP_RST38 = {DEBUG_TRAP_RST38}
+    DEBUG_TRAP_PC = {DEBUG_TRAP_PC}
+    DEBUG_MAX_INSTR = {DEBUG_MAX_INSTR}
+    DEBUG_WATCH_ADDR = {DEBUG_WATCH_ADDR}
 
     ACTION_CODEC_POKERED = 0
 
@@ -941,6 +945,10 @@ _CPU_STEP_SKELETON = textwrap.dedent(
         f_i = f[i] & 0xF0
 
         instr_i = instr_count[i]
+        instr_start = instr_i
+        watch_val = wp.int32(0)
+        if DEBUG_WATCH_ADDR != 0:
+            watch_val = wp.int32(mem[base + DEBUG_WATCH_ADDR])
         cycles_i = cycle_count[i]
         cycle_frame = cycle_in_frame[i]
         trap_i = trap_flag[i]
@@ -1309,6 +1317,22 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 release_after_frames,
                 action_codec_id,
             )
+            if DEBUG_TRAP_PC != 0:
+                if pc_i == DEBUG_TRAP_PC:
+                    if trap_i == 0:
+                        trap_i = 1
+                        trap_pc_i = pc_i & 0xFFFF
+                        trap_opcode_i = opcode & 0xFF
+                        trap_kind_i = 5
+                    break
+            if DEBUG_TRAP_RST38 != 0:
+                if opcode == 0xFF and pc_i != 0x0038:
+                    if trap_i == 0:
+                        trap_i = 1
+                        trap_pc_i = pc_i & 0xFFFF
+                        trap_opcode_i = opcode & 0xFF
+                        trap_kind_i = 3
+                    break
             opcode_hi = opcode >> 4
             cycles = wp.int32(0)
 
@@ -1337,11 +1361,35 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             else:
                 INSTRUCTION_DISPATCH
 
+            if DEBUG_TRAP_RST38 != 0:
+                if pc_i >= 0xFE00:
+                    if trap_i == 0:
+                        trap_i = 1
+                        trap_pc_i = pc_before & 0xFFFF
+                        trap_opcode_i = opcode & 0xFF
+                        trap_kind_i = 4
+                    break
             if trap_i != 0:
                 break
 
             f_i = f_i & 0xF0
             instr_i += wp.int64(1)
+            if DEBUG_MAX_INSTR > 0:
+                if (instr_i - instr_start) >= DEBUG_MAX_INSTR:
+                    if trap_i == 0:
+                        trap_i = 1
+                        trap_pc_i = pc_i & 0xFFFF
+                        trap_opcode_i = opcode & 0xFF
+                        trap_kind_i = 6
+                    break
+            if DEBUG_WATCH_ADDR != 0:
+                if wp.int32(mem[base + DEBUG_WATCH_ADDR]) != watch_val:
+                    if trap_i == 0:
+                        trap_i = 1
+                        trap_pc_i = pc_before & 0xFFFF
+                        trap_opcode_i = opcode & 0xFF
+                        trap_kind_i = 7
+                    break
             timer_tick(
                 i,
                 base,

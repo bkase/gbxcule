@@ -55,7 +55,7 @@ CART_RAM_END = 0xC000
 
 _wp: Any | None = None
 _warp_initialized = False
-_cpu_step_kernels: dict[tuple[str, int], Callable[..., Any]] = {}
+_cpu_step_kernels: dict[tuple[str, int, int, int, int, int], Callable[..., Any]] = {}
 _warp_warmed_devices: set[str] = set()
 
 
@@ -82,7 +82,36 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
 ):
     """Return the CPU step kernel for a given stage (cached)."""
     global _cpu_step_kernels
-    key = (stage, obs_dim)
+    debug_trap_rst38 = 1 if os.environ.get("GBXCULE_TRAP_RST38") else 0
+    debug_trap_pc = 0
+    trap_pc_env = os.environ.get("GBXCULE_TRAP_PC")
+    if trap_pc_env:
+        try:
+            debug_trap_pc = int(trap_pc_env, 0) & 0xFFFF
+        except ValueError:
+            debug_trap_pc = 0
+    debug_max_instr = 0
+    max_instr_env = os.environ.get("GBXCULE_MAX_INSTR")
+    if max_instr_env:
+        try:
+            debug_max_instr = max(0, int(max_instr_env, 0))
+        except ValueError:
+            debug_max_instr = 0
+    debug_watch_addr = 0
+    watch_addr_env = os.environ.get("GBXCULE_WATCH_ADDR")
+    if watch_addr_env:
+        try:
+            debug_watch_addr = int(watch_addr_env, 0) & 0xFFFF
+        except ValueError:
+            debug_watch_addr = 0
+    key = (
+        stage,
+        obs_dim,
+        debug_trap_rst38,
+        debug_trap_pc,
+        debug_max_instr,
+        debug_watch_addr,
+    )
     if key in _cpu_step_kernels:
         return _cpu_step_kernels[key]
 
@@ -290,6 +319,10 @@ def get_cpu_step_kernel(  # type: ignore[no-untyped-def]
         "MBC_KIND_MBC3": MBC_KIND_MBC3,
         "OBS_DIM": obs_dim,
         "SERIAL_MAX": SERIAL_MAX,
+        "DEBUG_TRAP_RST38": debug_trap_rst38,
+        "DEBUG_TRAP_PC": debug_trap_pc,
+        "DEBUG_MAX_INSTR": debug_max_instr,
+        "DEBUG_WATCH_ADDR": debug_watch_addr,
     }
 
     post_step_templates: list[Any] = []

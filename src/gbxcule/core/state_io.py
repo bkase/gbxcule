@@ -342,7 +342,7 @@ def _load_pyboy_state_from_file(
     # Scanline params (v9+)
     scanline_params = f.read(SCANLINE_PARAMS_SIZE)
 
-    # Sound (v8+) - size varies; optionally derive from file size when provided.
+    # Sound (v8+) - size varies; derive from file size when cart RAM size provided.
     max_sound_size = None
     if expected_cart_ram_size is not None and version >= 14:
         sound_start = f.tell()
@@ -367,6 +367,9 @@ def _load_pyboy_state_from_file(
             + tail_size
         )
         max_sound_size = file_end - sound_start - min_after_sound
+        # PyBoy v15 states appear to include one extra byte beyond the minimum layout.
+        if version >= 15 and max_sound_size is not None:
+            max_sound_size += 1
     _skip_sound_state(f, version, max_sound_size=max_sound_size)
 
     # Renderer (skip - 115200 bytes)
@@ -994,12 +997,30 @@ def apply_state_to_warp_backend(
     # Interrupts
     mem_env[mem_offset + 0xFF0F] = state.if_reg
     mem_env[mem_offset + 0xFFFF] = state.ie
+    # Serial (PyBoy v15+ stores separately; IO ports may be stale)
+    mem_env[mem_offset + 0xFF01] = state.serial_sb
+    mem_env[mem_offset + 0xFF02] = state.serial_sc
+    # Joypad (default to no selection with all released)
+    mem_env[mem_offset + 0xFF00] = 0xCF
 
     # Timer registers
     mem_env[mem_offset + 0xFF04] = state.div
     mem_env[mem_offset + 0xFF05] = state.tima
     mem_env[mem_offset + 0xFF06] = state.tma
     mem_env[mem_offset + 0xFF07] = state.tac
+
+    # LCD registers (PyBoy IO ports may not reflect these fields)
+    mem_env[mem_offset + 0xFF40] = state.lcdc
+    mem_env[mem_offset + 0xFF41] = state.stat
+    mem_env[mem_offset + 0xFF42] = state.scy
+    mem_env[mem_offset + 0xFF43] = state.scx
+    mem_env[mem_offset + 0xFF44] = state.ly
+    mem_env[mem_offset + 0xFF45] = state.lyc
+    mem_env[mem_offset + 0xFF47] = state.bgp
+    mem_env[mem_offset + 0xFF48] = state.obp0
+    mem_env[mem_offset + 0xFF49] = state.obp1
+    mem_env[mem_offset + 0xFF4A] = state.wy
+    mem_env[mem_offset + 0xFF4B] = state.wx
 
     # Timer internal state
     div_counter_full = ((int(state.div) & 0xFF) << 8) | (int(state.div_counter) & 0xFF)
@@ -1022,18 +1043,20 @@ def apply_state_to_warp_backend(
     _write_scalar(backend._timer_prev_in, timer_prev_in, np.int32, wp.int32)
     _write_scalar(backend._tima_reload_pending, 0, np.int32, wp.int32)
     _write_scalar(backend._tima_reload_delay, 0, np.int32, wp.int32)
+    # Joypad select (P14/P15 high by default)
+    _write_scalar(backend._joyp_select, 0x30, np.int32, wp.int32)
 
     # PPU state
     _write_scalar(backend._ppu_ly, state.ly, np.int32, wp.int32)
-    scanline_cycle = int(state.lcd_clock % CYCLES_PER_SCANLINE)
+    # PyBoy v15 state does not provide reliable lcd_clock timing; align to frame start.
+    scanline_cycle = 0
     _write_scalar(backend._ppu_scanline_cycle, scanline_cycle, np.int32, wp.int32)
 
-    cycles_per_frame = CYCLES_PER_SCANLINE * 154
     if state.cpu_cycles != 0:
         cycle_count = int(state.cpu_cycles)
     else:
         cycle_count = int(state.lcd_clock)
-    cycle_in_frame = int(state.lcd_clock % cycles_per_frame)
+    cycle_in_frame = 0
     cycle_min = np.iinfo(np.int64).min
     cycle_max = np.iinfo(np.int64).max
     if cycle_count < cycle_min:

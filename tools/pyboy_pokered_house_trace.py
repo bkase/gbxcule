@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pyboy import PyBoy
 from pyboy.utils import WindowEvent
@@ -20,7 +21,7 @@ def main() -> None:
         raise FileNotFoundError(f"ROM not found: {ROM_PATH}")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    pyboy = PyBoy(str(ROM_PATH), window="null", sound_emulated=False)
+    pyboy: Any = PyBoy(str(ROM_PATH), window="null", sound_emulated=False)
     pyboy.set_emulation_speed(0)
 
     actions: list[list[int]] = []
