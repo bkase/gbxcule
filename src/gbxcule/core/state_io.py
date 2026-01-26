@@ -1044,7 +1044,7 @@ def apply_state_to_warp_backend(
     _write_scalar(backend._tima_reload_pending, 0, np.int32, wp.int32)
     _write_scalar(backend._tima_reload_delay, 0, np.int32, wp.int32)
     # Joypad select (P14/P15 high by default)
-    _write_scalar(backend._joyp_select, 0x30, np.int32, wp.int32)
+    _write_scalar(backend._joyp_select, 0x30, np.uint8, wp.uint8)
 
     # PPU state
     _write_scalar(backend._ppu_ly, state.ly, np.int32, wp.int32)
