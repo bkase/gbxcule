@@ -405,7 +405,9 @@ class TestPyBoyInterop:
                 pyboy.save_state(f)
                 f.flush()
                 os.fsync(f.fileno())
-            assert Path(state_path).stat().st_size > 0, "PyBoy produced empty state file"
+            assert Path(state_path).stat().st_size > 0, (
+                "PyBoy produced empty state file"
+            )
 
         finally:
             pyboy.stop()
