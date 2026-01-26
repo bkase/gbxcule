@@ -10,6 +10,11 @@ import warnings
 
 # Suppress noisy SDL2 warning from pyboy (must be before any pyboy import)
 warnings.filterwarnings("ignore", message="Using SDL2 binaries")
+warnings.filterwarnings(
+    "ignore",
+    message=r"Found GPU\d+ .*cuda capability 12\.1\.",
+    category=UserWarning,
+)
 
 from dataclasses import dataclass  # noqa: E402
 from typing import Any, Literal, Protocol, TypedDict  # noqa: E402
