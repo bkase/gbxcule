@@ -147,11 +147,11 @@ class PokeredPixelsEnv:
             raise ValueError("actions must be contiguous")
 
         self.backend.step_torch(actions)
+        self.backend.render_pixels_snapshot_torch()
 
         pix = self.pixels
-        for k in range(self.stack_k - 1):
-            self._stack[:, k].copy_(self._stack[:, k + 1])
-        self._stack[:, self.stack_k - 1].copy_(pix)
+        self._stack[:, :-1].copy_(self._stack[:, 1:].clone())
+        self._stack[:, -1].copy_(pix)
 
         self._episode_step.add_(1)
         return self._stack

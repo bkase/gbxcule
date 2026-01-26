@@ -197,6 +197,7 @@ class PokeredPixelsGoalEnv:
             raise ValueError("actions must have dtype torch.int32 (no implicit cast)")
 
         self.backend.step_torch(actions)
+        self.backend.render_pixels_snapshot_torch()
 
         pix = self.pixels
         self._stack[:, :-1].copy_(self._stack[:, 1:].clone())

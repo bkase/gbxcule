@@ -16,6 +16,7 @@ from .conftest import require_rom
 
 ROM_DIR = Path(__file__).parent.parent / "bench" / "roms" / "out"
 ROM_PATH = ROM_DIR / "BG_STATIC.gb"
+ROM_SCROLL_PATH = ROM_DIR / "BG_SCROLL_ANIM.gb"
 
 
 def _blake2b_hex(data: bytes) -> str:
@@ -144,6 +145,30 @@ def test_downsampled_pixels_env0_matches_downsampled_bg() -> None:
         mean_diff = float(abs(down.mean() - pix.mean()))
         assert mismatch < 0.6, f"Mismatch ratio too high: {mismatch:.3f}"
         assert mean_diff <= 0.5, f"Mean diff too high: {mean_diff:.3f}"
+    finally:
+        backend.close()
+
+
+def test_downsampled_pixels_scroll_anim_changes() -> None:
+    require_rom(ROM_SCROLL_PATH)
+    backend = WarpVecCpuBackend(
+        str(ROM_SCROLL_PATH),
+        num_envs=1,
+        frames_per_step=1,
+        release_after_frames=0,
+        obs_dim=32,
+        render_pixels=True,
+    )
+    try:
+        backend.reset(seed=0)
+        actions = np.zeros((1,), dtype=np.int32)
+        backend.step(actions)
+        pix_a = _pix_env0(backend)
+        for _ in range(3):
+            backend.step(actions)
+        pix_b = _pix_env0(backend)
+        assert pix_a.tobytes() != pix_b.tobytes()
+        assert np.unique(pix_b).size > 1
     finally:
         backend.close()
 

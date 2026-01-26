@@ -26,6 +26,8 @@ class TrainConfig:
     rom: str
     state: str
     goal_dir: str
+    frames_per_step: int
+    release_after_frames: int
     num_envs: int
     steps_per_rollout: int
     updates: int
@@ -65,6 +67,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--rom", required=True, help="Path to ROM")
     parser.add_argument("--state", required=True, help="Path to .state file")
     parser.add_argument("--goal-dir", required=True, help="Goal template directory")
+    parser.add_argument("--frames-per-step", type=int, default=24)
+    parser.add_argument("--release-after-frames", type=int, default=8)
     parser.add_argument("--num-envs", type=int, default=256)
     parser.add_argument("--steps-per-rollout", type=int, default=128)
     parser.add_argument("--updates", type=int, default=10)
@@ -141,6 +145,8 @@ def main() -> int:
         rom=str(Path(args.rom)),
         state=str(Path(args.state)),
         goal_dir=str(Path(args.goal_dir)),
+        frames_per_step=int(args.frames_per_step),
+        release_after_frames=int(args.release_after_frames),
         num_envs=args.num_envs,
         steps_per_rollout=args.steps_per_rollout,
         updates=args.updates,
@@ -169,6 +175,8 @@ def main() -> int:
         state_path=cfg.state,
         goal_dir=cfg.goal_dir,
         num_envs=cfg.num_envs,
+        frames_per_step=cfg.frames_per_step,
+        release_after_frames=cfg.release_after_frames,
     )
     if env.backend.num_actions != 7:
         raise RuntimeError("action space mismatch: expected 7 actions")

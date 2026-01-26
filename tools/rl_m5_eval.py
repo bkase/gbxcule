@@ -37,6 +37,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--state", required=True, help="Path to .state file")
     parser.add_argument("--goal-dir", required=True, help="Goal template directory")
     parser.add_argument("--checkpoint", required=True, help="Path to checkpoint.pt")
+    parser.add_argument("--frames-per-step", type=int, default=24)
+    parser.add_argument("--release-after-frames", type=int, default=8)
     parser.add_argument("--num-envs", type=int, default=64)
     parser.add_argument("--episodes", type=int, default=4)
     return parser.parse_args()
@@ -103,6 +105,8 @@ def main() -> int:
         state_path=str(state_path),
         goal_dir=str(goal_dir),
         num_envs=args.num_envs,
+        frames_per_step=int(args.frames_per_step),
+        release_after_frames=int(args.release_after_frames),
     )
     model = PixelActorCriticCNN(
         num_actions=env.backend.num_actions, in_frames=env.stack_k

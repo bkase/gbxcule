@@ -963,8 +963,6 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             if trap_i != 0:
                 break
             if joyp_press_handled == 0 and frames_done == 0 and action_mask != 0:
-                if_addr = base + 0xFF0F
-                mem[if_addr] = wp.uint8(mem[if_addr] | wp.uint8(0x10))
                 joyp_press_handled = 1
             lcdc_prev = wp.int32(mem[base + 0xFF40]) & 0x80
             if halted[i] != 0:

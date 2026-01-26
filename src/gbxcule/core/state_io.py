@@ -820,7 +820,7 @@ def apply_state_to_warp_backend(
     _write_scalar(backend._pc, state.pc, np.int32, wp.int32)
     _write_scalar(backend._ime, state.ime, np.int32, wp.int32)
     _write_scalar(backend._ime_delay, 0, np.int32, wp.int32)
-    _write_scalar(backend._halted, state.halted, np.int32, wp.int32)
+    _write_scalar(backend._halted, 0, np.int32, wp.int32)
 
     # Memory
     mem_full = backend._mem.numpy()
@@ -1073,3 +1073,4 @@ def apply_state_to_warp_backend(
             src_offset=0,
             count=CART_STATE_STRIDE,
         )
+        wp.synchronize()

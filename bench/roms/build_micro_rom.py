@@ -1309,6 +1309,73 @@ def build_bg_static() -> bytes:
     return build_rom("BG_STATIC", program)
 
 
+def build_bg_scroll_anim() -> bytes:
+    """Build BG_SCROLL_ANIM.gb - animated SCX scroll (unsigned tiles)."""
+    code = bytearray()
+    labels: dict[str, int] = {}
+    jr_fixups: list[tuple[int, str]] = []
+
+    def label(name: str) -> None:
+        labels[name] = len(code)
+
+    def emit(*bytes_: int) -> None:
+        code.extend(bytes_)
+
+    def emit_jr(opcode: int, target: str) -> None:
+        pc = len(code)
+        emit(opcode, 0x00)
+        jr_fixups.append((pc, target))
+
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x40)  # LDH (LCDC),A (LCD off)
+    emit(0x3E, 0xE4)  # LD A,0xE4 (BGP)
+    emit(0xE0, 0x47)  # LDH (BGP),A
+    emit(0xAF)  # XOR A
+    emit(0xE0, 0x42)  # LDH (SCY),A
+    emit(0xE0, 0x43)  # LDH (SCX),A
+    emit(0x21, 0x00, 0x80)  # LD HL,0x8000 (tile data)
+    emit(0x06, 0x10)  # LD B,16
+    emit(0xAF)  # XOR A
+    label("tile0")
+    emit(0x22)  # LD (HL+),A
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "tile0")  # JR NZ
+    emit(0x06, 0x10)  # LD B,16
+    emit(0x3E, 0xFF)  # LD A,0xFF
+    label("tile1")
+    emit(0x22)  # LD (HL+),A
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "tile1")  # JR NZ
+    emit(0x21, 0x00, 0x98)  # LD HL,0x9800 (BG map)
+    emit(0x06, 0x20)  # LD B,32
+    emit(0xAF)  # XOR A (tile 0)
+    label("row")
+    emit(0x0E, 0x20)  # LD C,32
+    label("col")
+    emit(0x22)  # LD (HL+),A
+    emit(0xEE, 0x01)  # XOR 0x01 (toggle tile)
+    emit(0x0D)  # DEC C
+    emit_jr(0x20, "col")  # JR NZ
+    emit(0x05)  # DEC B
+    emit_jr(0x20, "row")  # JR NZ
+    emit(0x3E, 0x91)  # LD A,0x91 (LCD on, unsigned tiles)
+    emit(0xE0, 0x40)  # LDH (LCDC),A
+    label("loop")
+    emit(0xF0, 0x43)  # LDH A,(SCX)
+    emit(0x3C)  # INC A
+    emit(0xE0, 0x43)  # LDH (SCX),A
+    emit_jr(0x18, "loop")  # JR loop
+
+    for pc, target in jr_fixups:
+        dest = labels[target]
+        offset = dest - (pc + 2)
+        if offset < -128 or offset > 127:
+            raise ValueError("JR offset out of range")
+        code[pc + 1] = offset & 0xFF
+
+    return build_rom("BG_SCROLL_ANIM", bytes(code))
+
+
 def build_ppu_window() -> bytes:
     """Build PPU_WINDOW.gb - window overlay over BG (scanline-latch safe)."""
     code = bytearray()
@@ -1732,6 +1799,7 @@ def build_all(out_dir: Path | None = None) -> list[tuple[str, Path, str]]:
         ("MBC3_SWITCH.gb", build_mbc3_switch()),
         ("MBC3_RAM.gb", build_mbc3_ram()),
         ("BG_STATIC.gb", build_bg_static()),
+        ("BG_SCROLL_ANIM.gb", build_bg_scroll_anim()),
         ("PPU_WINDOW.gb", build_ppu_window()),
         ("PPU_SPRITES.gb", build_ppu_sprites()),
         ("PPU_STAT_IRQ.gb", build_ppu_stat_irq()),

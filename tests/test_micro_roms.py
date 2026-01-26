@@ -19,6 +19,7 @@ from bench.roms.build_micro_rom import (
     build_alu16_sp,
     build_alu_flags,
     build_alu_loop,
+    build_bg_scroll_anim,
     build_bg_scroll_signed,
     build_bg_static,
     build_cb_bitops,
@@ -48,7 +49,7 @@ def test_build_all_creates_roms(tmp_path: Path) -> None:
     """build_all creates all ROM files."""
     results = build_all(tmp_path)
 
-    assert len(results) == 22
+    assert len(results) == 23
 
     for name, path, sha in results:
         assert path.exists(), f"{name} was not created"
@@ -132,6 +133,10 @@ def test_roms_are_deterministic() -> None:
     bg_scroll1 = build_bg_scroll_signed()
     bg_scroll2 = build_bg_scroll_signed()
     assert bg_scroll1 == bg_scroll2, "BG_SCROLL_SIGNED is not deterministic"
+
+    bg_anim1 = build_bg_scroll_anim()
+    bg_anim2 = build_bg_scroll_anim()
+    assert bg_anim1 == bg_anim2, "BG_SCROLL_ANIM is not deterministic"
 
 
 def test_sha256_is_deterministic() -> None:
