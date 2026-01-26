@@ -199,7 +199,7 @@ class PokeredPixelsGoalEnv:
         self.backend.step_torch(actions)
 
         pix = self.pixels
-        self._stack[:, :-1].copy_(self._stack[:, 1:])
+        self._stack[:, :-1].copy_(self._stack[:, 1:].clone())
         self._stack[:, -1].copy_(pix)
 
         self._episode_step.add_(1)
