@@ -6,18 +6,16 @@ import os
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
 
 def test_external_serial_rom_pass_token() -> None:
     rom_path = Path(
-        os.environ.get("GBXCULE_EXTERNAL_SERIAL_ROM", "bench/roms/external/serial.gb")
+        os.environ.get("GBXCULE_EXTERNAL_SERIAL_ROM", "bench/roms/out/SERIAL_HELLO.gb")
     )
-    if not rom_path.exists():
-        pytest.skip(f"External serial ROM not found: {rom_path}")
-    pass_token = os.environ.get("GBXCULE_EXTERNAL_SERIAL_TOKEN", "PASS")
+    assert rom_path.exists(), f"External serial ROM not found: {rom_path}"
+    pass_token = os.environ.get("GBXCULE_EXTERNAL_SERIAL_TOKEN", "OK")
     steps = int(os.environ.get("GBXCULE_EXTERNAL_SERIAL_STEPS", "8"))
 
     backend = WarpVecCpuBackend(

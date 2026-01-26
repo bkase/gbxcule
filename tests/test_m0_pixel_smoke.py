@@ -26,15 +26,12 @@ def _blake2b_hex(data: bytes) -> str:
 
 
 def _load_config() -> tuple[dict, Path, Path]:
-    if not CONFIG_PATH.exists():
-        pytest.skip(f"Missing config: {CONFIG_PATH}")
+    assert CONFIG_PATH.exists(), f"Missing config: {CONFIG_PATH}"
     cfg = json.loads(CONFIG_PATH.read_text())
     rom = Path(cfg.get("rom", ""))
     state = Path(cfg.get("state", ""))
-    if not rom.exists():
-        pytest.skip(f"Missing ROM: {rom}")
-    if not state.exists():
-        pytest.skip(f"Missing state: {state}")
+    assert rom.exists(), f"Missing ROM: {rom}"
+    assert state.exists(), f"Missing state: {state}"
     return cfg, rom, state
 
 

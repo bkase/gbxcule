@@ -25,8 +25,7 @@ ROM_PATH = Path(__file__).parent.parent / "bench" / "roms" / "out" / "BG_STATIC.
 @pytest.fixture
 def rom_path() -> str:
     """Get path to a test ROM."""
-    if not ROM_PATH.exists():
-        pytest.skip(f"Test ROM not found: {ROM_PATH}")
+    assert ROM_PATH.exists(), f"Test ROM not found: {ROM_PATH}"
     return str(ROM_PATH)
 
 
@@ -334,9 +333,7 @@ class TestPyBoyInterop:
         """Check if PyBoy is available."""
         import importlib.util
 
-        if importlib.util.find_spec("pyboy") is None:
-            pytest.skip("PyBoy not installed")
-            return False
+        assert importlib.util.find_spec("pyboy") is not None, "PyBoy not installed"
         return True
 
     def test_warp_state_loads_in_pyboy(
@@ -408,8 +405,7 @@ class TestPyBoyInterop:
                 pyboy.save_state(f)
                 f.flush()
                 os.fsync(f.fileno())
-            if Path(state_path).stat().st_size == 0:
-                pytest.skip("PyBoy produced empty state file")
+            assert Path(state_path).stat().st_size > 0, "PyBoy produced empty state file"
 
         finally:
             pyboy.stop()
