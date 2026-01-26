@@ -424,10 +424,7 @@ class TestPyBoyInterop:
 
         try:
             warp_backend.reset()
-            try:
-                warp_backend.load_state_file(state_path, env_idx=0)
-            except EOFError:
-                pytest.skip("PyBoy state format not supported in this environment")
+            warp_backend.load_state_file(state_path, env_idx=0)
 
             # Verify state loaded (can step without crashing)
             for _ in range(10):

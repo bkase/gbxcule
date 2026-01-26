@@ -877,7 +877,11 @@ class WarpVecBaseBackend:
         """
         from gbxcule.core.state_io import apply_state_to_warp_backend, load_pyboy_state
 
-        state = load_pyboy_state(path)
+        expected_cart_ram_size = 0
+        if self._rom_bytes is not None:
+            spec = parse_cartridge_header(self._rom_bytes)
+            expected_cart_ram_size = int(spec.ram_byte_length)
+        state = load_pyboy_state(path, expected_cart_ram_size=expected_cart_ram_size)
         apply_state_to_warp_backend(state, self, env_idx)
 
     def close(self) -> None:

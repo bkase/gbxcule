@@ -157,7 +157,12 @@ def _write_u64(f: BinaryIO, value: int) -> None:
     f.write(struct.pack("<Q", value & 0xFFFFFFFFFFFFFFFF))
 
 
-def _skip_sound_state(f: BinaryIO, version: int) -> None:
+def _skip_sound_state(
+    f: BinaryIO,
+    version: int,
+    *,
+    max_sound_size: int | None = None,
+) -> None:
     """Skip the sound state section.
 
     Sound state size varies by version but we can read field by field.
@@ -173,6 +178,13 @@ def _skip_sound_state(f: BinaryIO, version: int) -> None:
         return
 
     if version >= 14:
+        if max_sound_size is not None:
+            if max_sound_size < 0:
+                raise ValueError(
+                    f"State file too small for sound section: {max_sound_size} bytes"
+                )
+            f.read(max_sound_size)
+            return
         # Sound.save_state (v14+)
         f.read(8)  # audiobuffer_head
         samples_per_frame = _read_u64(f)
@@ -236,7 +248,9 @@ def _skip_noise_channel_state(f: BinaryIO) -> None:
     f.read(8 * 7)
 
 
-def load_pyboy_state(path: str | Path) -> PyBoyState:
+def load_pyboy_state(
+    path: str | Path, *, expected_cart_ram_size: int | None = None
+) -> PyBoyState:
     """Load a PyBoy v9 state file.
 
     Args:
@@ -251,10 +265,14 @@ def load_pyboy_state(path: str | Path) -> PyBoyState:
     """
     path = Path(path)
     with open(path, "rb") as f:
-        return _load_pyboy_state_from_file(f)
+        return _load_pyboy_state_from_file(
+            f, expected_cart_ram_size=expected_cart_ram_size
+        )
 
 
-def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
+def _load_pyboy_state_from_file(
+    f: BinaryIO, *, expected_cart_ram_size: int | None = None
+) -> PyBoyState:
     """Load PyBoy state from an open file handle.
 
     Supports versions 9-15.
@@ -324,9 +342,32 @@ def _load_pyboy_state_from_file(f: BinaryIO) -> PyBoyState:
     # Scanline params (v9+)
     scanline_params = f.read(SCANLINE_PARAMS_SIZE)
 
-    # Sound (v8+) - need to skip, but size varies
-    # For now, we'll skip to the renderer section by reading field by field
-    _skip_sound_state(f, version)
+    # Sound (v8+) - size varies; optionally derive from file size when provided.
+    max_sound_size = None
+    if expected_cart_ram_size is not None and version >= 14:
+        sound_start = f.tell()
+        file_end = f.seek(0, 2)
+        f.seek(sound_start)
+        timer_size = 8
+        if version >= 12:
+            timer_size += 8
+        if version >= 13:
+            timer_size += 8
+        tail_size = 2 + (36 if version >= 15 else 0)
+        min_after_sound = (
+            RENDERER_SIZE
+            + WRAM_SIZE
+            + NON_IO_RAM0_SIZE
+            + IO_PORTS_SIZE
+            + HRAM_SIZE
+            + NON_IO_RAM1_SIZE
+            + timer_size
+            + 5  # cart header fields
+            + expected_cart_ram_size
+            + tail_size
+        )
+        max_sound_size = file_end - sound_start - min_after_sound
+    _skip_sound_state(f, version, max_sound_size=max_sound_size)
 
     # Renderer (skip - 115200 bytes)
     f.read(RENDERER_SIZE)
