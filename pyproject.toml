@@ -75,6 +75,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 filterwarnings = [
     "ignore:Using SDL2 binaries from pysdl2-dll:UserWarning",
     "ignore:(?s)Found GPU0 NVIDIA GB10.*supported by this version of PyTorch.*:UserWarning:torch\\.cuda",
+    "ignore::UserWarning:torch\\.cuda",
 ]
 
 [tool.pyright]
