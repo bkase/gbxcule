@@ -90,38 +90,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _eval_greedy(  # type: ignore[no-untyped-def]
-    env, model, episodes: int
-):
-    torch = _require_torch()
-    successes = 0
-    steps_to_goal: list[int] = []
-    returns: list[float] = []
-    for _ in range(episodes):
-        obs = env.reset()
-        done = torch.zeros((env.num_envs,), device="cuda", dtype=torch.bool)
-        ep_return = torch.zeros((env.num_envs,), device="cuda", dtype=torch.float32)
-        ep_steps = torch.zeros((env.num_envs,), device="cuda", dtype=torch.int32)
-        while True:
-            logits, _ = model(obs)
-            actions = torch.argmax(logits, dim=-1).to(torch.int32)
-            obs, reward, done, trunc, _ = env.step(actions)
-            ep_return.add_(reward)
-            ep_steps.add_(1)
-            if torch.any(done | trunc):
-                break
-        mask = done | trunc
-        successes += int(done[mask].sum().item())
-        steps_to_goal.extend(ep_steps[mask].tolist())
-        returns.extend(ep_return[mask].tolist())
-    success_rate = successes / max(1, len(steps_to_goal))
-    median_steps = (
-        int(torch.tensor(steps_to_goal).median().item()) if steps_to_goal else 0
-    )
-    mean_return = float(torch.tensor(returns).mean().item()) if returns else 0.0
-    return success_rate, median_steps, mean_return
-
-
 def main() -> int:
     args = _parse_args()
     if not _cuda_available():
@@ -162,6 +130,7 @@ def main() -> int:
         output_dir=str(output_dir),
     )
 
+    from gbxcule.rl.eval import run_greedy_eval
     from gbxcule.rl.models import PixelActorCriticCNN
     from gbxcule.rl.pokered_pixels_goal_env import PokeredPixelsGoalEnv
     from gbxcule.rl.ppo import compute_gae, logprob_from_logits, ppo_losses
@@ -199,6 +168,17 @@ def main() -> int:
         start_update = int(ckpt.get("update", 0))
 
     obs = env.reset(seed=cfg.seed)
+
+    eval_env = None
+    if cfg.eval_every > 0:
+        eval_env = PokeredPixelsGoalEnv(
+            cfg.rom,
+            state_path=cfg.state,
+            goal_dir=cfg.goal_dir,
+            num_envs=1,
+            frames_per_step=cfg.frames_per_step,
+            release_after_frames=cfg.release_after_frames,
+        )
 
     with log_path.open("a", encoding="utf-8") as log_f:
         if start_update == 0:
@@ -255,14 +235,18 @@ def main() -> int:
             optimizer.step()
 
             eval_metrics = {}
-            if cfg.eval_every > 0 and (update_idx + 1) % cfg.eval_every == 0:
-                success_rate, median_steps, mean_return = _eval_greedy(
-                    env, model, cfg.eval_episodes
+            if eval_env is not None and (update_idx + 1) % cfg.eval_every == 0:
+                summary = run_greedy_eval(
+                    eval_env,
+                    model,
+                    episodes=cfg.eval_episodes,
+                    seed=cfg.seed,
                 )
+                model.train()
                 eval_metrics = {
-                    "eval_success_rate": success_rate,
-                    "eval_median_steps": median_steps,
-                    "eval_mean_return": mean_return,
+                    "eval_success_rate": summary.success_rate,
+                    "eval_median_steps": summary.median_steps_to_goal,
+                    "eval_mean_return": summary.mean_return,
                 }
 
             record = {
@@ -296,6 +280,8 @@ def main() -> int:
             )
 
     env.close()
+    if eval_env is not None:
+        eval_env.close()
     return 0
 
 
