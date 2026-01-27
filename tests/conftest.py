@@ -19,9 +19,8 @@ from gbxcule.backends.common import Stage, VecBackend
 
 warnings.filterwarnings(
     "ignore",
-    message=r"Found GPU0 NVIDIA GB10 which is of cuda capability 12\.1\.",
+    message=r"(?s)Found GPU0 NVIDIA GB10.*supported by this version of PyTorch.*",
     category=UserWarning,
-    module=r"torch\.cuda",
 )
 
 
