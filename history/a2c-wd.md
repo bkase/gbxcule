@@ -83,6 +83,15 @@ Tasks:
   - `tools/rl_m5_train.py` currently evaluates using the **same env instance** as training; `env.reset()` during eval can desynchronize `obs` used for training.
 - Turn these into regression tests/acceptance checks (see D5).
 
+**D1 Findings (current state):**
+
+- **Premature termination in eval:** `_eval_greedy` breaks when *any* env finishes, so metrics reflect “first env to finish,” not full episode accounting.
+- **Training desync risk:** `tools/rl_m5_train.py` reuses the training env for eval, and calls `env.reset()` inside eval, which invalidates the training `obs` buffer.
+- **Acceptance checks to add (D5):**
+  - Eval collects exactly `episodes_requested`, independent of individual env termination timing.
+  - Success rate denominator is `episodes_requested`.
+  - Training eval does not mutate training env or `obs`.
+
 ### D2 — Implement a shared eval core (reducer-style)
 
 - Create a reusable module (e.g., `src/gbxcule/rl/eval.py`) that:
@@ -137,4 +146,3 @@ Tasks:
 - Enabling eval in `tools/rl_m5_train.py` no longer corrupts training state (training `obs` stays in sync with the training env).
 - Metric definitions are explicit (D0) and enforced by fast tests (D5).
 - Tests remain CPU-only and small enough to preserve the constitution’s fast-suite constraint.
-
