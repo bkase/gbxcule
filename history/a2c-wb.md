@@ -94,6 +94,7 @@ Primary touchpoints:
      - `env_steps_per_sec`, `ms_per_step`, `num_envs`, `stack_k`, `frames_per_step`, `release_after_frames`.
    - Record allocation behavior (e.g., `torch.cuda.max_memory_allocated()` deltas) after warmup.
    - Emit a single JSON record to stdout (and optionally a JSONL log file).
+   - Add `--max-mem-delta` to fail if allocations grow after warmup.
 3. **Acceptance criteria (initial)**
    - `stack_k=1` must perform **no per-step CUDA allocations after warmup** (within small tolerance).
    - Throughput must be **non-regressing** vs pre-change baseline; expected improvement from removing `.clone()` + shift.
@@ -167,6 +168,7 @@ Primary touchpoints:
 1. Document recommended scale config:
    - `stack_k=1`, avoid per-step tensor logging, compute stats summaries.
 2. If new flags exist (e.g. `info_mode`), ensure they show in `--help` and are referenced in this doc.
+   - Current scale knobs: `stack_k=1`, `info_mode=stats|none`, `skip_reset_if_empty`, `--max-mem-delta`.
 
 ---
 
