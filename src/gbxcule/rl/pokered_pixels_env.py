@@ -118,8 +118,11 @@ class PokeredPixelsEnv:
                 dtype=self._torch.uint8,
                 device=pix.device,
             )
-        for k in range(self.stack_k):
-            self._stack[:, k].copy_(pix)
+        if self.stack_k == 1:
+            self._stack[:, 0].copy_(pix)
+        else:
+            for k in range(self.stack_k):
+                self._stack[:, k].copy_(pix)
 
         if self._episode_step is None:
             self._episode_step = self._torch.zeros(
@@ -152,8 +155,11 @@ class PokeredPixelsEnv:
         self.backend.render_pixels_snapshot_torch()
 
         pix = self.pixels
-        self._stack[:, :-1].copy_(self._stack[:, 1:].clone())
-        self._stack[:, -1].copy_(pix)
+        if self.stack_k == 1:
+            self._stack[:, 0].copy_(pix)
+        else:
+            self._stack[:, :-1].copy_(self._stack[:, 1:].clone())
+            self._stack[:, -1].copy_(pix)
 
         self._episode_step.add_(1)
         return self._stack
