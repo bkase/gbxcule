@@ -25,6 +25,8 @@ ENV/
 bench/roms/out/
 bench/runs/
 tetris.gb
+red.gb
+red.gb.ram
 
 # OS
 .DS_Store
@@ -35,3 +37,5 @@ Thumbs.db
 
 # bv (beads viewer) local config and caches
 .bv/
+
+states/
