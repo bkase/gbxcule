@@ -52,6 +52,7 @@ class PokeredPixelsGoalEnv:
         k_consecutive: int | None = None,
         force_lcdc_on_render: bool = True,
         skip_reset_if_empty: bool = False,
+        info_mode: str = "full",
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
@@ -107,6 +108,9 @@ class PokeredPixelsGoalEnv:
             step_cost=step_cost, alpha=alpha, goal_bonus=goal_bonus
         )
         self._skip_reset_if_empty = bool(skip_reset_if_empty)
+        if info_mode not in {"full", "stats", "none"}:
+            raise ValueError(f"info_mode must be full, stats, or none, got {info_mode}")
+        self._info_mode = info_mode
 
         self._pix = None
         self._stack = None
@@ -250,7 +254,23 @@ class PokeredPixelsGoalEnv:
             if self._start_stack is not None:
                 self._stack[reset_mask] = self._start_stack
 
-        info = {"dist": dist, "reset_mask": reset_mask}
+        if self._info_mode == "full":
+            info = {"dist": dist, "reset_mask": reset_mask}
+        elif self._info_mode == "stats":
+            dist_f = dist.to(torch.float32)
+            quantiles = torch.tensor([0.1, 0.5, 0.9], device=dist.device)
+            q_vals = torch.quantile(dist_f, quantiles)
+            info = {
+                "dist_mean": float(dist_f.mean().item()),
+                "dist_p10": float(q_vals[0].item()),
+                "dist_p50": float(q_vals[1].item()),
+                "dist_p90": float(q_vals[2].item()),
+                "done_rate": float(done.to(torch.float32).mean().item()),
+                "trunc_rate": float(trunc.to(torch.float32).mean().item()),
+                "reset_rate": float(reset_mask.to(torch.float32).mean().item()),
+            }
+        else:
+            info = {}
         return self._stack, reward, done, trunc, info
 
     def close(self) -> None:
