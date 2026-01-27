@@ -112,3 +112,22 @@ def test_stream_ordering_updates_pixels() -> None:
         assert h0 != h1, "pixel hash did not change after step"
     finally:
         env.close()
+
+
+@pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
+def test_stack_k1_matches_pixels() -> None:
+    torch = _require_torch()
+    if not torch.cuda.is_available():
+        pytest.skip("torch CUDA not available")
+    require_rom(ROM_PATH)
+
+    env = PokeredPixelsEnv(str(ROM_PATH), num_envs=2, frames_per_step=1, stack_k=1)
+    try:
+        obs = env.reset(seed=0)
+        assert obs.shape[1] == 1
+        assert torch.equal(obs[:, 0], env.pixels)
+        actions = torch.zeros((env.num_envs,), device="cuda", dtype=torch.int32)
+        obs = env.step(actions)
+        assert torch.equal(obs[:, 0], env.pixels)
+    finally:
+        env.close()

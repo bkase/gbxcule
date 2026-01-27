@@ -42,6 +42,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--force-resets", action="store_true")
     parser.add_argument("--skip-reset-if-empty", action="store_true")
+    parser.add_argument(
+        "--max-mem-delta",
+        type=int,
+        default=None,
+        help="Fail if max allocated delta exceeds this many bytes",
+    )
     return parser.parse_args()
 
 
@@ -74,13 +80,13 @@ def _make_env(args):  # type: ignore[no-untyped-def]
     )
 
 
-def _run() -> dict:
+def _run() -> tuple[dict, int]:
     args = _parse_args()
     if not _cuda_available():
-        return {"skipped": "CUDA not available"}
+        return {"skipped": "CUDA not available"}, 0
     torch = _require_torch()
     if not torch.cuda.is_available():
-        return {"skipped": "torch CUDA not available"}
+        return {"skipped": "torch CUDA not available"}, 0
 
     rom_path = Path(args.rom)
     if not rom_path.exists():
@@ -118,7 +124,7 @@ def _run() -> dict:
             float(args.bench_steps * env.num_envs) / (elapsed_ms / 1000.0)
         )
 
-        return {
+        payload = {
             "num_envs": int(env.num_envs),
             "stack_k": int(args.stack_k),
             "frames_per_step": int(args.frames_per_step),
@@ -135,14 +141,20 @@ def _run() -> dict:
             "skip_reset_if_empty": bool(args.skip_reset_if_empty),
             "goal_dir": args.goal_dir is not None,
         }
+        if args.max_mem_delta is not None:
+            payload["max_mem_delta_limit"] = int(args.max_mem_delta)
+            if payload["max_mem_alloc_delta"] > int(args.max_mem_delta):
+                payload["error"] = "max_mem_alloc_delta_exceeded"
+                return payload, 1
+        return payload, 0
     finally:
         env.close()
 
 
 def main() -> int:
-    payload = _run()
+    payload, exit_code = _run()
     print(json.dumps(payload))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
