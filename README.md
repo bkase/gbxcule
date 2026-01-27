@@ -198,7 +198,7 @@ E4_BASELINE_BACKEND=pyboy_puffer_vec \
 E4_PUFFER_VEC_BACKEND=puffer_mp_sync \
 E4_ACTION_GEN=seeded_random \
 E4_ACTIONS_SEED=1234 \
-E4_ACTION_CODEC=pokemonred_puffer_v0 \
+E4_ACTION_CODEC=pokemonred_puffer_v1 \
 make bench-e4-gpu
 ```
 

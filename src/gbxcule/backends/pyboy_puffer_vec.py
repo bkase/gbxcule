@@ -64,7 +64,7 @@ class PyBoyPufferVecBackend:
         frames_per_step: int = 24,
         release_after_frames: int = 8,
         obs_dim: int = 32,
-        action_codec: str = "pokemonred_puffer_v0",
+        action_codec: str = "pokemonred_puffer_v1",
         vec_backend: str = "puffer_mp_sync",
     ) -> None:
         if num_envs < 1:

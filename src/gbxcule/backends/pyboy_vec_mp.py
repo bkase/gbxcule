@@ -55,7 +55,7 @@ class PyBoyMpConfig:
         base_seed: Optional base seed for deterministic seeding.
         headless: Whether to run headless (always True for now).
         obs_dim: Observation vector dimension.
-        action_codec: Action codec id (e.g., "pokemonred_puffer_v0").
+        action_codec: Action codec id (e.g., "pokemonred_puffer_v1").
     """
 
     num_envs: int
@@ -372,7 +372,7 @@ class PyBoyVecMpBackend:
             release_after_frames: Frames after which to release button.
             obs_dim: Observation vector dimension.
             base_seed: Optional base seed for reproducibility.
-            action_codec: Action codec id (e.g., "pokemonred_puffer_v0").
+            action_codec: Action codec id (e.g., "pokemonred_puffer_v1").
         """
         if num_workers is None:
             num_workers = num_envs

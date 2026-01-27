@@ -10,7 +10,7 @@ from bench.harness import diff_states, hash_memory, normalize_cpu_state
 from bench.roms.build_micro_rom import build_joy_diverge_persist
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
-from gbxcule.core.action_codec import POKERED_PUFFER_V0_ID, get_action_codec
+from gbxcule.core.action_codec import POKERED_PUFFER_V1_ID, get_action_codec
 
 
 def _write_rom(tmp_path: Path) -> str:
@@ -23,7 +23,7 @@ def test_verify_joy_diverge_persist_memory_and_state(
     tmp_path: Path,
 ) -> None:
     rom_path = _write_rom(tmp_path)
-    codec = get_action_codec(POKERED_PUFFER_V0_ID)
+    codec = get_action_codec(POKERED_PUFFER_V1_ID)
     action_names = list(codec.action_names)
     actions_cycle = [
         action_names.index("UP"),
@@ -65,7 +65,7 @@ def test_verify_joy_diverge_persist_memory_and_state(
 
 def test_warp_vec_cpu_diverges_across_envs(tmp_path: Path) -> None:
     rom_path = _write_rom(tmp_path)
-    codec = get_action_codec(POKERED_PUFFER_V0_ID)
+    codec = get_action_codec(POKERED_PUFFER_V1_ID)
     action_names = list(codec.action_names)
     actions = np.array(
         [

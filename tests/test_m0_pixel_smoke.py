@@ -16,7 +16,7 @@ CONFIG_PATH = Path(__file__).parent.parent / "configs" / "m0_pokered_smoke.json"
 GOLDEN_PATH = Path(__file__).parent / "data" / "m0_pokered_frame_hashes.json"
 
 ACTION_MIN = 0
-ACTION_MAX = 6
+ACTION_MAX = 7
 
 
 def _blake2b_hex(data: bytes) -> str:
@@ -83,7 +83,7 @@ def test_m0_pixel_smoke_cpu_deterministic() -> None:
         frames_per_step=frames_per_step,
         release_after_frames=int(cfg.get("release_after_frames", 8)),
         render_bg=True,
-        action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v0")),
+        action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v1")),
     )
     try:
         backend.reset(seed=0)
@@ -131,7 +131,7 @@ def test_m0_pixel_smoke_cuda_deterministic() -> None:
             frames_per_step=frames_per_step,
             release_after_frames=int(cfg.get("release_after_frames", 8)),
             render_bg=True,
-            action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v0")),
+            action_codec=str(cfg.get("action_codec", "pokemonred_puffer_v1")),
         )
         try:
             backend.reset(seed=0)

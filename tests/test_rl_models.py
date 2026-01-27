@@ -10,10 +10,10 @@ from gbxcule.rl.rollout import RolloutBuffer  # noqa: E402
 
 
 def test_pixel_actor_critic_shapes() -> None:
-    model = PixelActorCriticCNN(num_actions=7, in_frames=4)
+    model = PixelActorCriticCNN(num_actions=8, in_frames=4)
     obs = torch.zeros((2, 4, DOWNSAMPLE_H, DOWNSAMPLE_W), dtype=torch.uint8)
     logits, values = model(obs)
-    assert logits.shape == (2, 7)
+    assert logits.shape == (2, 8)
     assert values.shape == (2,)
     assert logits.dtype is torch.float32
     assert values.dtype is torch.float32

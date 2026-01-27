@@ -178,8 +178,6 @@ def main() -> int:
         frames_per_step=cfg.frames_per_step,
         release_after_frames=cfg.release_after_frames,
     )
-    if env.backend.num_actions != 7:
-        raise RuntimeError("action space mismatch: expected 7 actions")
 
     model = PixelActorCriticCNN(
         num_actions=env.backend.num_actions, in_frames=env.stack_k

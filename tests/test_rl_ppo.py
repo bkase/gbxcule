@@ -79,7 +79,7 @@ def test_ppo_gradients_update_params() -> None:
         def __init__(self) -> None:
             super().__init__()
             self.body = torch.nn.Linear(4, 8)
-            self.policy = torch.nn.Linear(8, 7)
+            self.policy = torch.nn.Linear(8, 8)
             self.value = torch.nn.Linear(8, 1)
 
         def forward(self, x):  # type: ignore[no-untyped-def]
@@ -93,7 +93,7 @@ def test_ppo_gradients_update_params() -> None:
 
     obs = torch.randn((6, 4), dtype=torch.float32)
     logits, values = model(obs)
-    actions = torch.randint(0, 7, (6,), dtype=torch.int64)
+    actions = torch.randint(0, 8, (6,), dtype=torch.int64)
     old_logprobs = logprob_from_logits(logits.detach(), actions)
     returns = torch.randn((6,), dtype=torch.float32)
     advantages = torch.randn((6,), dtype=torch.float32)

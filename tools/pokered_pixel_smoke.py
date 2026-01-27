@@ -18,7 +18,7 @@ from gbxcule.core.abi import SCREEN_H, SCREEN_W
 
 DEFAULT_CONFIG = Path("configs/m0_pokered_smoke.json")
 ACTION_MIN = 0
-ACTION_MAX = 6
+ACTION_MAX = 7
 
 
 def _blake2b_hex(data: bytes) -> str:
@@ -125,7 +125,7 @@ def main() -> None:
 
     rom_path = args.rom or Path(cfg.get("rom", "red.gb"))
     state_path = args.state or Path(cfg.get("state", ""))
-    action_codec = cfg.get("action_codec", "pokemonred_puffer_v0")
+    action_codec = cfg.get("action_codec", "pokemonred_puffer_v1")
     frames_per_step = args.frames_per_step or int(cfg.get("frames_per_step", 24))
     release_after_frames = args.release_after_frames or int(
         cfg.get("release_after_frames", 8)

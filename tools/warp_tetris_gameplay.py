@@ -11,14 +11,14 @@ from pyboy import PyBoy
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
-# Action indices (pokemonred_puffer_v0 codec)
-A = 0
-B = 1
-START = 2
-UP = 3
-DOWN = 4
-LEFT = 5
-RIGHT = 6
+# Action indices (pokemonred_puffer_v1 codec)
+A = 1
+B = 2
+START = 3
+UP = 4
+DOWN = 5
+LEFT = 6
+RIGHT = 7
 
 
 def main() -> None:

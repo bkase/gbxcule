@@ -27,7 +27,7 @@ def _base_meta(tmp_path: Path) -> GoalTemplateMeta:
         state_sha256="state",
         actions_path="actions.jsonl",
         actions_sha256="actions",
-        action_codec_id="pokemonred_puffer_v0",
+        action_codec_id="pokemonred_puffer_v1",
         frames_per_step=24,
         release_after_frames=8,
         downsample_h=72,
@@ -47,7 +47,7 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     save_goal_template(tmp_path, template, meta, force=True)
     loaded, loaded_meta = load_goal_template(
         tmp_path,
-        action_codec_id="pokemonred_puffer_v0",
+        action_codec_id="pokemonred_puffer_v1",
         frames_per_step=24,
         release_after_frames=8,
         stack_k=None,

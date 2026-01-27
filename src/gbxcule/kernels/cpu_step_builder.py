@@ -195,24 +195,24 @@ _CPU_STEP_SKELETON = textwrap.dedent(
     @wp.func
     def action_dpad_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
         dpad = wp.int32(0)
-        if action == 3:
+        if action == 4:
             dpad = DPAD_UP
-        elif action == 4:
-            dpad = DPAD_DOWN
         elif action == 5:
-            dpad = DPAD_LEFT
+            dpad = DPAD_DOWN
         elif action == 6:
+            dpad = DPAD_LEFT
+        elif action == 7:
             dpad = DPAD_RIGHT
         return dpad
 
     @wp.func
     def action_button_mask(action: wp.int32, codec_id: wp.int32) -> wp.int32:
         btn = wp.int32(0)
-        if action == 0:
+        if action == 1:
             btn = BUTTON_A
-        elif action == 1:
-            btn = BUTTON_B
         elif action == 2:
+            btn = BUTTON_B
+        elif action == 3:
             btn = BUTTON_START
         return btn
 

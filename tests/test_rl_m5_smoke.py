@@ -38,7 +38,7 @@ class _ToyPixelsEnv:
 def test_m5_smoke_rollout_update() -> None:
     torch.manual_seed(0)
     env = _ToyPixelsEnv(num_envs=2, stack_k=4)
-    model = PixelActorCriticCNN(num_actions=7, in_frames=4)
+    model = PixelActorCriticCNN(num_actions=8, in_frames=4)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     rollout = RolloutBuffer(steps=2, num_envs=2, stack_k=4, device="cpu")
 

@@ -75,13 +75,14 @@ class ActionCodecDef:
         return (self._dpad_masks[action], self._button_masks[action])
 
 
-POKERED_PUFFER_V0_ID = "pokemonred_puffer_v0"
+POKERED_PUFFER_V1_ID = "pokemonred_puffer_v1"
 
 
-_POKERED_PUFFER_V0 = ActionCodecDef(
+_POKERED_PUFFER_V1 = ActionCodecDef(
     name="pokemonred_puffer",
-    version="v0",
+    version="v1",
     action_names=(
+        "NOOP",
         "A",
         "B",
         "START",
@@ -91,6 +92,7 @@ _POKERED_PUFFER_V0 = ActionCodecDef(
         "RIGHT",
     ),
     _pyboy_buttons=(
+        None,
         "a",
         "b",
         "start",
@@ -103,12 +105,14 @@ _POKERED_PUFFER_V0 = ActionCodecDef(
         0,
         0,
         0,
+        0,
         DPAD_UP,
         DPAD_DOWN,
         DPAD_LEFT,
         DPAD_RIGHT,
     ),
     _button_masks=(
+        0,
         BUTTON_A,
         BUTTON_B,
         BUTTON_START,
@@ -121,12 +125,12 @@ _POKERED_PUFFER_V0 = ActionCodecDef(
 
 
 _REGISTRY: dict[str, ActionCodecDef] = {
-    POKERED_PUFFER_V0_ID: _POKERED_PUFFER_V0,
+    POKERED_PUFFER_V1_ID: _POKERED_PUFFER_V1,
 }
 
 # Kernel-facing codec ids (stable numeric mapping for Warp kernels)
 KERNEL_CODEC_IDS: dict[str, int] = {
-    POKERED_PUFFER_V0_ID: 0,
+    POKERED_PUFFER_V1_ID: 0,
 }
 
 
