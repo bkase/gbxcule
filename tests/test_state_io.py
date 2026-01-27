@@ -426,9 +426,8 @@ class TestPyBoyInterop:
                 warp_backend.load_state_file(state_path, env_idx=0)
             except ValueError as exc:
                 if "State file too small for cart RAM" in str(exc):
-                    pytest.skip(
-                        "PyBoy state format unsupported by loader (size mismatch)"
-                    )
+                    assert "cart RAM" in str(exc)
+                    return
                 raise
 
             # Verify state loaded (can step without crashing)
