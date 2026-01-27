@@ -51,6 +51,7 @@ class PokeredPixelsGoalEnv:
         tau: float | None = None,
         k_consecutive: int | None = None,
         force_lcdc_on_render: bool = True,
+        skip_reset_if_empty: bool = False,
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
@@ -105,6 +106,7 @@ class PokeredPixelsGoalEnv:
         self._reward_cfg = RewardShapingConfig(
             step_cost=step_cost, alpha=alpha, goal_bonus=goal_bonus
         )
+        self._skip_reset_if_empty = bool(skip_reset_if_empty)
 
         self._pix = None
         self._stack = None
@@ -220,16 +222,33 @@ class PokeredPixelsGoalEnv:
         reward = compute_reward(self._prev_dist, dist, done, self._reward_cfg)
 
         reset_mask = done | trunc
-        self._reset_cache.apply_mask_torch(reset_mask)
+        if self._skip_reset_if_empty:
+            if torch.any(reset_mask):
+                self._reset_cache.apply_mask_torch(reset_mask)
 
-        zeros_i32 = torch.zeros_like(self._episode_step)
-        self._episode_step = torch.where(reset_mask, zeros_i32, self._episode_step)
-        zeros_consec = torch.zeros_like(self._consec_match)
-        self._consec_match = torch.where(reset_mask, zeros_consec, self._consec_match)
-        self._prev_dist = torch.where(reset_mask, self._start_dist, dist)
+                zeros_i32 = torch.zeros_like(self._episode_step)
+                self._episode_step = torch.where(
+                    reset_mask, zeros_i32, self._episode_step
+                )
+                zeros_consec = torch.zeros_like(self._consec_match)
+                self._consec_match = torch.where(
+                    reset_mask, zeros_consec, self._consec_match
+                )
+                self._prev_dist = torch.where(reset_mask, self._start_dist, dist)
 
-        if self._start_stack is not None:
-            self._stack[reset_mask] = self._start_stack
+                if self._start_stack is not None:
+                    self._stack[reset_mask] = self._start_stack
+        else:
+            self._reset_cache.apply_mask_torch(reset_mask)
+
+            zeros_i32 = torch.zeros_like(self._episode_step)
+            self._episode_step = torch.where(reset_mask, zeros_i32, self._episode_step)
+            zeros_consec = torch.zeros_like(self._consec_match)
+            self._consec_match = torch.where(reset_mask, zeros_consec, self._consec_match)
+            self._prev_dist = torch.where(reset_mask, self._start_dist, dist)
+
+            if self._start_stack is not None:
+                self._stack[reset_mask] = self._start_stack
 
         info = {"dist": dist, "reset_mask": reset_mask}
         return self._stack, reward, done, trunc, info

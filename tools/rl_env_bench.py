@@ -41,6 +41,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bench-steps", type=int, default=500)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--force-resets", action="store_true")
+    parser.add_argument("--skip-reset-if-empty", action="store_true")
     return parser.parse_args()
 
 
@@ -69,6 +70,7 @@ def _make_env(args):  # type: ignore[no-untyped-def]
         release_after_frames=args.release_after_frames,
         stack_k=args.stack_k,
         max_steps=args.max_steps if not args.force_resets else 1,
+        skip_reset_if_empty=args.skip_reset_if_empty,
     )
 
 
@@ -130,6 +132,7 @@ def _run() -> dict:
             "max_mem_alloc_after": int(mem_after),
             "max_mem_alloc_delta": int(mem_after - mem_before),
             "force_resets": bool(args.force_resets),
+            "skip_reset_if_empty": bool(args.skip_reset_if_empty),
             "goal_dir": args.goal_dir is not None,
         }
     finally:
