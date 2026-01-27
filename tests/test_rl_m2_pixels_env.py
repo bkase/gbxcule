@@ -38,8 +38,8 @@ def _require_torch():
 
 
 def _hash_pixels_u64(pix, torch):  # type: ignore[no-untyped-def]
-    flat = pix.reshape(pix.shape[0], -1).to(torch.uint64)
-    prime = torch.tensor(1315423911, device=flat.device, dtype=torch.uint64)
+    flat = pix.reshape(pix.shape[0], -1).to(torch.int64)
+    prime = torch.tensor(1315423911, device=flat.device, dtype=torch.int64)
     return (flat * prime).sum(dim=1)
 
 
