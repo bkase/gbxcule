@@ -145,6 +145,7 @@ def _parse_args() -> argparse.Namespace:
         help="Directory for logs/checkpoints (default: bench/runs/rl_m5_a2c/<ts>)",
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
 
@@ -162,6 +163,8 @@ def _torch_versions() -> tuple[str, str | None]:
 
 def main() -> int:
     args = _parse_args()
+    if args.self_test:
+        return _run_self_test()
     if not _cuda_available():
         print(json.dumps({"skipped": "CUDA not available"}))
         return 0
@@ -388,6 +391,84 @@ def main() -> int:
     )
     env.close()
     return 0
+
+
+def _run_self_test() -> int:
+    torch = _require_torch()
+    from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W
+    from gbxcule.rl.a2c import a2c_td0_losses
+    from gbxcule.rl.models import PixelActorCriticCNN
+
+    class _ToyPixelsEnv:
+        def __init__(self, num_envs: int, stack_k: int) -> None:
+            self.num_envs = num_envs
+            self.stack_k = stack_k
+            self._step = torch.zeros((num_envs,), dtype=torch.int32)
+            self._obs = torch.zeros(
+                (num_envs, stack_k, DOWNSAMPLE_H, DOWNSAMPLE_W), dtype=torch.uint8
+            )
+
+        def reset(self):  # type: ignore[no-untyped-def]
+            self._step.zero_()
+            self._obs.zero_()
+            return self._obs
+
+        def step(self, actions):  # type: ignore[no-untyped-def]
+            self._step.add_(1)
+            self._obs[:, :-1].copy_(self._obs[:, 1:])
+            fill = (actions % 4).to(torch.uint8).view(self.num_envs, 1, 1)
+            self._obs[:, -1].copy_(fill.expand(-1, DOWNSAMPLE_H, DOWNSAMPLE_W))
+            reward = self._obs[:, -1].to(torch.float32).mean(dim=(1, 2)) / 3.0
+            done = self._step >= 2
+            trunc = self._step >= 3
+            return self._obs, reward, done, trunc, {}
+
+    try:
+        torch.manual_seed(0)
+        env = _ToyPixelsEnv(num_envs=4, stack_k=2)
+        model = PixelActorCriticCNN(num_actions=8, in_frames=2)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+        obs = env.reset()
+        optimizer.zero_grad(set_to_none=True)
+        for _ in range(2):
+            logits, values = model(obs)
+            actions_i64 = torch.multinomial(
+                torch.softmax(logits, dim=-1), num_samples=1
+            ).squeeze(1)
+            next_obs, reward, done, trunc, _ = env.step(actions_i64.to(torch.int32))
+            with torch.no_grad():
+                _, v_next = model(next_obs)
+            losses = a2c_td0_losses(
+                logits,
+                actions_i64,
+                values,
+                reward,
+                done,
+                trunc,
+                v_next,
+                gamma=0.99,
+                value_coef=0.5,
+                entropy_coef=0.01,
+            )
+            (losses["loss_total"] / 2.0).backward()
+            obs = next_obs
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+        optimizer.step()
+        print(
+            json.dumps(
+                {
+                    "self_test": "ok",
+                    "loss_total": float(losses["loss_total"].item()),
+                    "entropy": float(losses["entropy"].item()),
+                }
+            )
+        )
+        return 0
+    except Exception as exc:
+        print(json.dumps({"self_test": "failed", "error": str(exc)}))
+        return 1
 
 
 if __name__ == "__main__":
