@@ -7,6 +7,7 @@ by any backend test class to reduce code duplication.
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import cast
 
@@ -14,6 +15,14 @@ import numpy as np
 import pytest
 
 from gbxcule.backends.common import Stage, VecBackend
+
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"Found GPU0 NVIDIA GB10 which is of cuda capability 12\.1\.",
+    category=UserWarning,
+    module=r"torch\.cuda",
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
