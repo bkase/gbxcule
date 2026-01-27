@@ -108,6 +108,10 @@ def main() -> int:
                 "success_rate": summary.success_rate,
                 "median_steps_to_goal": summary.median_steps_to_goal,
                 "mean_return": summary.mean_return,
+                "steps_p50_success": summary.steps_p50_success,
+                "return_mean_success": summary.return_mean_success,
+                "return_mean_fail": summary.return_mean_fail,
+                "dist_at_end_p50": summary.dist_at_end_p50,
             }
         )
     )

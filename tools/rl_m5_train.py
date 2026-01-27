@@ -247,6 +247,10 @@ def main() -> int:
                     "eval_success_rate": summary.success_rate,
                     "eval_median_steps": summary.median_steps_to_goal,
                     "eval_mean_return": summary.mean_return,
+                    "eval_steps_p50": summary.steps_p50_success,
+                    "eval_return_mean_success": summary.return_mean_success,
+                    "eval_return_mean_fail": summary.return_mean_fail,
+                    "eval_dist_at_end_p50": summary.dist_at_end_p50,
                 }
 
             record = {

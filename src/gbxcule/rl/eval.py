@@ -27,6 +27,10 @@ class EvalSummary:
     success_rate: float
     median_steps_to_goal: int | None
     mean_return: float
+    steps_p50_success: int | None
+    return_mean_success: float | None
+    return_mean_fail: float | None
+    dist_at_end_p50: float | None
 
 
 def _lower_median_int(values: Iterable[int]) -> int | None:
@@ -35,6 +39,14 @@ def _lower_median_int(values: Iterable[int]) -> int | None:
         return None
     idx = (len(data) - 1) // 2
     return int(data[idx])
+
+
+def _lower_median_float(values: Iterable[float]) -> float | None:
+    data = sorted(values)
+    if not data:
+        return None
+    idx = (len(data) - 1) // 2
+    return float(data[idx])
 
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
@@ -71,6 +83,9 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
     successes = 0
     returns: list[float] = []
     steps_success: list[int] = []
+    success_returns: list[float] = []
+    fail_returns: list[float] = []
+    dist_end: list[float] = []
     episodes_collected = 0
 
     trajectory: list[dict[str, Any]] = []
@@ -111,6 +126,11 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
                     if bool(done[idx].item()):
                         successes += 1
                         steps_success.append(int(ep_steps[idx].item()))
+                        success_returns.append(float(ep_returns[idx].item()))
+                    else:
+                        fail_returns.append(float(ep_returns[idx].item()))
+                    if isinstance(info, dict) and "dist" in info:
+                        dist_end.append(float(info["dist"][idx].item()))
                     returns.append(float(ep_returns[idx].item()))
                     ep_returns[idx] = 0.0
                     ep_steps[idx] = 0
@@ -134,6 +154,16 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
     mean_return = float(sum(returns) / max(1, len(returns)))
     success_rate = float(successes / episodes)
     median_steps = _lower_median_int(steps_success)
+    steps_p50_success = _lower_median_int(steps_success)
+    return_mean_success = (
+        float(sum(success_returns) / len(success_returns))
+        if success_returns
+        else None
+    )
+    return_mean_fail = (
+        float(sum(fail_returns) / len(fail_returns)) if fail_returns else None
+    )
+    dist_at_end_p50 = _lower_median_float(dist_end)
 
     return EvalSummary(
         episodes=episodes,
@@ -141,4 +171,8 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
         success_rate=success_rate,
         median_steps_to_goal=median_steps,
         mean_return=mean_return,
+        steps_p50_success=steps_p50_success,
+        return_mean_success=return_mean_success,
+        return_mean_fail=return_mean_fail,
+        dist_at_end_p50=dist_at_end_p50,
     )
