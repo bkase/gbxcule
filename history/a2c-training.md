@@ -268,12 +268,24 @@ Tasks:
 2. Add CLI knobs (env + reward + trainer)
 3. Add checkpoint saving (model + optimizer + config + step count)
 4. Add training log JSONL (one record per optimizer step)
-5. Add “sanity smoke mode” with small N for debugging
+5. Add “sanity smoke / self-test” mode with small N for debugging
+
+**Canonical example (Stage 1, scale mode):**
+
+```bash
+uv run python tools/rl_m5_train_a2c.py \
+  --rom <rom> --state <state> --goal-dir <goal_dir> \
+  --num-envs 8192 --stack-k 1 \
+  --frames-per-step 24 --release-after-frames 8 \
+  --action-codec pokemonred_puffer_v1 \
+  --max-steps 128 \
+  --update-every 4 --total-env-steps 10000000
+```
 
 **Can be done in parallel with A/B/D/E.**
 Dependencies:
 
-- wants action codec v1 eventually, but can be implemented with v0 initially.
+- action codec v1 is now the default; override via `--action-codec` if needed.
 
 ---
 
