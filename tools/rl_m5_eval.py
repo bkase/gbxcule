@@ -39,39 +39,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", required=True, help="Path to checkpoint.pt")
     parser.add_argument("--frames-per-step", type=int, default=24)
     parser.add_argument("--release-after-frames", type=int, default=8)
-    parser.add_argument("--num-envs", type=int, default=64)
+    parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=4)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--action-codec", default=None)
+    parser.add_argument("--dump-trajectory", default=None)
     return parser.parse_args()
-
-
-def _eval_greedy(env, model, episodes: int):  # type: ignore[no-untyped-def]
-    torch = _require_torch()
-    successes = 0
-    steps_to_goal: list[int] = []
-    returns: list[float] = []
-    for _ in range(episodes):
-        obs = env.reset()
-        done = torch.zeros((env.num_envs,), device="cuda", dtype=torch.bool)
-        ep_return = torch.zeros((env.num_envs,), device="cuda", dtype=torch.float32)
-        ep_steps = torch.zeros((env.num_envs,), device="cuda", dtype=torch.int32)
-        while True:
-            logits, _ = model(obs)
-            actions = torch.argmax(logits, dim=-1).to(torch.int32)
-            obs, reward, done, trunc, _ = env.step(actions)
-            ep_return.add_(reward)
-            ep_steps.add_(1)
-            if torch.any(done | trunc):
-                break
-        mask = done | trunc
-        successes += int(done[mask].sum().item())
-        steps_to_goal.extend(ep_steps[mask].tolist())
-        returns.extend(ep_return[mask].tolist())
-    success_rate = successes / max(1, len(steps_to_goal))
-    median_steps = (
-        int(torch.tensor(steps_to_goal).median().item()) if steps_to_goal else 0
-    )
-    mean_return = float(torch.tensor(returns).mean().item()) if returns else 0.0
-    return success_rate, median_steps, mean_return
 
 
 def main() -> int:
@@ -97,6 +70,7 @@ def main() -> int:
     if not ckpt_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
+    from gbxcule.rl.eval import run_greedy_eval
     from gbxcule.rl.models import PixelActorCriticCNN
     from gbxcule.rl.pokered_pixels_goal_env import PokeredPixelsGoalEnv
 
@@ -107,6 +81,7 @@ def main() -> int:
         num_envs=args.num_envs,
         frames_per_step=int(args.frames_per_step),
         release_after_frames=int(args.release_after_frames),
+        action_codec=args.action_codec,
     )
     model = PixelActorCriticCNN(
         num_actions=env.backend.num_actions, in_frames=env.stack_k
@@ -116,13 +91,23 @@ def main() -> int:
     ckpt = torch.load(ckpt_path, map_location="cuda")
     model.load_state_dict(ckpt["model"])
 
-    success_rate, median_steps, mean_return = _eval_greedy(env, model, args.episodes)
+    summary = run_greedy_eval(
+        env,
+        model,
+        episodes=int(args.episodes),
+        seed=int(args.seed),
+        trajectory_path=(
+            Path(args.dump_trajectory) if args.dump_trajectory is not None else None
+        ),
+    )
     print(
         json.dumps(
             {
-                "success_rate": success_rate,
-                "median_steps_to_goal": median_steps,
-                "mean_return": mean_return,
+                "episodes": summary.episodes,
+                "successes": summary.successes,
+                "success_rate": summary.success_rate,
+                "median_steps_to_goal": summary.median_steps_to_goal,
+                "mean_return": summary.mean_return,
             }
         )
     )

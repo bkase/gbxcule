@@ -50,6 +50,7 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
     *,
     episodes: int,
     trajectory_path: Path | None = None,
+    seed: int | None = None,
     max_steps: int | None = None,
 ) -> EvalSummary:
     """Run greedy evaluation on an autoreset env and return summary metrics."""
@@ -61,7 +62,7 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
     if trajectory_path is not None and num_envs != 1:
         raise ValueError("trajectory_path is only supported for num_envs == 1")
 
-    obs = env.reset()
+    obs = env.reset(seed=seed)
     device = obs.device
 
     ep_returns = torch.zeros((num_envs,), device=device, dtype=torch.float32)
