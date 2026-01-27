@@ -156,8 +156,7 @@ The constitution is the spec. This section translates every relevant clause into
 
 ### 0) Lock Decisions (Before Coding)
 
-- **Recurrence**: start with `stack_k=1` and *no recurrence* (per `history/a2c-training.md`); leave GRU as follow-on work.
-- **Action codec default**: default to `pokemonred_puffer_v0` until Workstream A lands v1; still accept `--action-codec` override.
+- **Recurrence**: start with `stack_k=1` and _no recurrence_ (per `history/a2c-training.md`); leave GRU as follow-on work.
 - **Update cadence**: implement `--update-every` grad accumulation; default `4`.
 - **Counting**: use `--total-env-steps` (global transitions) rather than “updates”.
 
@@ -168,7 +167,7 @@ Add `src/gbxcule/rl/a2c.py`:
 - `a2c_td0_losses(logits, actions, values, rewards, done, trunc, v_next, *, gamma, value_coef, entropy_coef) -> dict[str, Tensor]`
 - Exact math (must match the spec in `history/a2c-training.md`):
   - `not_done = ~(done | trunc)`
-  - `target = rewards + gamma * not_done.float() * v_next`  (v_next computed under `no_grad`)
+  - `target = rewards + gamma * not_done.float() * v_next` (v_next computed under `no_grad`)
   - `adv = target - values`
   - `loss_policy = -(logp(actions|logits) * adv.detach()).mean()`
   - `loss_value = value_coef * (target.detach() - values).pow(2).mean()`
@@ -285,4 +284,3 @@ Workstream C is done when:
     - one `{"meta": ...}` record
     - N optimizer-step records with stable keys
   - `checkpoint.pt` is written atomically and `--resume` continues with monotonically increasing counters.
-
