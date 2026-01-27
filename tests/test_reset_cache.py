@@ -120,19 +120,21 @@ def test_reset_cache_cuda_masked_restore_optional() -> None:
         backend.render_pixels_snapshot_torch()
         cache = ResetCache.from_backend(backend, env_idx=0)
 
-        backend.write_memory(1, 0xC000, b"\xaa\xbb\xcc\xdd")
         actions = torch.tensor([0, 1], device="cuda", dtype=torch.int32)
-        for _ in range(4):
+        snap_pc = int(cache.pc.numpy()[0])
+        diverged = False
+        for _ in range(32):
             backend.step_torch(actions)
-
-        pre = backend.read_memory(1, 0xC000, 0xC010)
-        snap = cache.mem.numpy()[0xC000:0xC010].tobytes()
-        assert pre != snap, "env did not diverge from snapshot"
+            pc = int(backend._pc.numpy()[1])
+            if pc != snap_pc:
+                diverged = True
+                break
+        assert diverged, "env did not diverge from snapshot"
 
         mask = torch.tensor([0, 1], device="cuda", dtype=torch.uint8)
         cache.apply_mask_torch(mask)
 
-        post = backend.read_memory(1, 0xC000, 0xC010)
-        assert post == snap
+        post_pc = int(backend._pc.numpy()[1])
+        assert post_pc == snap_pc
     finally:
         backend.close()

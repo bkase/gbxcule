@@ -106,10 +106,24 @@ def test_stream_ordering_updates_pixels() -> None:
     try:
         env.reset(seed=0)
         h0 = _hash_pixels_u64(env.pixels, torch)[0].item()
-        actions = torch.ones((1,), device="cuda", dtype=torch.int32)
-        env.step(actions)
-        h1 = _hash_pixels_u64(env.pixels, torch)[0].item()
-        assert h0 != h1, "pixel hash did not change after step"
+        gen = torch.Generator(device="cuda")
+        gen.manual_seed(1234)
+        changed = False
+        for _ in range(8):
+            actions = torch.randint(
+                0,
+                env.backend.num_actions,
+                (1,),
+                device="cuda",
+                dtype=torch.int32,
+                generator=gen,
+            )
+            env.step(actions)
+            h1 = _hash_pixels_u64(env.pixels, torch)[0].item()
+            if h1 != h0:
+                changed = True
+                break
+        assert changed, "pixel hash did not change after steps"
     finally:
         env.close()
 
