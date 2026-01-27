@@ -10,6 +10,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    import torch as torch_typing
 
 
 def _require_torch():
@@ -93,6 +97,10 @@ def _run_trace(
             )
             _, reward, done, trunc, info = env.step(actions)
             pix_hash = _hash_pixels_u64(env.pixels, torch).tolist()
+            reset_mask = info.get("reset_mask")
+            if reset_mask is None or not hasattr(reset_mask, "detach"):
+                raise RuntimeError("reset_mask missing from env info")
+            reset_mask_t = cast("torch_typing.Tensor", reset_mask)
             seq.append(
                 {
                     "step": step_idx,
@@ -100,7 +108,7 @@ def _run_trace(
                     "reward": reward.detach().cpu().tolist(),
                     "done": done.detach().cpu().tolist(),
                     "trunc": trunc.detach().cpu().tolist(),
-                    "reset": info["reset_mask"].detach().cpu().tolist(),
+                    "reset": reset_mask_t.detach().cpu().tolist(),
                 }
             )
         return seq

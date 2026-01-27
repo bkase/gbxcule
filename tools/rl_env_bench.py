@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import time
 from pathlib import Path
 
 
@@ -100,11 +99,10 @@ def _run() -> tuple[dict, int]:
     try:
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
-        obs = env.reset(seed=args.seed)
+        env.reset(seed=args.seed)
         actions = torch.zeros((env.num_envs,), device="cuda", dtype=torch.int32)
         for _ in range(args.warmup_steps):
-            step_out = env.step(actions)
-            obs = step_out[0] if isinstance(step_out, tuple) else step_out
+            env.step(actions)
         torch.cuda.synchronize()
 
         mem_before = torch.cuda.max_memory_allocated()
@@ -113,15 +111,14 @@ def _run() -> tuple[dict, int]:
 
         start_event.record()
         for _ in range(args.bench_steps):
-            step_out = env.step(actions)
-            obs = step_out[0] if isinstance(step_out, tuple) else step_out
+            env.step(actions)
         end_event.record()
         torch.cuda.synchronize()
 
         elapsed_ms = start_event.elapsed_time(end_event)
         mem_after = torch.cuda.max_memory_allocated()
-        env_steps_per_sec = (
-            float(args.bench_steps * env.num_envs) / (elapsed_ms / 1000.0)
+        env_steps_per_sec = float(args.bench_steps * env.num_envs) / (
+            elapsed_ms / 1000.0
         )
 
         payload = {

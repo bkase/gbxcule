@@ -121,10 +121,12 @@ def test_reset_cache_cuda_masked_restore_optional() -> None:
         cache = ResetCache.from_backend(backend, env_idx=0)
 
         actions = torch.tensor([0, 1], device="cuda", dtype=torch.int32)
+        assert cache.pc is not None
         snap_pc = int(cache.pc.numpy()[0])
         diverged = False
         for _ in range(32):
             backend.step_torch(actions)
+            assert backend._pc is not None
             pc = int(backend._pc.numpy()[1])
             if pc != snap_pc:
                 diverged = True
@@ -134,6 +136,7 @@ def test_reset_cache_cuda_masked_restore_optional() -> None:
         mask = torch.tensor([0, 1], device="cuda", dtype=torch.uint8)
         cache.apply_mask_torch(mask)
 
+        assert backend._pc is not None
         post_pc = int(backend._pc.numpy()[1])
         assert post_pc == snap_pc
     finally:

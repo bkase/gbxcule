@@ -1,7 +1,8 @@
 """Streaming A2C (TD(0)) trainer for pixels-only Pokémon Red (CUDA).
 
 JSONL schema (train_log.jsonl):
-  - First line: {"meta": <TrainConfig as dict>, "torch_version": str, "warp_version": str|None}
+  - First line: {"meta": <TrainConfig as dict>, "torch_version": str,
+                 "warp_version": str|None}
   - Per-optimizer-step record:
       {
         "opt_step": int,
@@ -431,6 +432,7 @@ def _run_self_test() -> int:
 
         obs = env.reset()
         optimizer.zero_grad(set_to_none=True)
+        losses = None
         for _ in range(2):
             logits, values = model(obs)
             actions_i64 = torch.multinomial(
@@ -456,6 +458,8 @@ def _run_self_test() -> int:
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
+        if losses is None:
+            raise RuntimeError("Self-test failed to produce losses")
         print(
             json.dumps(
                 {

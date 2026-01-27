@@ -43,6 +43,7 @@ def test_a2c_smoke_update() -> None:
     before = [p.detach().clone() for p in model.parameters()]
     obs = env.reset()
     optimizer.zero_grad(set_to_none=True)
+    losses = None
     for _ in range(2):
         logits, values = model(obs)
         actions_i64 = torch.multinomial(torch.softmax(logits, dim=-1), 1).squeeze(1)
@@ -66,9 +67,13 @@ def test_a2c_smoke_update() -> None:
 
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
     optimizer.step()
+    assert losses is not None
     assert torch.isfinite(losses["loss_total"]).item()
 
-    deltas = [(b - a).abs().sum().item() for b, a in zip(before, model.parameters())]
+    deltas = [
+        (b - a).abs().sum().item()
+        for b, a in zip(before, model.parameters(), strict=True)
+    ]
     assert any(delta > 0.0 for delta in deltas)
 
 
