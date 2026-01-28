@@ -40,7 +40,7 @@
     {
       "id": "stage4_at_snes",
       "name": "Upstairs aligned at the video game system",
-      "status": "pending",
+      "status": "skipped",
       "start_state": "states/rl_stage4_at_snes/start.state",
       "goal_source_state": "states/rl_stage4_at_snes/goal_source.state",
       "goal_dir": "states/rl_stage4_at_snes",
@@ -49,7 +49,7 @@
     {
       "id": "stage5_time_to_go",
       "name": "It’s time to go",
-      "status": "pending",
+      "status": "ready",
       "start_state": "states/rl_stage5_time_to_go/start.state",
       "goal_source_state": "states/rl_stage5_time_to_go/goal_source.state",
       "goal_dir": "states/rl_stage5_time_to_go",
