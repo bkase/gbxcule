@@ -1,0 +1,59 @@
+{
+  "abi": {
+    "action_codec_id": "pokemonred_puffer_v1",
+    "frames_per_step": 24,
+    "release_after_frames": 8,
+    "stack_k": 1,
+    "downsample_h": 72,
+    "downsample_w": 80,
+    "shade_levels": 4,
+    "dist_metric": "l1_mean_norm"
+  },
+  "stages": [
+    {
+      "id": "stage1_exit_oak",
+      "name": "Exit Oak’s lab",
+      "status": "ready",
+      "start_state": "states/rl_stage1_exit_oak/start.state",
+      "goal_source_state": "states/rl_stage1_exit_oak/goal_source.state",
+      "goal_dir": "states/rl_stage1_exit_oak",
+      "max_steps": 128
+    },
+    {
+      "id": "stage2_return_home",
+      "name": "Return home (outside)",
+      "status": "ready",
+      "start_state": "states/rl_stage2_return_home/start.state",
+      "goal_source_state": "states/rl_stage2_return_home/goal_source.state",
+      "goal_dir": "states/rl_stage2_return_home",
+      "max_steps": 128
+    },
+    {
+      "id": "stage3_enter_house",
+      "name": "Enter house",
+      "status": "ready",
+      "start_state": "states/rl_stage3_enter_house/start.state",
+      "goal_source_state": "states/rl_stage3_enter_house/goal_source.state",
+      "goal_dir": "states/rl_stage3_enter_house",
+      "max_steps": 96
+    },
+    {
+      "id": "stage4_at_snes",
+      "name": "Upstairs aligned at the video game system",
+      "status": "pending",
+      "start_state": "states/rl_stage4_at_snes/start.state",
+      "goal_source_state": "states/rl_stage4_at_snes/goal_source.state",
+      "goal_dir": "states/rl_stage4_at_snes",
+      "max_steps": 96
+    },
+    {
+      "id": "stage5_time_to_go",
+      "name": "It’s time to go",
+      "status": "pending",
+      "start_state": "states/rl_stage5_time_to_go/start.state",
+      "goal_source_state": "states/rl_stage5_time_to_go/goal_source.state",
+      "goal_dir": "states/rl_stage5_time_to_go",
+      "max_steps": 64
+    }
+  ]
+}
