@@ -1,24 +1,12 @@
 """Streaming A2C (TD(0)) trainer for pixels-only Pokémon Red (CUDA).
 
 JSONL schema (train_log.jsonl):
-  - First line: {"meta": <TrainConfig as dict>, "torch_version": str,
+  - First line: {"meta": {...}, "config": <TrainConfig>, "torch_version": str,
                  "warp_version": str|None}
-  - Per-optimizer-step record:
-      {
-        "opt_step": int,
-        "env_steps": int,
-        "loss_total": float,
-        "loss_policy": float,
-        "loss_value": float,
-        "loss_entropy": float,
-        "entropy": float,
-        "reward_mean": float,
-        "done_rate": float,
-        "trunc_rate": float,
-        "reset_rate": float,
-        "sps": int,
-        "accum_steps": int
-      }
+  - Per-optimizer-step record includes:
+      run_id/trace_id, env_steps/opt_steps, wall_time_s, losses, sps,
+      reward_mean, done/trunc/reset rates, dist percentiles, entropy/value stats,
+      action_hist.
 """
 
 from __future__ import annotations
@@ -30,6 +18,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 def _require_torch():
@@ -215,11 +204,18 @@ def main() -> int:
     cfg.validate()
 
     from gbxcule.rl.a2c import a2c_td0_losses
+    from gbxcule.rl.goal_template import compute_sha256
+    from gbxcule.rl.metrics import MetricsAccumulator
     from gbxcule.rl.models import PixelActorCriticCNN
     from gbxcule.rl.pokered_pixels_goal_env import PokeredPixelsGoalEnv
+    from gbxcule.rl.train_log_schema import SCHEMA_VERSION
 
     torch.manual_seed(cfg.seed)
     torch.cuda.manual_seed_all(cfg.seed)
+
+    effective_info_mode = cfg.info_mode
+    if effective_info_mode != "full":
+        effective_info_mode = "full"
 
     env = PokeredPixelsGoalEnv(
         cfg.rom,
@@ -236,7 +232,7 @@ def main() -> int:
         goal_bonus=cfg.goal_bonus,
         tau=cfg.tau,
         k_consecutive=cfg.k_consecutive,
-        info_mode=cfg.info_mode,
+        info_mode=effective_info_mode,
     )
 
     model = PixelActorCriticCNN(
@@ -261,6 +257,18 @@ def main() -> int:
             torch.cuda.set_rng_state_all(cuda_rng_state)
 
     obs = env.reset(seed=cfg.seed)
+    run_id = output_dir.name or uuid4().hex[:8]
+    train_start = time.time()
+
+    goal_template_path = Path(cfg.goal_dir) / "goal_template.npy"
+    if not goal_template_path.exists():
+        raise FileNotFoundError(f"Goal template not found: {goal_template_path}")
+
+    metrics = MetricsAccumulator(
+        num_envs=cfg.num_envs,
+        num_actions=env.backend.num_actions,
+        device="cuda",
+    )
     env_steps = start_env_steps
     opt_steps = start_opt_steps
 
@@ -270,7 +278,25 @@ def main() -> int:
             log_f.write(
                 json.dumps(
                     {
-                        "meta": asdict(cfg),
+                        "meta": {
+                            "schema_version": SCHEMA_VERSION,
+                            "run_id": run_id,
+                            "rom_path": cfg.rom,
+                            "rom_sha256": compute_sha256(Path(cfg.rom)),
+                            "state_path": cfg.state,
+                            "state_sha256": compute_sha256(Path(cfg.state)),
+                            "goal_dir": cfg.goal_dir,
+                            "goal_sha256": compute_sha256(goal_template_path),
+                            "action_codec_id": env.backend.action_codec.id,
+                            "frames_per_step": cfg.frames_per_step,
+                            "release_after_frames": cfg.release_after_frames,
+                            "stack_k": env.stack_k,
+                            "num_envs": cfg.num_envs,
+                            "num_actions": env.backend.num_actions,
+                            "seed": cfg.seed,
+                            "effective_info_mode": effective_info_mode,
+                        },
+                        "config": asdict(cfg),
                         "torch_version": torch_version,
                         "warp_version": warp_version,
                     }
@@ -281,11 +307,6 @@ def main() -> int:
         optimizer.zero_grad(set_to_none=True)
         window_start = time.time()
         accum_steps = 0
-        reward_sum = 0.0
-        done_sum = 0.0
-        trunc_sum = 0.0
-        reset_sum = 0.0
-        info_dist_mean = None
 
         while env_steps < cfg.total_env_steps:
             logits, values = model(obs)
@@ -315,12 +336,18 @@ def main() -> int:
             accum_steps += 1
             env_steps += cfg.num_envs
 
-            reward_sum += float(reward.mean().item())
-            done_sum += float(done.to(torch.float32).mean().item())
-            trunc_sum += float(trunc.to(torch.float32).mean().item())
-            reset_sum += float((done | trunc).to(torch.float32).mean().item())
-            if isinstance(info, dict) and "dist_mean" in info:
-                info_dist_mean = float(info["dist_mean"])
+            if isinstance(info, dict) and "dist" in info:
+                reset_mask = info.get("reset_mask", done | trunc)
+                metrics.update(
+                    reward=reward,
+                    done=done,
+                    trunc=trunc,
+                    reset_mask=reset_mask,
+                    dist=info["dist"],
+                    actions=actions_i64,
+                    logits=logits,
+                    values=values,
+                )
 
             if accum_steps >= cfg.update_every:
                 torch.nn.utils.clip_grad_norm_(
@@ -332,23 +359,22 @@ def main() -> int:
 
                 elapsed = max(1e-6, time.time() - window_start)
                 sps = int(cfg.num_envs * accum_steps / elapsed)
+                metrics_record = metrics.as_record()
                 record = {
-                    "opt_step": opt_steps,
+                    "run_id": run_id,
+                    "trace_id": f"{run_id}:{opt_steps}",
+                    "opt_steps": opt_steps,
                     "env_steps": env_steps,
+                    "wall_time_s": time.time() - train_start,
                     "loss_total": float(losses["loss_total"].item()),
                     "loss_policy": float(losses["loss_policy"].item()),
                     "loss_value": float(losses["loss_value"].item()),
                     "loss_entropy": float(losses["loss_entropy"].item()),
                     "entropy": float(losses["entropy"].item()),
-                    "reward_mean": reward_sum / float(accum_steps),
-                    "done_rate": done_sum / float(accum_steps),
-                    "trunc_rate": trunc_sum / float(accum_steps),
-                    "reset_rate": reset_sum / float(accum_steps),
                     "sps": sps,
                     "accum_steps": accum_steps,
+                    **metrics_record,
                 }
-                if info_dist_mean is not None:
-                    record["dist_mean"] = info_dist_mean
                 log_f.write(json.dumps(record) + "\n")
                 log_f.flush()
 
@@ -370,11 +396,7 @@ def main() -> int:
 
                 window_start = time.time()
                 accum_steps = 0
-                reward_sum = 0.0
-                done_sum = 0.0
-                trunc_sum = 0.0
-                reset_sum = 0.0
-                info_dist_mean = None
+                metrics.reset()
 
             obs = next_obs
 

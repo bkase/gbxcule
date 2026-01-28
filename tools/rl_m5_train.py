@@ -13,6 +13,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 def _require_torch():
@@ -60,6 +61,18 @@ def _atomic_save(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(".tmp")
     torch.save(payload, tmp)
     tmp.replace(path)
+
+
+def _torch_versions() -> tuple[str, str | None]:
+    torch = _require_torch()
+    warp_version = None
+    try:
+        import warp as wp
+
+        warp_version = getattr(wp, "__version__", None)
+    except Exception:
+        warp_version = None
+    return str(torch.__version__), warp_version
 
 
 def _parse_args() -> argparse.Namespace:
@@ -131,10 +144,13 @@ def main() -> int:
     )
 
     from gbxcule.rl.eval import run_greedy_eval
+    from gbxcule.rl.goal_template import compute_sha256
+    from gbxcule.rl.metrics import MetricsAccumulator
     from gbxcule.rl.models import PixelActorCriticCNN
     from gbxcule.rl.pokered_pixels_goal_env import PokeredPixelsGoalEnv
     from gbxcule.rl.ppo import compute_gae, logprob_from_logits, ppo_losses
     from gbxcule.rl.rollout import RolloutBuffer
+    from gbxcule.rl.train_log_schema import SCHEMA_VERSION
 
     torch.manual_seed(cfg.seed)
     torch.cuda.manual_seed_all(cfg.seed)
@@ -168,6 +184,19 @@ def main() -> int:
         start_update = int(ckpt.get("update", 0))
 
     obs = env.reset(seed=cfg.seed)
+    run_id = output_dir.name or uuid4().hex[:8]
+    train_start = time.time()
+    torch_version, warp_version = _torch_versions()
+
+    goal_template_path = Path(cfg.goal_dir) / "goal_template.npy"
+    if not goal_template_path.exists():
+        raise FileNotFoundError(f"Goal template not found: {goal_template_path}")
+
+    metrics = MetricsAccumulator(
+        num_envs=cfg.num_envs,
+        num_actions=env.backend.num_actions,
+        device="cuda",
+    )
 
     eval_env = None
     if cfg.eval_every > 0:
@@ -182,7 +211,33 @@ def main() -> int:
 
     with log_path.open("a", encoding="utf-8") as log_f:
         if start_update == 0:
-            log_f.write(json.dumps({"meta": asdict(cfg)}) + "\n")
+            log_f.write(
+                json.dumps(
+                    {
+                        "meta": {
+                            "schema_version": SCHEMA_VERSION,
+                            "run_id": run_id,
+                            "rom_path": cfg.rom,
+                            "rom_sha256": compute_sha256(Path(cfg.rom)),
+                            "state_path": cfg.state,
+                            "state_sha256": compute_sha256(Path(cfg.state)),
+                            "goal_dir": cfg.goal_dir,
+                            "goal_sha256": compute_sha256(goal_template_path),
+                            "action_codec_id": env.backend.action_codec.id,
+                            "frames_per_step": cfg.frames_per_step,
+                            "release_after_frames": cfg.release_after_frames,
+                            "stack_k": env.stack_k,
+                            "num_envs": cfg.num_envs,
+                            "num_actions": env.backend.num_actions,
+                            "seed": cfg.seed,
+                        },
+                        "config": asdict(cfg),
+                        "torch_version": torch_version,
+                        "warp_version": warp_version,
+                    }
+                )
+                + "\n"
+            )
         for update_idx in range(start_update, cfg.updates):
             rollout.reset()
             update_start = time.time()
@@ -193,7 +248,7 @@ def main() -> int:
                 ).squeeze(1)
                 logprobs = logprob_from_logits(logits, actions_i64)
                 actions = actions_i64.to(torch.int32)
-                next_obs, reward, done, trunc, _ = env.step(actions)
+                next_obs, reward, done, trunc, info = env.step(actions)
                 rollout.add(
                     obs,
                     actions,
@@ -202,6 +257,18 @@ def main() -> int:
                     values.detach(),
                     logprobs.detach(),
                 )
+                if isinstance(info, dict) and "dist" in info:
+                    reset_mask = info.get("reset_mask", done | trunc)
+                    metrics.update(
+                        reward=reward,
+                        done=done,
+                        trunc=trunc,
+                        reset_mask=reset_mask,
+                        dist=info["dist"],
+                        actions=actions_i64,
+                        logits=logits,
+                        values=values,
+                    )
                 obs = next_obs
 
             with torch.no_grad():
@@ -253,8 +320,15 @@ def main() -> int:
                     "eval_dist_at_end_p50": summary.dist_at_end_p50,
                 }
 
+            metrics_record = metrics.as_record()
+            env_steps = (update_idx + 1) * cfg.num_envs * cfg.steps_per_rollout
             record = {
+                "run_id": run_id,
+                "trace_id": f"{run_id}:{update_idx + 1}",
                 "update": update_idx,
+                "opt_steps": update_idx + 1,
+                "env_steps": env_steps,
+                "wall_time_s": time.time() - train_start,
                 "loss_total": float(losses["loss_total"].item()),
                 "loss_policy": float(losses["loss_policy"].item()),
                 "loss_value": float(losses["loss_value"].item()),
@@ -262,16 +336,17 @@ def main() -> int:
                 "entropy": float(losses["entropy"].item()),
                 "approx_kl": float(losses["approx_kl"].item()),
                 "clipfrac": float(losses["clipfrac"].item()),
-                "reward_mean": float(rollout.rewards.mean().item()),
                 "sps": int(
                     cfg.num_envs
                     * cfg.steps_per_rollout
                     / max(1e-6, time.time() - update_start)
                 ),
+                **metrics_record,
                 **eval_metrics,
             }
             log_f.write(json.dumps(record) + "\n")
             log_f.flush()
+            metrics.reset()
 
             _atomic_save(
                 ckpt_path,
