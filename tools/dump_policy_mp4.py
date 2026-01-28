@@ -13,6 +13,8 @@ from typing import Any
 
 import numpy as np
 
+from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W
+
 
 def _require_torch():
     import importlib
@@ -151,7 +153,8 @@ def main() -> int:
                 ).squeeze(1)
             actions = actions_i64.to(torch.int32)
             obs, reward, done, trunc, info = env.step(actions)
-            frame = env.pixels[0].detach().cpu().numpy()
+            pix = env.backend.pixels_wp().numpy()
+            frame = pix.reshape(1, DOWNSAMPLE_H, DOWNSAMPLE_W)[0].copy()
             _write_frame_png(frame, frames_dir / f"frame_{step_idx:06d}.png")
             dist_val = None
             if isinstance(info, dict) and "dist" in info:
