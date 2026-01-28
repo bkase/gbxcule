@@ -171,8 +171,10 @@ def main() -> int:
         meta_dict = _meta_to_dict(meta)
         entry["meta"] = meta_dict
 
-        def _abi_mismatch(key: str, expected: Any, actual: Any) -> None:
-            entry["checks"].setdefault("abi_mismatch", []).append(
+        def _abi_mismatch(
+            key: str, expected: Any, actual: Any, *, entry_ref: dict[str, Any] = entry
+        ) -> None:
+            entry_ref["checks"].setdefault("abi_mismatch", []).append(
                 {"key": key, "expected": expected, "actual": actual}
             )
 

@@ -13,7 +13,7 @@
    - entropy + value stats
 2. Add a lightweight plotter:
    - reward_mean, done_rate, dist_median, entropy vs step
-3. Add a single-env GIF dump tool (optional but extremely helpful)
+3. Add a single-env MP4 dump tool (optional but extremely helpful)
 
 ---
 
@@ -40,7 +40,7 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
   - Plan: add CLI tools that return **0/1** and print JSON (machine-readable):
     - `validate_train_log.py` (schema + numeric sanity + monotonicity)
     - `plot_train_log.py` (generates plots; nonzero if no usable data)
-    - `dump_policy_gif.py` (nonzero if it can’t load ckpt/env or produce frames)
+    - `dump_policy_mp4.py` (nonzero if it can’t load ckpt/env or produce frames)
 
 - **The AI Judge**
   - Requirement: logs must be structured enough for an agent to debug without humans.
@@ -77,7 +77,7 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
 
 - **Easy & Hermetic-ish**
   - Requirement: don’t add runtime complexity.
-  - Plan: use deps already present: `torch`, `PIL` (already used), `matplotlib` (already in repo deps). Avoid external encoders/ffmpeg.
+  - Plan: use deps already present: `torch`, `PIL` (already used), `matplotlib` (already in repo deps). FFmpeg is allowed for MP4 encoding.
 
 - **Supply Chain Minimalism**
   - Requirement: avoid new logging/plotting frameworks.
@@ -128,8 +128,8 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
 3. **Plotter tool**
    - reads JSONL and writes `train.png` (multi-panel) with reward_mean, done_rate, dist_p50, entropy vs step.
 
-4. **Single-env GIF dump tool**
-   - loads a ckpt, runs 1 env, saves `rollout.gif` + `rollout.jsonl` (actions/reward/dist/done/trunc).
+4. **Single-env MP4 dump tool**
+   - loads a ckpt, runs 1 env, saves `rollout.mp4` + `rollout.jsonl` (actions/reward/dist/done/trunc).
 
 5. **Validator tool + tests**
    - `validate_train_log.py` + fast unit tests.
@@ -226,7 +226,7 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
 **Acceptance criteria**
 - Plotter succeeds on an existing `tools/rl_m5_train.py` run directory.
 
-### F5) Add single-env GIF dump tool (debugging artifact)
+### F5) Add single-env MP4 dump tool (debugging artifact)
 
 **Goal:** when metrics lie, you can see agent behavior.
 
@@ -236,12 +236,12 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
   - choose policy: `--greedy` or `--sample`
   - run `--steps N` or until done
 - Outputs:
-  - `rollout.gif` (palette frames)
+  - `rollout.mp4` (FFmpeg-encoded video)
   - `rollout.jsonl` with `step, action, reward, dist, done, trunc`
   - `meta.json` with config + hashes
 
 **Acceptance criteria**
-- Produces a GIF without external encoders (PIL-only).
+- Produces an MP4 via FFmpeg with consistent frame timing.
 
 ### F6) Add verifiable checks (validator + tests + doc contract)
 
@@ -276,6 +276,5 @@ Treat each Constitution line as a *non-optional constraint* on observability. Th
 - F2: Implement GPU metrics module + tests
 - F3: Integrate metrics into PPO + A2C trainers
 - F4: Add `plot_train_log` tool
-- F5: Add single-env GIF dump tool
+- F5: Add single-env MP4 dump tool
 - F6: Docs + living-doc test
-

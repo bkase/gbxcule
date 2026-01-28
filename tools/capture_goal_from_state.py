@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 
@@ -87,9 +88,13 @@ def _write_scaled_png(frame: np.ndarray, path: Path, *, scale: int) -> None:
     palette = np.array([255, 170, 85, 0], dtype=np.uint8)
     img = Image.fromarray(palette[frame], mode="L")
     if scale > 1:
+        try:
+            resample = Image.Resampling.NEAREST
+        except AttributeError:  # pragma: no cover
+            resample = getattr(Image, "NEAREST")  # type: ignore[attr-defined]
         img = img.resize(
             (int(img.width * scale), int(img.height * scale)),
-            resample=Image.NEAREST,
+            resample=resample,
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path)
