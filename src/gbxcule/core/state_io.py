@@ -45,7 +45,9 @@ NON_IO_RAM0_SIZE = 96
 NON_IO_RAM1_SIZE = 52
 SCANLINE_PARAMS_SIZE = 720
 SOUND_SIZE_V9 = 138
-RENDERER_SIZE = 144 * 160 * 5  # 115200 bytes
+# v9-v12 renderer is 4 bytes/pixel minus a 138-byte offset
+RENDERER_SIZE_V9_12 = 144 * 160 * 4 - 138  # 92022 bytes (v9-v12)
+RENDERER_SIZE = 144 * 160 * 5  # 115200 bytes (v13+)
 
 
 @dataclass
@@ -372,8 +374,59 @@ def _load_pyboy_state_from_file(
             max_sound_size += 1
     _skip_sound_state(f, version, max_sound_size=max_sound_size)
 
-    # Renderer (skip - 115200 bytes)
-    f.read(RENDERER_SIZE)
+    # Renderer (skip - version dependent size)
+    # Old PyBoy v9-12 states use 92022 bytes, modern v13+ and Warp-saved v9 use 115200.
+    # Detect which format by checking if the implied cart RAM size is valid.
+    if version <= 12:
+        renderer_start = f.tell()
+        file_end = f.seek(0, 2)
+        f.seek(renderer_start)
+        remaining = file_end - renderer_start
+
+        # Calculate minimum bytes after renderer: RAM + timer + cart header + tail
+        timer_size = 8  # base timer for v9
+        if version >= 12:
+            timer_size += 8  # timer_last_cycles
+        tail_size = 2  # joypad (no serial for v9-12)
+        min_after_renderer = (
+            WRAM_SIZE
+            + NON_IO_RAM0_SIZE
+            + IO_PORTS_SIZE
+            + HRAM_SIZE
+            + NON_IO_RAM1_SIZE
+            + timer_size
+            + 5  # cart header fields
+            + tail_size
+        )
+
+        # Calculate implied cart RAM size for each renderer option
+        remaining_after_old = remaining - RENDERER_SIZE_V9_12 - min_after_renderer
+        remaining_after_new = remaining - RENDERER_SIZE - min_after_renderer
+
+        # Valid cart RAM sizes: 0, 2KB, 8KB, 32KB, 128KB
+        valid_cart_ram_sizes = {0, 2048, 8192, 32768, 131072}
+
+        # Check which renderer size results in a valid cart RAM size
+        old_is_valid = remaining_after_old in valid_cart_ram_sizes
+        new_is_valid = remaining_after_new in valid_cart_ram_sizes
+
+        if old_is_valid and not new_is_valid:
+            renderer_size = RENDERER_SIZE_V9_12
+        elif new_is_valid and not old_is_valid:
+            renderer_size = RENDERER_SIZE
+        elif old_is_valid and new_is_valid:
+            # Both valid - prefer old for actual v9-12 states
+            renderer_size = RENDERER_SIZE_V9_12
+        else:
+            # Neither exact match - use whichever gives non-negative cart RAM
+            # and prefer old format for backwards compatibility
+            if remaining_after_old >= 0:
+                renderer_size = RENDERER_SIZE_V9_12
+            else:
+                renderer_size = RENDERER_SIZE
+    else:
+        renderer_size = RENDERER_SIZE
+    f.read(renderer_size)
 
     # RAM
     wram = f.read(WRAM_SIZE)
@@ -570,6 +623,7 @@ def _save_pyboy_state_to_file(state: PyBoyState, f: BinaryIO) -> None:
 
     # Renderer (write zeros - 115200 bytes)
     # PyBoy will re-render on load anyway
+    # Note: Old PyBoy v9 states used 92022 bytes, but modern PyBoy expects 115200.
     f.write(b"\x00" * RENDERER_SIZE)
 
     # RAM
@@ -823,7 +877,7 @@ def apply_state_to_warp_backend(
     _write_scalar(backend._pc, state.pc, np.int32, wp.int32)
     _write_scalar(backend._ime, state.ime, np.int32, wp.int32)
     _write_scalar(backend._ime_delay, 0, np.int32, wp.int32)
-    _write_scalar(backend._halted, 0, np.int32, wp.int32)
+    _write_scalar(backend._halted, state.halted, np.int32, wp.int32)
 
     # Memory
     mem_full = backend._mem.numpy()
@@ -1048,8 +1102,8 @@ def apply_state_to_warp_backend(
 
     # PPU state
     _write_scalar(backend._ppu_ly, state.ly, np.int32, wp.int32)
-    # PyBoy v15 state does not provide reliable lcd_clock timing; align to frame start.
-    scanline_cycle = 0
+    # Compute scanline cycle from lcd_clock for proper PPU timing restoration.
+    scanline_cycle = state.lcd_clock % CYCLES_PER_SCANLINE
     _write_scalar(backend._ppu_scanline_cycle, scanline_cycle, np.int32, wp.int32)
 
     if state.cpu_cycles != 0:

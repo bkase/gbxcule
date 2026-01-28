@@ -444,3 +444,71 @@ class TestPyBoyInterop:
         finally:
             warp_backend.close()
             Path(state_path).unlink(missing_ok=True)
+
+    def test_hram_roundtrip_v9_state_regression(
+        self, rom_path: str, pyboy_available: bool
+    ) -> None:
+        """Regression test: HRAM must be correctly parsed from v9 state files.
+
+        This tests for a bug where the PyBoy state parser used the wrong renderer
+        size for v9-12 states (92022 bytes vs 115200), causing HRAM to be read
+        from the wrong offset and appearing as all zeros. This would cause games
+        to crash when executing code from HRAM (e.g., OAM DMA routines at 0xFF80).
+
+        We test v9 format since that's what Warp saves, and the bug was specifically
+        in parsing v9-12 renderer sizes.
+        """
+        # Create Warp backend and run a few steps
+        warp_backend = WarpVecCpuBackend(
+            rom_path,
+            num_envs=1,
+            frames_per_step=1,
+            stage="emulate_only",
+        )
+
+        try:
+            warp_backend.reset()
+            for _ in range(10):
+                actions = np.array([0], dtype=np.int32)
+                warp_backend.step(actions)
+
+            # Write known pattern to HRAM via state manipulation
+            # This simulates what games do (e.g., OAM DMA code at 0xFF80)
+            hram_pattern = bytes([0x3E, 0xC3, 0xE0, 0x46, 0xC9])  # Typical OAM DMA
+
+            # Get current state and modify HRAM
+            state = state_from_warp_backend(warp_backend, env_idx=0)
+            assert state.version == 9, "Warp should save v9 states"
+
+            # Create modified HRAM with our pattern at the start
+            modified_hram = bytearray(state.hram)
+            for i, byte in enumerate(hram_pattern):
+                modified_hram[i] = byte
+            modified_state = PyBoyState(
+                **{
+                    k: (bytes(modified_hram) if k == "hram" else v)
+                    for k, v in state.__dict__.items()
+                }
+            )
+
+            # Save to file (v9 format)
+            fd, state_path = tempfile.mkstemp(suffix=".state")
+            os.close(fd)
+            save_pyboy_state(modified_state, state_path)
+
+            # Load it back and verify HRAM is correctly parsed
+            loaded_state = load_pyboy_state(state_path)
+            assert loaded_state.version == 9
+
+            # Verify HRAM has our pattern, not zeros
+            loaded_hram_prefix = loaded_state.hram[: len(hram_pattern)]
+            assert loaded_hram_prefix == hram_pattern, (
+                f"HRAM content mismatch after loading v9 state. "
+                f"Expected {hram_pattern.hex()}, got {loaded_hram_prefix.hex()}. "
+                f"This indicates the renderer size offset is wrong for v9 states."
+            )
+
+        finally:
+            warp_backend.close()
+            if "state_path" in dir():
+                Path(state_path).unlink(missing_ok=True)
