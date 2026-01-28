@@ -248,7 +248,9 @@ class PokeredPixelsGoalEnv:
             zeros_i32 = torch.zeros_like(self._episode_step)
             self._episode_step = torch.where(reset_mask, zeros_i32, self._episode_step)
             zeros_consec = torch.zeros_like(self._consec_match)
-            self._consec_match = torch.where(reset_mask, zeros_consec, self._consec_match)
+            self._consec_match = torch.where(
+                reset_mask, zeros_consec, self._consec_match
+            )
             self._prev_dist = torch.where(reset_mask, self._start_dist, dist)
 
             if self._start_stack is not None:

@@ -16,7 +16,6 @@ import pytest
 
 from gbxcule.backends.common import Stage, VecBackend
 
-
 warnings.filterwarnings(
     "ignore",
     message=r"(?s)Found GPU0 NVIDIA GB10.*supported by this version of PyTorch.*",
