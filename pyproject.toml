@@ -71,6 +71,10 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tools scripts intentionally modify sys.path before imports
+"tools/*.py" = ["E402"]
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:Using SDL2 binaries from pysdl2-dll:UserWarning",

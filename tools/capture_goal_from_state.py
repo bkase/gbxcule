@@ -91,7 +91,7 @@ def _write_scaled_png(frame: np.ndarray, path: Path, *, scale: int) -> None:
         try:
             resample = Image.Resampling.NEAREST
         except AttributeError:  # pragma: no cover
-            resample = getattr(Image, "NEAREST")  # type: ignore[attr-defined]
+            resample = Image.NEAREST  # type: ignore[attr-defined]
         img = img.resize(
             (int(img.width * scale), int(img.height * scale)),
             resample=resample,

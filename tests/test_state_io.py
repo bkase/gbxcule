@@ -466,6 +466,7 @@ class TestPyBoyInterop:
             stage="emulate_only",
         )
 
+        state_path: str | None = None
         try:
             warp_backend.reset()
             for _ in range(10):
@@ -485,7 +486,7 @@ class TestPyBoyInterop:
             for i, byte in enumerate(hram_pattern):
                 modified_hram[i] = byte
             modified_state = PyBoyState(
-                **{
+                **{  # type: ignore[arg-type]
                     k: (bytes(modified_hram) if k == "hram" else v)
                     for k, v in state.__dict__.items()
                 }
@@ -510,5 +511,5 @@ class TestPyBoyInterop:
 
         finally:
             warp_backend.close()
-            if "state_path" in dir():
+            if state_path is not None:
                 Path(state_path).unlink(missing_ok=True)
