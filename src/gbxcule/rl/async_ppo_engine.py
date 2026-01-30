@@ -216,6 +216,36 @@ class AsyncPPOEngine:
         ):
             p_actor.data.copy_(p_learner.data)
 
+    def _assert_cuda_tensors(self) -> None:
+        if self.config.device != "cuda":
+            return
+        torch = self._torch
+
+        def _ensure_cuda(tensor, name: str) -> None:  # type: ignore[no-untyped-def]
+            if tensor.device.type != "cuda":
+                raise RuntimeError(f"{name} must be a CUDA tensor")
+
+        _ensure_cuda(self.obs, "obs")
+        _ensure_cuda(self.goal, "goal")
+        _ensure_cuda(self.prev_dist, "prev_dist")
+        _ensure_cuda(self.episode_steps, "episode_steps")
+        for idx, buf in enumerate(self.rollout_buffers):
+            _ensure_cuda(buf.obs_u8, f"rollout_buffers[{idx}].obs")
+            _ensure_cuda(buf.actions, f"rollout_buffers[{idx}].actions")
+            _ensure_cuda(buf.rewards, f"rollout_buffers[{idx}].rewards")
+            _ensure_cuda(buf.dones, f"rollout_buffers[{idx}].dones")
+            _ensure_cuda(buf.values, f"rollout_buffers[{idx}].values")
+            _ensure_cuda(buf.logprobs, f"rollout_buffers[{idx}].logprobs")
+        for name, model in (
+            ("actor_model", self.actor_model),
+            ("learner_model", self.learner_model),
+        ):
+            for param in model.parameters():
+                if param.device.type != "cuda":
+                    raise RuntimeError(f"{name} parameters must be on CUDA")
+        if torch.cuda.current_stream().device_index is None:
+            raise RuntimeError("CUDA stream not initialized")
+
     def run(self, *, updates: int | None = None) -> dict[str, Any]:
         from gbxcule.rl.ppo import (
             compute_gae,
@@ -236,6 +266,7 @@ class AsyncPPOEngine:
                 logprob_from_logits=logprob_from_logits,
                 ppo_update_minibatch=ppo_update_minibatch,
             )
+        self._assert_cuda_tensors()
         if cfg.obs_format == "packed2":
             return self._run_cuda_packed(
                 update_count,
@@ -258,6 +289,7 @@ class AsyncPPOEngine:
         learner_events: list[tuple[Any, Any]] = []
         total_events: list[tuple[Any, Any]] = []
         default_stream = torch.cuda.current_stream()
+        guard_checked = False
 
         start = time.perf_counter()
         for update_idx in range(update_count):
@@ -322,6 +354,14 @@ class AsyncPPOEngine:
                         ).squeeze(1)
                         logprobs = logprob_from_logits(logits, actions_i64)
                     actions = actions_i64.to(torch.int32)
+                    if not guard_checked:
+                        if actions.device.type != "cuda":
+                            raise RuntimeError("actions must be a CUDA tensor")
+                        if values.device.type != "cuda":
+                            raise RuntimeError("values must be a CUDA tensor")
+                        if logprobs.device.type != "cuda":
+                            raise RuntimeError("logprobs must be a CUDA tensor")
+                        guard_checked = True
                     backend.step_torch(actions)
                     backend.render_pixels_snapshot_torch()
                     next_obs = backend.pixels_torch().unsqueeze(1)
@@ -620,6 +660,7 @@ class AsyncPPOEngine:
         learner_events: list[tuple[Any, Any]] = []
         total_events: list[tuple[Any, Any]] = []
         default_stream = torch.cuda.current_stream()
+        guard_checked = False
 
         start = time.perf_counter()
         for update_idx in range(update_count):
@@ -691,6 +732,14 @@ class AsyncPPOEngine:
                         ).squeeze(1)
                         logprobs = logprob_from_logits(logits, actions_i64)
                     actions = actions_i64.to(torch.int32)
+                    if not guard_checked:
+                        if actions.device.type != "cuda":
+                            raise RuntimeError("actions must be a CUDA tensor")
+                        if values.device.type != "cuda":
+                            raise RuntimeError("values must be a CUDA tensor")
+                        if logprobs.device.type != "cuda":
+                            raise RuntimeError("logprobs must be a CUDA tensor")
+                        guard_checked = True
                     backend.step_torch(actions)
                     next_slot = rollout.obs_slot(t + 1)
                     backend.render_pixels_snapshot_packed_to_torch(next_slot, 0)
