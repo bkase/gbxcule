@@ -102,6 +102,7 @@ class WarpVecBaseBackend:
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
+        render_on_step: bool = True,
         force_lcdc_on_render: bool = False,
     ) -> None:
         """Initialize the warp_vec backend."""
@@ -123,6 +124,7 @@ class WarpVecBaseBackend:
         self._render_bg = render_bg
         self._render_pixels = render_pixels
         self._render_pixels_packed = render_pixels_packed
+        self._render_on_step = render_on_step
         self._force_lcdc_on_render = bool(force_lcdc_on_render)
         self._ppu_render_kernel = None
         self._ppu_render_downsampled_kernel = None
@@ -633,7 +635,8 @@ class WarpVecBaseBackend:
                 ],
                 device=self._device,
             )
-        self._launch_render_pixels()
+        if self._render_on_step:
+            self._launch_render_pixels()
         self._synchronize()
 
     def _launch_render_pixels(self) -> None:
@@ -1092,6 +1095,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
+        render_on_step: bool = True,
         force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
@@ -1108,6 +1112,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             render_bg=render_bg,
             render_pixels=render_pixels,
             render_pixels_packed=render_pixels_packed,
+            render_on_step=render_on_step,
             force_lcdc_on_render=force_lcdc_on_render,
         )
 
@@ -1131,6 +1136,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
+        render_on_step: bool = True,
         force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
@@ -1147,6 +1153,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             render_bg=render_bg,
             render_pixels=render_pixels,
             render_pixels_packed=render_pixels_packed,
+            render_on_step=render_on_step,
             force_lcdc_on_render=force_lcdc_on_render,
         )
         self._sync_after_step = False

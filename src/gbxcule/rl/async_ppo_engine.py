@@ -92,6 +92,7 @@ class AsyncPPOEngine:
                 obs_dim=config.obs_dim,
                 render_pixels=True,
                 render_pixels_packed=False,
+                render_on_step=False,
             )
         else:
             backend = WarpVecCpuBackend(
@@ -102,6 +103,7 @@ class AsyncPPOEngine:
                 obs_dim=config.obs_dim,
                 render_pixels=True,
                 render_pixels_packed=False,
+                render_on_step=False,
             )
         self.backend = backend
         backend.reset(seed=config.seed)
@@ -296,6 +298,7 @@ class AsyncPPOEngine:
                         logprobs = logprob_from_logits(logits, actions_i64)
                     actions = actions_i64.to(torch.int32)
                     backend.step_torch(actions)
+                    backend.render_pixels_snapshot_torch()
                     next_obs = backend.pixels_torch().unsqueeze(1)
                     self.episode_steps = self.episode_steps + 1
 
@@ -459,6 +462,7 @@ class AsyncPPOEngine:
                     logprobs = logprob_from_logits(logits, actions_i64)
                 actions = actions_i64.to(torch.int32).cpu().numpy()
                 self.backend.step(actions)
+                self.backend.render_pixels_snapshot()
                 next_obs = self.backend.pixels_torch().unsqueeze(1)
                 self.episode_steps = self.episode_steps + 1
 
