@@ -1,0 +1,3 @@
+[submodule "third_party/sheeprl"]
+	path = third_party/sheeprl
+	url = https://github.com/Eclectic-Sheep/sheeprl.git
