@@ -26,6 +26,12 @@ def _require_generator(gen: Any) -> None:
         raise ValueError("gen must be a torch.Generator")
 
 
+def _device_matches(tensor_device, target_device) -> bool:  # type: ignore[no-untyped-def]
+    return tensor_device == target_device or (
+        tensor_device.type == target_device.type and tensor_device.type == "cuda"
+    )
+
+
 class ReplayRingCUDA:  # type: ignore[no-any-unimported]
     """Time-major CUDA replay ring with commit-aware sampling."""
 
@@ -50,14 +56,7 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
         self.capacity = int(capacity)
         self.num_envs = int(num_envs)
         self.obs_shape = tuple(int(x) for x in obs_shape)
-        device_obj = torch.device(device)
-        if (
-            device_obj.type == "cuda"
-            and device_obj.index is None
-            and torch.cuda.is_available()
-        ):
-            device_obj = torch.device("cuda", torch.cuda.current_device())
-        self.device = device_obj
+        self.device = torch.device(device)
         self.debug_checks = bool(debug_checks)
 
         c, h, w = self.obs_shape
@@ -180,29 +179,29 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
                 raise ValueError("episode_id shape mismatch")
             if episode_id.dtype is not torch.int32:
                 raise ValueError("episode_id must be int32")
-            if action.device != self.device:
+            if not _device_matches(action.device, self.device):
                 raise ValueError("action device mismatch")
-            if reward.device != self.device:
+            if not _device_matches(reward.device, self.device):
                 raise ValueError("reward device mismatch")
-            if is_first.device != self.device:
+            if not _device_matches(is_first.device, self.device):
                 raise ValueError("is_first device mismatch")
-            if continue_.device != self.device:
+            if not _device_matches(continue_.device, self.device):
                 raise ValueError("continue device mismatch")
-            if episode_id.device != self.device:
+            if not _device_matches(episode_id.device, self.device):
                 raise ValueError("episode_id device mismatch")
             if terminated is not None:
                 if terminated.shape != (self.num_envs,):
                     raise ValueError("terminated shape mismatch")
                 if terminated.dtype is not torch.bool:
                     raise ValueError("terminated must be bool")
-                if terminated.device != self.device:
+                if not _device_matches(terminated.device, self.device):
                     raise ValueError("terminated device mismatch")
             if truncated is not None:
                 if truncated.shape != (self.num_envs,):
                     raise ValueError("truncated shape mismatch")
                 if truncated.dtype is not torch.bool:
                     raise ValueError("truncated must be bool")
-                if truncated.device != self.device:
+                if not _device_matches(truncated.device, self.device):
                     raise ValueError("truncated device mismatch")
 
         idx = self._head

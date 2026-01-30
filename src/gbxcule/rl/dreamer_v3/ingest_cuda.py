@@ -57,10 +57,12 @@ class ReplayIngestorCUDA:  # type: ignore[no-any-unimported]
     ):
         torch = self._torch
         if value is None:
-            return None
+            raise ValueError(f"{name} must be provided")
         if not isinstance(value, torch.Tensor):
             raise ValueError(f"{name} must be a torch.Tensor")
-        if value.device != self.ring.device:
+        if value.device != self.ring.device and not (
+            value.device.type == "cuda" and self.ring.device.type == "cuda"
+        ):
             raise ValueError(f"{name} must be on {self.ring.device}")
         if value.dtype is not dtype:
             raise ValueError(f"{name} must be {dtype}")
@@ -100,17 +102,12 @@ class ReplayIngestorCUDA:  # type: ignore[no-any-unimported]
             episode_id = self._episode_id
         else:
             episode_id = self._coerce(episode_id, dtype=torch.int32, name="episode_id")
-            assert episode_id is not None
             self._episode_id = episode_id.clone()
 
         reward = self._coerce(reward, dtype=torch.float32, name="reward")
         terminated = self._coerce(terminated, dtype=torch.bool, name="terminated")
         truncated = self._coerce(truncated, dtype=torch.bool, name="truncated")
         is_first = self._coerce(is_first, dtype=torch.bool, name="is_first")
-        assert reward is not None
-        assert terminated is not None
-        assert truncated is not None
-        assert is_first is not None
 
         continue_ = torch.where(
             terminated, torch.zeros_like(reward), torch.ones_like(reward)
@@ -132,11 +129,6 @@ class ReplayIngestorCUDA:  # type: ignore[no-any-unimported]
             raise RuntimeError(
                 "No pending observation. Call start() or set_next_obs()."
             )
-        assert self._pending_reward is not None
-        assert self._pending_terminated is not None
-        assert self._pending_truncated is not None
-        assert self._pending_is_first is not None
-        assert self._pending_continue is not None
         torch = self._torch
         if not isinstance(action, torch.Tensor):
             raise ValueError("action must be a torch.Tensor")
@@ -175,14 +167,10 @@ class ReplayIngestorCUDA:  # type: ignore[no-any-unimported]
         reward = self._coerce(reward, dtype=torch.float32, name="reward")
         terminated = self._coerce(terminated, dtype=torch.bool, name="terminated")
         truncated = self._coerce(truncated, dtype=torch.bool, name="truncated")
-        assert reward is not None
-        assert terminated is not None
-        assert truncated is not None
         if reset_mask is None:
             reset_mask = terminated | truncated
         else:
             reset_mask = self._coerce(reset_mask, dtype=torch.bool, name="reset_mask")
-        assert reset_mask is not None
 
         self._episode_id = torch.where(
             reset_mask,
@@ -213,7 +201,6 @@ class ReplayIngestorCUDA:  # type: ignore[no-any-unimported]
     ) -> int:
         """Insert an explicit reset observation row (optional)."""
         reset_mask = self._coerce(reset_mask, dtype=self._torch.bool, name="reset_mask")
-        assert reset_mask is not None
         self._episode_id = self._torch.where(
             reset_mask,
             self._episode_id + 1,

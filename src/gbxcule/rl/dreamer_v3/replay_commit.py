@@ -38,14 +38,7 @@ class ReplayCommitManager:  # type: ignore[no-any-unimported]
         self._torch = torch
         self.commit_stride = int(commit_stride)
         self.safety_margin = int(safety_margin)
-        device_obj = torch.device(device)
-        if (
-            device_obj.type == "cuda"
-            and device_obj.index is None
-            and torch.cuda.is_available()
-        ):
-            device_obj = torch.device("cuda", torch.cuda.current_device())
-        self.device = device_obj
+        self.device = torch.device(device)
         self._write_t = -1
         self._committed_t = -1
         self._use_events = self.device.type == "cuda" and torch.cuda.is_available()
