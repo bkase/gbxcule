@@ -1,7 +1,7 @@
 # GBxCuLE Learning Lab - Makefile
 # All commands use uv for reproducible environments
 
-.PHONY: help setup setup-puffer ensure-puffer fmt lint test roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu bench-tetris-gpu m0 m0-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
+.PHONY: help setup setup-puffer ensure-puffer fmt lint test test-gpu roms build-warp bench bench-cpu-puffer bench-e4-cpu bench-e4-gpu bench-tetris-gpu m0 m0-gpu smoke verify verify-smoke verify-mismatch verify-gpu bench-gpu check-gpu check hooks clean
 
 # Variables
 PY := uv run python
@@ -82,6 +82,10 @@ lint: ## Check formatting and lint (no modifications)
 
 test: ## Run unit tests
 	@GBXCULE_SKIP_CUDA=1 GBXCULE_WARP_MODE=$(DEV_WARP_MODE) $(PYTEST) -q --tb=short
+
+test-gpu: ## Run unit tests (CUDA required)
+	@$(PY) -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'"
+	@GBXCULE_WARP_MODE=$(DEV_WARP_MODE) $(PYTEST) -q --tb=short
 
 typecheck: ## Run type checking with pyright
 	@$(PYRIGHT) > /dev/null

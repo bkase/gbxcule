@@ -14,7 +14,7 @@ def _require_torch() -> Any:
         return importlib.import_module("torch")
     except Exception as exc:
         raise RuntimeError(
-            "Torch is required for gbxcule.rl. Install with `uv sync --group rl`."
+            "Torch is required for gbxcule.rl. Install with `uv sync`."
         ) from exc
 
 

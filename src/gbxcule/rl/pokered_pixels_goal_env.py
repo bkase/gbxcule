@@ -26,7 +26,7 @@ def _require_torch() -> Any:
     except Exception as exc:
         raise RuntimeError(
             "Torch is required for gbxcule.rl.pokered_pixels_goal_env. "
-            "Install with `uv sync --group rl`."
+            "Install with `uv sync`."
         ) from exc
 
 

@@ -15,6 +15,8 @@ dependencies = [
     "pillow",
     "pyyaml",
     "pyboy>=2.6.1",
+    "torch==2.9.1",
+    "torchvision==0.24.1",
     "warp-lang>=1.5.0",
 ]
 
@@ -25,10 +27,6 @@ dev = [
     "hypothesis",
     "ruff",
     "pyright",
-]
-rl = [
-    "torch==2.9.1",
-    "torchvision==0.24.1",
 ]
 puffer = [
     "pufferlib @ git+https://github.com/thatguy11325/PufferLib.git@1.0",
