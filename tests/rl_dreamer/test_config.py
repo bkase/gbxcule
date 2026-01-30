@@ -36,6 +36,14 @@ def test_invalid_bins_rejected() -> None:
     assert any("critic.bins" in err for err in errors)
 
 
+def test_invalid_reward_bounds_rejected() -> None:
+    cfg = DreamerV3Config()
+    cfg.world_model.reward_model.low = 5.0
+    cfg.world_model.reward_model.high = 5.0
+    errors = validate_config(cfg)
+    assert any("reward_model.low" in err for err in errors)
+
+
 def test_invalid_percentiles_rejected() -> None:
     cfg = DreamerV3Config()
     cfg.actor.moments.percentile.low = 0.9

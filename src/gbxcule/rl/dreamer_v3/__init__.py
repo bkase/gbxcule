@@ -8,6 +8,7 @@ from gbxcule.rl.dreamer_v3.dists import (
     MSEDistribution,
     SymlogDistribution,
     SymlogTwoHot,
+    TwoHotEncodingDistribution,
 )
 from gbxcule.rl.dreamer_v3.ingest_cuda import ReplayIngestorCUDA
 from gbxcule.rl.dreamer_v3.math import symexp, symlog, twohot, twohot_to_value
@@ -31,6 +32,7 @@ __all__ = [
     "RSSM",
     "SymlogDistribution",
     "SymlogTwoHot",
+    "TwoHotEncodingDistribution",
     "build_rssm",
     "shift_actions",
     "symexp",

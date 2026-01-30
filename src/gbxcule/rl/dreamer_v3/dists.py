@@ -101,7 +101,7 @@ class MSEDistribution:
         return -loss
 
 
-class SymlogTwoHot:
+class TwoHotEncodingDistribution:
     def __init__(
         self,
         logits,  # type: ignore[no-untyped-def]
@@ -154,29 +154,11 @@ class SymlogTwoHot:
         return prod
 
 
-class BernoulliSafeMode:
-    def __init__(self, probs=None, logits=None):  # type: ignore[no-untyped-def]
-        torch = _require_torch()
-        self._dist = torch.distributions.Bernoulli(probs=probs, logits=logits)
+class SymlogTwoHot(TwoHotEncodingDistribution):
+    pass
 
-    @property
-    def probs(self):  # type: ignore[no-untyped-def]
-        return self._dist.probs
 
-    @property
-    def logits(self):  # type: ignore[no-untyped-def]
-        return self._dist.logits
-
-    @property
-    def mean(self):  # type: ignore[no-untyped-def]
-        return self._dist.mean
-
+class BernoulliSafeMode(_require_torch().distributions.Bernoulli):  # type: ignore[misc]
     @property
     def mode(self):  # type: ignore[no-untyped-def]
         return (self.probs > 0.5).to(self.probs)
-
-    def log_prob(self, value):  # type: ignore[no-untyped-def]
-        return self._dist.log_prob(value)
-
-    def entropy(self):  # type: ignore[no-untyped-def]
-        return self._dist.entropy()

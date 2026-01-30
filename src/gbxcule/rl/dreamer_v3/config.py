@@ -155,11 +155,15 @@ class AlgoConfig:
 @dataclass
 class RewardModelConfig:
     bins: int = 255
+    low: float = -20.0
+    high: float = 20.0
 
     def validate(self) -> list[str]:
         errors: list[str] = []
         if self.bins < 2:
             errors.append("reward_model.bins must be >= 2")
+        if self.low >= self.high:
+            errors.append("reward_model.low must be < reward_model.high")
         return errors
 
 
@@ -320,6 +324,26 @@ class DistributionConfig:
 
 
 @dataclass
+class ObservationConfig:
+    obs_type: str = "rgb"
+    obs_format: str = "packed2"
+    obs_norm: str = "zero_centered"
+    unpack_impl: str = "lut"
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if self.obs_type not in ("rgb", "vector"):
+            errors.append("observation.obs_type must be 'rgb' or 'vector'")
+        if self.obs_format not in ("packed2", "u8"):
+            errors.append("observation.obs_format must be 'packed2' or 'u8'")
+        if self.obs_norm not in ("zero_centered",):
+            errors.append("observation.obs_norm must be 'zero_centered'")
+        if self.unpack_impl not in ("lut", "triton", "warp"):
+            errors.append("observation.unpack_impl must be 'lut', 'triton', or 'warp'")
+        return errors
+
+
+@dataclass
 class DreamerV3Config:
     precision: PrecisionPolicy = field(default_factory=PrecisionPolicy)
     replay: ReplayConfig = field(default_factory=ReplayConfig)
@@ -328,6 +352,7 @@ class DreamerV3Config:
     actor: ActorConfig = field(default_factory=ActorConfig)
     critic: CriticConfig = field(default_factory=CriticConfig)
     distribution: DistributionConfig = field(default_factory=DistributionConfig)
+    observation: ObservationConfig = field(default_factory=ObservationConfig)
     seed: int = 0
 
     def validate(self) -> list[str]:
@@ -339,6 +364,7 @@ class DreamerV3Config:
         errors += self.actor.validate()
         errors += self.critic.validate()
         errors += self.distribution.validate()
+        errors += self.observation.validate()
         if not isinstance(self.seed, int):
             errors.append("seed must be int")
         return errors
