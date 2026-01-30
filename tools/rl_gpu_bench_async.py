@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Async PPO benchmark with double-buffered rollouts."""
+"""Async PPO benchmark using the experiment harness."""
 
 from __future__ import annotations
 
 import argparse
-import json
+import hashlib
 import os
-import sys
-import time
+import platform
+import subprocess
 from pathlib import Path
+from typing import Any
+
+from gbxcule.rl.async_ppo_engine import AsyncPPOEngine, AsyncPPOEngineConfig
+from gbxcule.rl.experiment import Experiment
 
 
-def _require_torch():
+def _require_torch():  # type: ignore[no-untyped-def]
     import importlib
 
     return importlib.import_module("torch")
@@ -53,30 +57,129 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--grad-clip", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=1234)
-    parser.add_argument("--output", default=None, help="Optional output JSON path")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory root for experiment runs (default: bench/runs/rl)",
+    )
+    parser.add_argument("--tag", default="bench", help="Run tag for the output dir")
     return parser.parse_args()
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_info() -> tuple[str | None, bool]:
+    commit = None
+    dirty = False
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            commit = result.stdout.strip() or None
+    except Exception:
+        commit = None
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        dirty = bool(status.stdout.strip())
+    except Exception:
+        dirty = False
+    return commit, dirty
+
+
+def _system_info(torch) -> dict[str, Any]:
+    warp_version = None
+    try:
+        import warp as wp
+
+        warp_version = getattr(wp, "__version__", None)
+    except Exception:
+        warp_version = None
+    gpu_name = None
+    cuda_available = bool(torch.cuda.is_available())
+    if cuda_available:
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+        except Exception:
+            gpu_name = None
+    return {
+        "platform": platform.system(),
+        "python": platform.python_version(),
+        "torch_version": str(torch.__version__),
+        "warp_version": warp_version,
+        "cuda_available": cuda_available,
+        "gpu_name": gpu_name,
+    }
+
+
+def _build_meta(
+    *,
+    rom_path: Path,
+    state_path: Path,
+    num_envs: int,
+    frames_per_step: int,
+    release_after_frames: int,
+    stack_k: int,
+    obs_format: str,
+    action_codec_id: str,
+    algo_name: str,
+    algo_version: str,
+    torch,
+) -> dict[str, Any]:
+    git_commit, git_dirty = _git_info()
+    return {
+        "rom": {
+            "rom_path": str(rom_path),
+            "rom_sha256": _sha256(rom_path),
+        },
+        "state": {
+            "state_path": str(state_path),
+            "state_sha256": _sha256(state_path),
+        },
+        "env": {
+            "num_envs": int(num_envs),
+            "frames_per_step": int(frames_per_step),
+            "release_after_frames": int(release_after_frames),
+            "stack_k": int(stack_k),
+        },
+        "pipeline": {
+            "obs_format": obs_format,
+            "action_codec_id": action_codec_id,
+        },
+        "algo": {
+            "algo_name": algo_name,
+            "algo_version": algo_version,
+        },
+        "code": {
+            "git_commit": git_commit,
+            "git_dirty": bool(git_dirty),
+        },
+        "system": _system_info(torch),
+    }
 
 
 def main() -> int:
     args = _parse_args()
     if not _cuda_available():
-        print(json.dumps({"skipped": "CUDA not available"}))
         return 0
 
     torch = _require_torch()
     if not torch.cuda.is_available():
-        print(json.dumps({"skipped": "torch CUDA not available"}))
         return 0
-
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-    from gbxcule.backends.warp_vec import WarpVecCudaBackend
-    from gbxcule.core.reset_cache import ResetCache
-    from gbxcule.rl.async_ppo import AsyncPPOBufferManager
-    from gbxcule.rl.goal_template import load_goal_template
-    from gbxcule.rl.models import PixelActorCriticCNN
-    from gbxcule.rl.ppo import compute_gae, logprob_from_logits, ppo_update_minibatch
-    from gbxcule.rl.rollout import RolloutBuffer
 
     rom_path = Path(args.rom)
     state_path = Path(args.state)
@@ -88,225 +191,59 @@ def main() -> int:
     if not goal_dir.exists():
         raise FileNotFoundError(f"Goal dir not found: {goal_dir}")
 
-    backend = WarpVecCudaBackend(
-        str(rom_path),
+    config = AsyncPPOEngineConfig(
+        rom_path=str(rom_path),
+        state_path=str(state_path),
+        goal_dir=str(goal_dir),
+        device="cuda",
         num_envs=args.num_envs,
         frames_per_step=args.frames_per_step,
         release_after_frames=args.release_after_frames,
-        obs_dim=32,
-        render_pixels=True,
+        steps_per_rollout=args.steps_per_rollout,
+        updates=args.updates,
+        ppo_epochs=args.ppo_epochs,
+        minibatch_size=args.minibatch_size,
+        lr=args.lr,
+        gamma=args.gamma,
+        gae_lambda=args.gae_lambda,
+        clip=args.clip,
+        value_coef=args.value_coef,
+        entropy_coef=args.entropy_coef,
+        grad_clip=args.grad_clip,
+        seed=args.seed,
     )
-    backend.reset(seed=args.seed)
 
-    backend.load_state_file(str(state_path), env_idx=0)
-    reset_cache = ResetCache.from_backend(backend, env_idx=0)
-    all_mask = torch.ones(args.num_envs, dtype=torch.uint8, device="cuda")
-    reset_cache.apply_mask_torch(all_mask)
-
-    template, _ = load_goal_template(
-        Path(args.goal_dir),
-        action_codec_id=backend.action_codec.id,
-        frames_per_step=None,
-        release_after_frames=None,
-        stack_k=1,
-        dist_metric=None,
-        pipeline_version=None,
-    )
-    goal_np = template.squeeze(0) if template.ndim == 3 else template
-    goal = torch.tensor(goal_np, device="cuda", dtype=torch.uint8).unsqueeze(0)
-    goal_f = goal.to(dtype=torch.float32)
-
-    actor_model = PixelActorCriticCNN(num_actions=backend.num_actions, in_frames=1).to(
-        "cuda"
-    )
-    learner_model = PixelActorCriticCNN(
-        num_actions=backend.num_actions, in_frames=1
-    ).to("cuda")
-    optimizer = torch.optim.Adam(learner_model.parameters(), lr=args.lr)
-
-    rollout_buffers = [
-        RolloutBuffer(
-            steps=args.steps_per_rollout,
+    engine = AsyncPPOEngine(config)
+    try:
+        meta = _build_meta(
+            rom_path=rom_path,
+            state_path=state_path,
             num_envs=args.num_envs,
+            frames_per_step=args.frames_per_step,
+            release_after_frames=args.release_after_frames,
             stack_k=1,
-            device="cuda",
+            obs_format="u8",
+            action_codec_id=engine.backend.action_codec.id,
+            algo_name="ppo",
+            algo_version="async_ppo_engine",
+            torch=torch,
         )
-        for _ in range(2)
-    ]
-
-    manager = AsyncPPOBufferManager(num_buffers=2)
-    actor_stream = torch.cuda.Stream()
-    learner_stream = torch.cuda.Stream()
-
-    # Warm start obs and state
-    with torch.cuda.stream(actor_stream):
-        backend.render_pixels_snapshot_torch()
-        obs = backend.pixels_torch().unsqueeze(1)
-        episode_steps = torch.zeros(args.num_envs, dtype=torch.int32, device="cuda")
-        prev_dist = torch.ones(args.num_envs, dtype=torch.float32, device="cuda")
-    torch.cuda.synchronize()
-
-    tau = 0.05
-    step_cost = -0.01
-    alpha = 1.0
-    goal_bonus = 10.0
-    max_steps = 3000
-
-    def _sync_actor_weights():
-        for p_actor, p_learner in zip(
-            actor_model.parameters(), learner_model.parameters(), strict=True
-        ):
-            p_actor.data.copy_(p_learner.data)
-
-    start = time.perf_counter()
-    for update_idx in range(args.updates):
-        buf_idx = update_idx % 2
-        prev_idx = (update_idx - 1) % 2
-
-        with torch.cuda.stream(learner_stream):
-            if update_idx > 0:
-                manager.wait_ready(prev_idx, learner_stream)
-                rollout = rollout_buffers[prev_idx]
-                with torch.no_grad():
-                    _, last_value = learner_model(obs)
-                advantages, returns = compute_gae(
-                    rollout.rewards,
-                    rollout.values,
-                    rollout.dones,
-                    last_value,
-                    gamma=args.gamma,
-                    gae_lambda=args.gae_lambda,
-                )
-                batch = rollout.as_batch(flatten_obs=True)
-                ppo_update_minibatch(
-                    model=learner_model,
-                    optimizer=optimizer,
-                    obs=batch["obs_u8"],
-                    actions=batch["actions"],
-                    old_logprobs=batch["logprobs"],
-                    returns=returns.reshape(-1),
-                    advantages=advantages.reshape(-1),
-                    clip=args.clip,
-                    value_coef=args.value_coef,
-                    entropy_coef=args.entropy_coef,
-                    ppo_epochs=args.ppo_epochs,
-                    minibatch_size=args.minibatch_size,
-                    grad_clip=args.grad_clip,
-                )
-                _sync_actor_weights()
-                manager.mark_free(prev_idx, learner_stream)
-
-        with torch.cuda.stream(actor_stream):
-            manager.wait_free(buf_idx, actor_stream)
-            rollout = rollout_buffers[buf_idx]
-            rollout.reset()
-            for _ in range(args.steps_per_rollout):
-                with torch.no_grad():
-                    logits, values = actor_model(obs)
-                    actions_i64 = torch.multinomial(
-                        torch.softmax(logits, dim=-1), num_samples=1
-                    ).squeeze(1)
-                    logprobs = logprob_from_logits(logits, actions_i64)
-
-                actions = actions_i64.to(torch.int32)
-                backend.step_torch(actions)
-                backend.render_pixels_snapshot_torch()
-                next_obs = backend.pixels_torch().unsqueeze(1)
-                episode_steps = episode_steps + 1
-
-                diff = torch.abs(next_obs.float() - goal_f)
-                curr_dist = diff.mean(dim=(1, 2, 3)) / 3.0
-                done = curr_dist < tau
-                trunc = episode_steps >= max_steps
-                reward = torch.full((args.num_envs,), step_cost, device="cuda")
-                reward += alpha * (prev_dist - curr_dist)
-                reward[done] += goal_bonus
-                reset_mask = done | trunc
-
-                rollout.add(
-                    obs,
-                    actions,
-                    reward,
-                    reset_mask,
-                    values.detach(),
-                    logprobs.detach(),
-                )
-
-                reset_cache.apply_mask_torch(reset_mask.to(torch.uint8))
-                episode_steps = torch.where(
-                    reset_mask, torch.zeros_like(episode_steps), episode_steps
-                )
-                backend.render_pixels_snapshot_torch()
-                next_obs = backend.pixels_torch().unsqueeze(1)
-                curr_dist = (
-                    torch.abs(next_obs.float() - goal_f).mean(dim=(1, 2, 3)) / 3.0
-                )
-
-                prev_dist = curr_dist
-                obs = next_obs
-
-            manager.mark_ready(buf_idx, actor_stream, policy_version=update_idx)
-
-    with torch.cuda.stream(learner_stream):
-        last_idx = (args.updates - 1) % 2
-        manager.wait_ready(last_idx, learner_stream)
-        rollout = rollout_buffers[last_idx]
-        with torch.no_grad():
-            _, last_value = learner_model(obs)
-        advantages, returns = compute_gae(
-            rollout.rewards,
-            rollout.values,
-            rollout.dones,
-            last_value,
-            gamma=args.gamma,
-            gae_lambda=args.gae_lambda,
+        output_root = (
+            Path(args.output_dir) if args.output_dir else Path("bench/runs/rl")
         )
-        batch = rollout.as_batch(flatten_obs=True)
-        ppo_update_minibatch(
-            model=learner_model,
-            optimizer=optimizer,
-            obs=batch["obs_u8"],
-            actions=batch["actions"],
-            old_logprobs=batch["logprobs"],
-            returns=returns.reshape(-1),
-            advantages=advantages.reshape(-1),
-            clip=args.clip,
-            value_coef=args.value_coef,
-            entropy_coef=args.entropy_coef,
-            ppo_epochs=args.ppo_epochs,
-            minibatch_size=args.minibatch_size,
-            grad_clip=args.grad_clip,
+        exp = Experiment(
+            algo="ppo",
+            rom_id=rom_path.stem,
+            tag=args.tag,
+            run_root=output_root,
+            meta=meta,
+            config=config,
         )
-        _sync_actor_weights()
-        manager.mark_free(last_idx, learner_stream)
+        engine.experiment = exp
+        engine.run(updates=args.updates)
+    finally:
+        engine.close()
 
-    torch.cuda.synchronize()
-    elapsed = time.perf_counter() - start
-
-    env_steps = args.num_envs * args.steps_per_rollout * args.updates
-    sps = env_steps / elapsed
-
-    payload = {
-        "num_envs": int(args.num_envs),
-        "frames_per_step": int(args.frames_per_step),
-        "release_after_frames": int(args.release_after_frames),
-        "steps_per_rollout": int(args.steps_per_rollout),
-        "updates": int(args.updates),
-        "ppo_epochs": int(args.ppo_epochs),
-        "minibatch_size": int(args.minibatch_size),
-        "env_steps": int(env_steps),
-        "elapsed_s": float(elapsed),
-        "sps": float(sps),
-    }
-
-    output = json.dumps(payload)
-    print(output)
-    if args.output is not None:
-        out_path = Path(args.output)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(output + "\n", encoding="utf-8")
-
-    backend.close()
     return 0
 
 
