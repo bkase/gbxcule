@@ -1,13 +1,8 @@
 # pyright: reportTypedDictNotRequiredAccess=false
-"""Tests for pyboy_single backend.
+"""Tests specific to pyboy_single backend.
 
-Tests cover:
-- Backend initialization (headless)
-- reset() returns correct obs shape/dtype
-- step() returns correct shapes/dtypes
-- get_cpu_state() returns canonical keys and flags
-- Invalid action raises ValueError
-- close() stops emulator cleanly
+Compliance tests are in test_backend_compliance.py.
+This file contains only PyBoySingleBackend-specific tests.
 """
 
 from __future__ import annotations
@@ -16,21 +11,7 @@ import pytest
 
 from gbxcule.backends.pyboy_single import PyBoySingleBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests, require_rom
-
-
-class TestPyBoySingleCompliance(BackendComplianceTests):
-    """Compliance tests for PyBoySingleBackend."""
-
-    expected_name = "pyboy_single"
-    expected_num_envs = 1
-    obs_dim = 32
-
-    @pytest.fixture
-    def backend(self) -> PyBoySingleBackend:
-        """Create a backend instance for testing."""
-        require_rom(ROM_PATH)
-        return PyBoySingleBackend(str(ROM_PATH), obs_dim=32)
+from .conftest import ROM_PATH, require_rom
 
 
 class TestPyBoySingleSpecific:

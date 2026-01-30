@@ -81,7 +81,7 @@ lint: ## Check formatting and lint (no modifications)
 	@$(RUFF) check $(SRC_DIRS) > /dev/null
 
 test: ## Run unit tests
-	@GBXCULE_SKIP_CUDA=1 GBXCULE_WARP_MODE=$(DEV_WARP_MODE) $(PYTEST) -q --tb=short
+	@GBXCULE_SKIP_CUDA=1 GBXCULE_WARP_MODE=$(DEV_WARP_MODE) GBXCULE_WARP_WARMUP_STAGES=all $(PYTEST) -q --tb=short
 
 test-gpu: ## Run unit tests (CUDA required)
 	@$(PY) -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'"

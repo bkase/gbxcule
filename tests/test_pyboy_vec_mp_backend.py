@@ -1,13 +1,9 @@
 # pyright: reportReturnType=false
 # pyright: reportInvalidTypeForm=false
-"""Tests for pyboy_vec_mp backend reliability.
+"""Tests specific to pyboy_vec_mp backend.
 
-Tests cover:
-- Backend initialization with multiple workers
-- reset() and step() work without hangs
-- close() joins workers cleanly
-- get_cpu_state() returns canonical keys
-- Deterministic seeding produces stable derived seeds
+Compliance tests are in test_backend_compliance.py.
+This file contains only PyBoyVecMpBackend-specific tests.
 """
 
 from __future__ import annotations
@@ -17,7 +13,7 @@ import pytest
 
 from gbxcule.backends.pyboy_vec_mp import PyBoyMpConfig, PyBoyVecMpBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests, require_rom
+from .conftest import ROM_PATH, require_rom
 
 
 class TestConfig:
@@ -83,22 +79,6 @@ class TestConfig:
                 release_after_frames=20,
                 rom_path=str(ROM_PATH),
             )
-
-
-class TestPyBoyVecMpCompliance(BackendComplianceTests):
-    """Compliance tests for PyBoyVecMpBackend."""
-
-    expected_name = "pyboy_vec_mp"
-    expected_num_envs = 4
-    obs_dim = 32
-
-    @pytest.fixture
-    def backend(self) -> PyBoyVecMpBackend:
-        """Create a backend instance for testing."""
-        require_rom(ROM_PATH)
-        be = PyBoyVecMpBackend(str(ROM_PATH), num_envs=4, num_workers=2, obs_dim=32)
-        yield be
-        be.close()
 
 
 class TestPyBoyVecMpSpecific:

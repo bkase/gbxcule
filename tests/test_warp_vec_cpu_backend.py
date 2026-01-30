@@ -1,7 +1,11 @@
 # pyright: reportTypedDictNotRequiredAccess=false
 # pyright: reportOperatorIssue=false
 # pyright: reportOptionalOperand=false
-"""Tests for warp_vec_cpu backend."""
+"""Tests specific to warp_vec_cpu backend.
+
+Compliance tests are in test_backend_compliance.py.
+This file contains only WarpVecCpuBackend-specific tests.
+"""
 
 from __future__ import annotations
 
@@ -10,21 +14,7 @@ import pytest
 
 from gbxcule.backends.warp_vec import WarpVecCpuBackend
 
-from .conftest import ROM_PATH, BackendComplianceTests, require_rom
-
-
-class TestWarpVecCpuCompliance(BackendComplianceTests):
-    """Compliance tests for WarpVecCpuBackend."""
-
-    expected_name = "warp_vec_cpu"
-    expected_num_envs = 4
-    obs_dim = 32
-
-    @pytest.fixture
-    def backend(self) -> WarpVecCpuBackend:
-        """Create a backend instance for testing."""
-        require_rom(ROM_PATH)
-        return WarpVecCpuBackend(str(ROM_PATH), num_envs=4, obs_dim=32)
+from .conftest import ROM_PATH, require_rom
 
 
 class TestWarpVecCpuSpecific:
