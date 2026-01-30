@@ -58,7 +58,9 @@ class AsyncPPOEngineConfig:
 class AsyncPPOEngine:
     """Async PPO engine with double-buffered rollouts."""
 
-    def __init__(self, config: AsyncPPOEngineConfig) -> None:
+    def __init__(
+        self, config: AsyncPPOEngineConfig, *, experiment: Any | None = None
+    ) -> None:
         if not _cuda_available():
             raise RuntimeError("CUDA not available for AsyncPPOEngine.")
         torch = _require_torch()
@@ -74,6 +76,7 @@ class AsyncPPOEngine:
 
         self.config = config
         self._torch = torch
+        self.experiment = experiment
         self.backend = WarpVecCudaBackend(
             str(Path(config.rom_path)),
             num_envs=config.num_envs,
@@ -161,12 +164,26 @@ class AsyncPPOEngine:
         if update_count < 1:
             raise ValueError("updates must be >= 1")
 
+        actor_events: list[tuple[Any, Any]] = []
+        learner_events: list[tuple[Any, Any]] = []
+        total_events: list[tuple[Any, Any]] = []
+        default_stream = torch.cuda.current_stream()
+
         start = time.perf_counter()
         for update_idx in range(update_count):
             buf_idx = update_idx % 2
             prev_idx = (update_idx - 1) % 2
 
+            actor_start = torch.cuda.Event(enable_timing=True)
+            actor_end = torch.cuda.Event(enable_timing=True)
+            learner_start = torch.cuda.Event(enable_timing=True)
+            learner_end = torch.cuda.Event(enable_timing=True)
+            total_start = torch.cuda.Event(enable_timing=True)
+            total_end = torch.cuda.Event(enable_timing=True)
+            total_start.record(default_stream)
+
             with torch.cuda.stream(self.learner_stream):
+                learner_start.record(self.learner_stream)
                 if update_idx > 0:
                     self.manager.wait_ready(prev_idx, self.learner_stream)
                     rollout = self.rollout_buffers[prev_idx]
@@ -199,12 +216,14 @@ class AsyncPPOEngine:
                     self._sync_actor_weights()
                     self.policy_ready_event.record(self.learner_stream)
                     self.manager.mark_free(prev_idx, self.learner_stream)
+                learner_end.record(self.learner_stream)
 
             with torch.cuda.stream(self.actor_stream):
                 self.manager.wait_free(buf_idx, self.actor_stream)
                 self.actor_stream.wait_event(self.policy_ready_event)
                 rollout = self.rollout_buffers[buf_idx]
                 rollout.reset()
+                actor_start.record(self.actor_stream)
                 for _ in range(cfg.steps_per_rollout):
                     with torch.no_grad():
                         logits, values = self.actor_model(self.obs)
@@ -251,9 +270,17 @@ class AsyncPPOEngine:
                     self.prev_dist = curr_dist
                     self.obs = next_obs
 
+                actor_end.record(self.actor_stream)
                 self.manager.mark_ready(
                     buf_idx, self.actor_stream, policy_version=update_idx
                 )
+
+            default_stream.wait_event(actor_end)
+            default_stream.wait_event(learner_end)
+            total_end.record(default_stream)
+            actor_events.append((actor_start, actor_end))
+            learner_events.append((learner_start, learner_end))
+            total_events.append((total_start, total_end))
 
         with torch.cuda.stream(self.learner_stream):
             last_idx = (update_count - 1) % 2
@@ -294,7 +321,31 @@ class AsyncPPOEngine:
         env_steps = cfg.num_envs * cfg.steps_per_rollout * update_count
         sps = env_steps / elapsed if elapsed > 0 else 0.0
 
-        return {
+        t_actor_ms = 0.0
+        t_learner_ms = 0.0
+        t_total_ms = 0.0
+        timed_updates = 0
+        for idx in range(update_count):
+            if idx == 0:
+                continue
+            a_start, a_end = actor_events[idx]
+            l_start, l_end = learner_events[idx]
+            t_start, t_end = total_events[idx]
+            t_actor_ms += float(a_start.elapsed_time(a_end))
+            t_learner_ms += float(l_start.elapsed_time(l_end))
+            t_total_ms += float(t_start.elapsed_time(t_end))
+            timed_updates += 1
+
+        if timed_updates > 0:
+            t_actor_ms /= timed_updates
+            t_learner_ms /= timed_updates
+            t_total_ms /= timed_updates
+
+        overlap_eff = (
+            (t_actor_ms + t_learner_ms) / t_total_ms if t_total_ms > 0 else 0.0
+        )
+
+        metrics = {
             "num_envs": int(cfg.num_envs),
             "frames_per_step": int(cfg.frames_per_step),
             "release_after_frames": int(cfg.release_after_frames),
@@ -305,7 +356,14 @@ class AsyncPPOEngine:
             "env_steps": int(env_steps),
             "elapsed_s": float(elapsed),
             "sps": float(sps),
+            "t_actor_rollout_ms": float(t_actor_ms),
+            "t_learner_update_ms": float(t_learner_ms),
+            "t_total_update_ms": float(t_total_ms),
+            "overlap_efficiency": float(overlap_eff),
         }
+        if self.experiment is not None:
+            self.experiment.log_metrics(metrics)
+        return metrics
 
     def close(self) -> None:
         self.backend.close()
