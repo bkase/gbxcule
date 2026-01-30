@@ -5,6 +5,7 @@ Date: 2026-01-30
 Source context:
 - `history/dreamer-plan.md` (Master Plan v2; M2 scope and gates)
 - `history/dreamer-gotchas.md` (TwoHot bin alignment + symlog usage constraints)
+- `third_party/sheeprl/` (reference Dreamer v3 implementation; CPU‑focused but authoritative for math/distribution semantics)
 - Repo reality check: no Dreamer v3 module exists yet under `src/gbxcule/rl/`
 
 This document is the **spec + execution plan** for Dreamer v3 **Milestone M2**:
@@ -19,8 +20,8 @@ Deliver the math primitives and distribution building blocks required by Dreamer
 
 - `symlog` / `symexp` primitives
 - two-hot bucketization in **symlog space**
-- `SymlogTwoHot` distribution with correct `log_prob`, `mean`, and `mode`
-- a robust **ReturnEMA** percentile-based normalizer (p05/p95 EMA)
+- `SymlogTwoHot` distribution with correct `log_prob`, `mean`, and `mode` **matching sheeprl**
+- a robust **ReturnEMA/Moments** percentile-based normalizer (p05/p95 EMA) **matching sheeprl**
 - Golden Bridge fixtures + tests that lock the semantics
 
 This milestone must be fully CPU deterministic and independent of CUDA.
@@ -54,6 +55,14 @@ This milestone must be fully CPU deterministic and independent of CUDA.
   - weights: `(1-w)` at `i`, `w` at `i+1`
   - clamp to ends if `y` is outside bin range
 
+**Reference specifics (from `third_party/sheeprl`):**
+- `TwoHotEncodingDistribution` uses `bins = torch.linspace(low, high, K)` with defaults:
+  - `low = -20`, `high = 20`, `K = logits.shape[-1]`
+  - `K` is 255 for reward/value heads in `dreamer_v3.yaml`
+- It computes `below = (bins <= y).sum() - 1`, `above = below + 1`, then clamps.
+- If `below == above`, it sets both distances to 1 to avoid divide‑by‑zero, so the
+  “two” weights add to 1 on the same bin.
+
 **Critical gotcha (from `history/dreamer-gotchas.md`):**
 Do **not** rely on dynamic `torch.linspace` at test time for bin generation.
 We must serialize the exact reference `bins` in fixtures and compare against those.
@@ -62,25 +71,32 @@ We must serialize the exact reference `bins` in fixtures and compare against tho
 ### 3) SymlogTwoHot Distribution
 
 - Input: logits over `num_bins` (shape `[..., K]`)
+- Support a `dims` parameter (as in sheeprl) to reduce over event dims when
+  computing `log_prob`/`mean`.
 - `log_prob(x)`:
   - compute `y = symlog(x)`
-  - compute twohot weights for `y`
+  - compute twohot weights for `y` with the **sheeprl** below/above rule
   - log-prob is dot(twohot, log_softmax(logits))
 - `mean`/`mode`:
   - expectation in symlog space: `y_mean = sum(probs * bins)`
   - convert back via `symexp(y_mean)`
-  - `mode` uses argmax bins and `symexp`
+  - **sheeprl behavior:** `mode == mean` (no argmax mode)
 
 ### 4) ReturnEMA (percentile normalizer)
 
+**Reference name:** `Moments` in sheeprl (`third_party/sheeprl/sheeprl/algos/dreamer_v3/utils.py`).
+
 - Tracks EMA of low/high percentiles (p05/p95) of returns/lambda targets.
-- Outputs `(offset, invscale)` used as:
-  - `x_norm = (x - offset) * invscale`
-- Default percentiles: 5% and 95% (fixed unless explicitly changed).
-- Scale logic:
-  - `range = high - low`
-  - `scale = max(max_range, range)`
-  - `invscale = 1 / scale` (never divide by 0)
+- Uses distributed `all_gather` (Fabric) before quantiles; in CPU-only tests,
+  emulate this by treating the local tensor as already “gathered”.
+- Default config (from sheeprl): `decay=0.99`, `percentile_low=0.05`, `percentile_high=0.95`, `max=1.0`.
+- Update rule (exact):  
+  - `low = quantile(x, p_low)`, `high = quantile(x, p_high)`  
+  - `low = decay * low_prev + (1-decay) * low`  
+  - `high = decay * high_prev + (1-decay) * high`  
+  - `invscale = max(1/max, high - low)`  
+- Normalization uses **division** (not multiplication):  
+  - `x_norm = (x - low) / invscale`
 - Should handle:
   - first call initialization
   - constant-valued inputs
@@ -101,14 +117,15 @@ Create `src/gbxcule/rl/dreamer_v3/` (if missing) with:
    - all functions accept tensors with arbitrary leading dims
 
 2) `dists.py`
-   - `SymlogTwoHot(logits, bins)` distribution wrapper
+   - `SymlogTwoHot(logits, bins)` distribution wrapper **matching sheeprl’s `TwoHotEncodingDistribution`**
    - `MSEDistribution` (simple regression distribution for deterministic heads)
    - `BernoulliSafeMode` (optional guard; clamp logits if needed for stability)
 
 3) `return_ema.py`
-   - `ReturnEMA(decay, percentiles=(0.05, 0.95), max_range=1.0, eps=1e-8)`
+   - `ReturnEMA(decay, percentiles=(0.05, 0.95), max_value=1.0)`
    - `update(values)` returns `(offset, invscale)`
    - `normalize(values)` convenience method
+   - Implementation mirrors sheeprl `Moments` logic (EMA + quantile + `invscale = max(1/max, high-low)`).
 
 4) `__init__.py` exports for tests / future modules
 
@@ -147,7 +164,7 @@ Add a new test package: `tests/rl_dreamer/`.
 
 - `test_symlog_twohot_log_prob_parity` (fixtures)
 - `test_symlog_twohot_mean_parity` (fixtures)
-- `test_mode_matches_argmax_bin` (simple sanity)
+- `test_mode_matches_mean` (sheeprl parity)
 
 ### 3) ReturnEMA
 
@@ -181,17 +198,19 @@ Add a new test package: `tests/rl_dreamer/`.
 3) **Implement distributions (`dists.py`)**
    - Implement `SymlogTwoHot` with `log_prob`, `mean`, `mode`.
    - Ensure it accepts bins as a tensor (from fixture or config).
+   - Match sheeprl’s log_prob weighting and `mode == mean` semantics.
+   - Implement the `dims` reduction behavior for `log_prob` parity.
    - Add simple `MSEDistribution` and a safe Bernoulli helper as needed.
 
 4) **Implement ReturnEMA (`return_ema.py`)**
    - Support initialization-on-first-call semantics.
    - Use `torch.quantile` (or `kthvalue`) across flattened tensor.
-   - Apply EMA update and scale clamp.
+   - Apply EMA update and scale clamp **exactly as sheeprl**.
    - Add tests for monotone update + stability.
 
 5) **Golden Bridge fixtures**
    - Extend fixture generator to export:
-     - exact `bins` tensor
+     - exact `bins` tensor (`torch.linspace(-20, 20, K)` from sheeprl)
      - symlog/twohot cases
      - distribution log_prob + mean
      - ReturnEMA updates for small sequences
@@ -225,7 +244,7 @@ Add a new test package: `tests/rl_dreamer/`.
    - Mitigation: use fixture-provided bin values; validate parity tests.
 
 2) **ReturnEMA scale blowups**
-   - Mitigation: clamp with `max_range` + `eps`; test constant/outlier cases.
+   - Mitigation: clamp with `1/max` as in sheeprl; test constant/outlier cases.
 
 3) **Float64 leaks** (unexpected dtype)
    - Mitigation: cast to float32 in math primitives; assert dtypes in tests.
@@ -234,8 +253,10 @@ Add a new test package: `tests/rl_dreamer/`.
 
 ## Open questions / decisions to confirm
 
-- Exact bin range for symlog buckets (`symlog_low/high` or `value_range`).
-- Whether ReturnEMA should use p05/p95 or p10/p90 in the reference.
+- Do we want to **exactly** mirror sheeprl’s `TwoHotEncodingDistribution`
+  (bins low/high = -20/20 and `mode == mean`) or adjust semantics for our stack?
+- Should ReturnEMA include a distributed gather API stub in M2, or keep CPU-only
+  and defer distributed semantics to later milestones?
 - Whether `MSEDistribution` and `BernoulliSafeMode` are needed in M2 or deferred.
 
 Resolve these in Golden Bridge fixtures and lock the behavior with tests.
