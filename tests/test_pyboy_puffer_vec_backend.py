@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from .conftest import ROM_PATH, require_rom
 
 
 def test_puffer_vec_serial_smoke() -> None:
     require_rom(ROM_PATH)
-    import pufferlib  # noqa: F401
+    pytest.importorskip("pufferlib")
 
     from gbxcule.backends.pyboy_puffer_vec import PyBoyPufferVecBackend
 

@@ -1,1 +1,32 @@
-[]
+[
+  {
+    "dtype": "json",
+    "file": "rssm_meta.json",
+    "name": "rssm_meta",
+    "shape": []
+  },
+  {
+    "dtype": "pt",
+    "file": "rssm_state_dict.pt",
+    "name": "rssm_state_dict",
+    "shape": []
+  },
+  {
+    "dtype": "npz",
+    "file": "rssm_initial_state.npz",
+    "name": "rssm_initial_state",
+    "shape": []
+  },
+  {
+    "dtype": "npz",
+    "file": "rssm_dynamic_step.npz",
+    "name": "rssm_dynamic_step",
+    "shape": []
+  },
+  {
+    "dtype": "npz",
+    "file": "rssm_scan.npz",
+    "name": "rssm_scan",
+    "shape": []
+  }
+]
