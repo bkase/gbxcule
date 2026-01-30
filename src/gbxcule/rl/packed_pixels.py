@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import torch
 
-_UNPACK_LUT_CACHE: dict[tuple[str, str], "torch.Tensor"] = {}
-_DIFF_LUT_CACHE: dict[str, "torch.Tensor"] = {}
+_UNPACK_LUT_CACHE: dict[tuple[str, str], torch.Tensor] = {}
+_DIFF_LUT_CACHE: dict[str, torch.Tensor] = {}
 
 
 def _require_torch():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warp as wp
 
-from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W, MEM_SIZE
+from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W, DOWNSAMPLE_W_BYTES, MEM_SIZE
 from gbxcule.kernels.cpu_step import get_warp
 
 IO_LCDC = 0xFF40
@@ -23,27 +23,13 @@ TILE_MAP_1 = 0x9C00
 OAM_BASE = 0xFE00
 
 
-@wp.kernel
-def ppu_render_shades_downsampled_all_envs(
+@wp.func
+def _ppu_sample_shade(
     mem: wp.array(dtype=wp.uint8),
-    out_pixels: wp.array(dtype=wp.uint8),
-):
-    idx = wp.tid()
-    out_stride = DOWNSAMPLE_W * DOWNSAMPLE_H
-    env_idx = idx // out_stride
-    if env_idx < 0:
-        return
-    offset = idx - env_idx * out_stride
-    if offset < 0 or offset >= out_stride:
-        return
-    oy = offset // DOWNSAMPLE_W
-    ox = offset - oy * DOWNSAMPLE_W
-
-    x = ox * 2
-    y = oy * 2
-
-    base = env_idx * MEM_SIZE
-
+    base: wp.int32,
+    x: wp.int32,
+    y: wp.int32,
+) -> wp.int32:
     lcdc = wp.int32(mem[base + IO_LCDC]) & 0xFF
     scy = wp.int32(mem[base + IO_SCY]) & 0xFF
     scx = wp.int32(mem[base + IO_SCX]) & 0xFF
@@ -190,10 +176,72 @@ def ppu_render_shades_downsampled_all_envs(
                     palette = obp1
                 shade = (palette >> (best_color * 2)) & 0x03
 
+    return shade
+
+
+@wp.kernel
+def ppu_render_shades_downsampled_all_envs(
+    mem: wp.array(dtype=wp.uint8),
+    out_pixels: wp.array(dtype=wp.uint8),
+):
+    idx = wp.tid()
+    out_stride = DOWNSAMPLE_W * DOWNSAMPLE_H
+    env_idx = idx // out_stride
+    if env_idx < 0:
+        return
+    offset = idx - env_idx * out_stride
+    if offset < 0 or offset >= out_stride:
+        return
+    oy = offset // DOWNSAMPLE_W
+    ox = offset - oy * DOWNSAMPLE_W
+
+    x = ox * 2
+    y = oy * 2
+
+    base = env_idx * MEM_SIZE
+    shade = _ppu_sample_shade(mem, base, x, y)
+
     out_pixels[idx] = wp.uint8(shade)
+
+
+@wp.kernel
+def ppu_render_shades_downsampled_packed_all_envs(
+    mem: wp.array(dtype=wp.uint8),
+    out_pixels: wp.array(dtype=wp.uint8),
+):
+    idx = wp.tid()
+    out_stride = DOWNSAMPLE_W_BYTES * DOWNSAMPLE_H
+    env_idx = idx // out_stride
+    if env_idx < 0:
+        return
+    offset = idx - env_idx * out_stride
+    if offset < 0 or offset >= out_stride:
+        return
+    oy = offset // DOWNSAMPLE_W_BYTES
+    oxb = offset - oy * DOWNSAMPLE_W_BYTES
+
+    base = env_idx * MEM_SIZE
+    y = oy * 2
+    ox = oxb * 4
+
+    s0 = _ppu_sample_shade(mem, base, (ox + 0) * 2, y)
+    s1 = _ppu_sample_shade(mem, base, (ox + 1) * 2, y)
+    s2 = _ppu_sample_shade(mem, base, (ox + 2) * 2, y)
+    s3 = _ppu_sample_shade(mem, base, (ox + 3) * 2, y)
+
+    packed = (s0 & 0x03) | ((s1 & 0x03) << 2) | ((s2 & 0x03) << 4) | (
+        (s3 & 0x03) << 6
+    )
+    out_pixels[idx] = wp.uint8(packed)
 
 
 def get_ppu_render_downsampled_kernel():  # type: ignore[no-untyped-def]
     """Return the snapshot downsampled renderer kernel."""
     get_warp()
     return ppu_render_shades_downsampled_all_envs
+
+
+def get_ppu_render_downsampled_packed_kernel():  # type: ignore[no-untyped-def]
+    """Return the snapshot downsampled packed renderer kernel."""
+    get_warp()
+    return ppu_render_shades_downsampled_packed_all_envs

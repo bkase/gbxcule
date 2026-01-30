@@ -30,6 +30,7 @@ from gbxcule.backends.common import (
 from gbxcule.core.abi import (
     DOWNSAMPLE_H,
     DOWNSAMPLE_W,
+    DOWNSAMPLE_W_BYTES,
     MEM_SIZE,
     OBS_DIM_DEFAULT,
     SCREEN_H,
@@ -72,7 +73,10 @@ from gbxcule.kernels.cpu_step import (
     warmup_warp_cpu,
     warmup_warp_cuda,
 )
-from gbxcule.kernels.ppu_render_downsampled import get_ppu_render_downsampled_kernel
+from gbxcule.kernels.ppu_render_downsampled import (
+    get_ppu_render_downsampled_kernel,
+    get_ppu_render_downsampled_packed_kernel,
+)
 from gbxcule.kernels.ppu_step import get_ppu_render_bg_kernel
 
 BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
@@ -97,6 +101,7 @@ class WarpVecBaseBackend:
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        render_pixels_packed: bool = False,
         force_lcdc_on_render: bool = False,
     ) -> None:
         """Initialize the warp_vec backend."""
@@ -117,9 +122,11 @@ class WarpVecBaseBackend:
         self._stage: Stage = stage
         self._render_bg = render_bg
         self._render_pixels = render_pixels
+        self._render_pixels_packed = render_pixels_packed
         self._force_lcdc_on_render = bool(force_lcdc_on_render)
         self._ppu_render_kernel = None
         self._ppu_render_downsampled_kernel = None
+        self._ppu_render_downsampled_packed_kernel = None
         self._action_codec = resolve_action_codec(action_codec)
         self.action_codec = action_codec_spec(action_codec)
         self.num_actions = self._action_codec.num_actions
@@ -186,6 +193,8 @@ class WarpVecBaseBackend:
         self._frame_bg_shade_env0 = None
         self._pix = None
         self._pix_torch = None
+        self._pix_packed = None
+        self._pix_packed_torch = None
         self._reward = None
         self._obs = None
         self._lcdc_override = None
@@ -466,6 +475,16 @@ class WarpVecBaseBackend:
         else:
             self._pix = None
             self._pix_torch = None
+        if self._render_pixels_packed:
+            self._pix_packed = self._wp.zeros(
+                self.num_envs * DOWNSAMPLE_W_BYTES * DOWNSAMPLE_H,
+                dtype=self._wp.uint8,
+                device=self._device,
+            )
+            self._pix_packed_torch = None
+        else:
+            self._pix_packed = None
+            self._pix_packed_torch = None
         self._reward = self._wp.zeros(
             self.num_envs, dtype=self._wp.float32, device=self._device
         )
@@ -618,25 +637,48 @@ class WarpVecBaseBackend:
         self._synchronize()
 
     def _launch_render_pixels(self) -> None:
-        if not self._render_pixels:
+        if not (self._render_pixels or self._render_pixels_packed):
             return
-        if self._pix is None:
-            raise RuntimeError("Pixel buffer not initialized. Call reset() first.")
         if self._mem is None or not self._initialized:
             raise RuntimeError("Backend not initialized. Call reset() first.")
-        if self._ppu_render_downsampled_kernel is None:
-            self._ppu_render_downsampled_kernel = get_ppu_render_downsampled_kernel()
         if self._force_lcdc_on_render:
             self._apply_lcdc_override()
-        self._wp.launch(
-            self._ppu_render_downsampled_kernel,
-            dim=self.num_envs * DOWNSAMPLE_W * DOWNSAMPLE_H,
-            inputs=[
-                self._mem,
-                self._pix,
-            ],
-            device=self._device,
-        )
+
+        if self._render_pixels:
+            if self._pix is None:
+                raise RuntimeError("Pixel buffer not initialized. Call reset() first.")
+            if self._ppu_render_downsampled_kernel is None:
+                self._ppu_render_downsampled_kernel = (
+                    get_ppu_render_downsampled_kernel()
+                )
+            self._wp.launch(
+                self._ppu_render_downsampled_kernel,
+                dim=self.num_envs * DOWNSAMPLE_W * DOWNSAMPLE_H,
+                inputs=[
+                    self._mem,
+                    self._pix,
+                ],
+                device=self._device,
+            )
+
+        if self._render_pixels_packed:
+            if self._pix_packed is None:
+                raise RuntimeError(
+                    "Packed pixel buffer not initialized. Call reset() first."
+                )
+            if self._ppu_render_downsampled_packed_kernel is None:
+                self._ppu_render_downsampled_packed_kernel = (
+                    get_ppu_render_downsampled_packed_kernel()
+                )
+            self._wp.launch(
+                self._ppu_render_downsampled_packed_kernel,
+                dim=self.num_envs * DOWNSAMPLE_W_BYTES * DOWNSAMPLE_H,
+                inputs=[
+                    self._mem,
+                    self._pix_packed,
+                ],
+                device=self._device,
+            )
 
     def render_pixels_snapshot(self) -> None:
         """Render downsampled pixels without stepping CPU state."""
@@ -764,6 +806,27 @@ class WarpVecBaseBackend:
             pix_t = self._wp.to_torch(self._pix)
             self._pix_torch = pix_t.view(self.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W)
         return self._pix_torch
+
+    def pixels_packed_wp(self):
+        """Return the packed downsampled pixel buffer (Warp array)."""
+        if self._pix_packed is None or not self._initialized:
+            raise RuntimeError("Packed pixel buffer not initialized. Call reset() first.")
+        return self._pix_packed
+
+    def pixels_packed_torch(self):
+        """Return a torch view of the packed downsampled pixel buffer."""
+        if self._pix_packed is None or not self._initialized:
+            raise RuntimeError("Packed pixel buffer not initialized. Call reset() first.")
+        import importlib.util
+
+        if importlib.util.find_spec("torch") is None:
+            raise RuntimeError("Torch not available for pixels_packed_torch().")
+        if self._pix_packed_torch is None:
+            pix_t = self._wp.to_torch(self._pix_packed)
+            self._pix_packed_torch = pix_t.view(
+                self.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
+            )
+        return self._pix_packed_torch
 
     def read_serial(self, env_idx: int) -> bytes:
         """Read captured serial bytes for a specific env (CPU only)."""
@@ -997,7 +1060,10 @@ class WarpVecBaseBackend:
         self._frame_bg_shade_env0 = None
         self._pix = None
         self._pix_torch = None
+        self._pix_packed = None
+        self._pix_packed_torch = None
         self._ppu_render_downsampled_kernel = None
+        self._ppu_render_downsampled_packed_kernel = None
         self._reward = None
         self._obs = None
 
@@ -1020,6 +1086,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        render_pixels_packed: bool = False,
         force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
@@ -1035,6 +1102,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
             stage=stage,
             render_bg=render_bg,
             render_pixels=render_pixels,
+            render_pixels_packed=render_pixels_packed,
             force_lcdc_on_render=force_lcdc_on_render,
         )
 
@@ -1057,6 +1125,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         stage: Stage = "emulate_only",
         render_bg: bool = False,
         render_pixels: bool = False,
+        render_pixels_packed: bool = False,
         force_lcdc_on_render: bool = False,
     ) -> None:
         super().__init__(
@@ -1072,6 +1141,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
             stage=stage,
             render_bg=render_bg,
             render_pixels=render_pixels,
+            render_pixels_packed=render_pixels_packed,
             force_lcdc_on_render=force_lcdc_on_render,
         )
         self._sync_after_step = False
