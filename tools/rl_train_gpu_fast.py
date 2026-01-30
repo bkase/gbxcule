@@ -32,12 +32,15 @@ class TrainConfig:
     num_envs: int
     steps_per_rollout: int
     updates: int
+    ppo_epochs: int
+    minibatch_size: int
     lr: float
     gamma: float
     gae_lambda: float
     clip: float
     value_coef: float
     entropy_coef: float
+    grad_clip: float
     seed: int
     output_dir: str
 
@@ -57,12 +60,15 @@ def main() -> int:
     )
     parser.add_argument("--steps-per-rollout", type=int, default=128)
     parser.add_argument("--updates", type=int, default=200)
+    parser.add_argument("--ppo-epochs", type=int, default=4)
+    parser.add_argument("--minibatch-size", type=int, default=32768)
     parser.add_argument("--lr", type=float, default=2.5e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--gae-lambda", type=float, default=0.95)
     parser.add_argument("--clip", type=float, default=0.1)
     parser.add_argument("--value-coef", type=float, default=0.5)
     parser.add_argument("--entropy-coef", type=float, default=0.01)
+    parser.add_argument("--grad-clip", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
@@ -73,7 +79,11 @@ def main() -> int:
     from gbxcule.core.reset_cache import ResetCache
     from gbxcule.rl.goal_template import load_goal_template
     from gbxcule.rl.models import PixelActorCriticCNN
-    from gbxcule.rl.ppo import compute_gae, logprob_from_logits, ppo_losses
+    from gbxcule.rl.ppo import (
+        compute_gae,
+        logprob_from_logits,
+        ppo_update_minibatch,
+    )
     from gbxcule.rl.rollout import RolloutBuffer
 
     output_dir = (
@@ -92,12 +102,15 @@ def main() -> int:
         num_envs=args.num_envs,
         steps_per_rollout=args.steps_per_rollout,
         updates=args.updates,
+        ppo_epochs=args.ppo_epochs,
+        minibatch_size=args.minibatch_size,
         lr=args.lr,
         gamma=args.gamma,
         gae_lambda=args.gae_lambda,
         clip=args.clip,
         value_coef=args.value_coef,
         entropy_coef=args.entropy_coef,
+        grad_clip=args.grad_clip,
         seed=args.seed,
         output_dir=str(output_dir),
     )
@@ -282,25 +295,23 @@ def main() -> int:
                 gae_lambda=cfg.gae_lambda,
             )
 
-            # PPO update
+            # PPO update (minibatched)
             batch = rollout.as_batch(flatten_obs=True)
-            logits, values = model(batch["obs_u8"])
-            losses = ppo_losses(
-                logits,
-                batch["actions"],
-                batch["logprobs"],
-                returns.reshape(-1),
-                advantages.reshape(-1),
-                values,
+            losses = ppo_update_minibatch(
+                model=model,
+                optimizer=optimizer,
+                obs=batch["obs_u8"],
+                actions=batch["actions"],
+                old_logprobs=batch["logprobs"],
+                returns=returns.reshape(-1),
+                advantages=advantages.reshape(-1),
                 clip=cfg.clip,
                 value_coef=cfg.value_coef,
                 entropy_coef=cfg.entropy_coef,
+                ppo_epochs=cfg.ppo_epochs,
+                minibatch_size=cfg.minibatch_size,
+                grad_clip=cfg.grad_clip,
             )
-
-            optimizer.zero_grad()
-            losses["loss_total"].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-            optimizer.step()
 
             update_goals_i = int(update_goals.item())
             update_episodes_i = int(update_episodes.item())
@@ -317,8 +328,8 @@ def main() -> int:
                 "update": update_idx,
                 "env_steps": env_steps,
                 "wall_time_s": time.time() - train_start,
-                "loss_total": float(losses["loss_total"].item()),
-                "entropy": float(losses["entropy"].item()),
+                "loss_total": float(losses["loss_total"]),
+                "entropy": float(losses["entropy"]),
                 "sps": int(sps),
                 "goals": update_goals_i,
                 "episodes": update_episodes_i,

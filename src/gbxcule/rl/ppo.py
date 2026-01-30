@@ -167,3 +167,83 @@ def ppo_losses(  # type: ignore[no-untyped-def]
         "approx_kl": approx_kl,
         "clipfrac": clipfrac,
     }
+
+
+def ppo_update_minibatch(  # type: ignore[no-untyped-def]
+    *,
+    model,
+    optimizer,
+    obs,
+    actions,
+    old_logprobs,
+    returns,
+    advantages,
+    clip: float,
+    value_coef: float,
+    entropy_coef: float,
+    ppo_epochs: int,
+    minibatch_size: int,
+    grad_clip: float | None = None,
+    normalize_adv: bool = True,
+    eps: float = 1e-8,
+):
+    """Run PPO updates with minibatch SGD."""
+    torch = _require_torch()
+    if ppo_epochs < 1:
+        raise ValueError("ppo_epochs must be >= 1")
+    if minibatch_size < 1:
+        raise ValueError("minibatch_size must be >= 1")
+    batch = int(actions.shape[0])
+    if batch < 1:
+        raise ValueError("empty batch")
+    if minibatch_size > batch:
+        minibatch_size = batch
+
+    adv = advantages
+    if normalize_adv:
+        adv_mean = adv.mean()
+        adv_std = adv.std(unbiased=False)
+        adv = (adv - adv_mean) / (adv_std + float(eps))
+
+    stats = {
+        "loss_total": 0.0,
+        "loss_policy": 0.0,
+        "loss_value": 0.0,
+        "loss_entropy": 0.0,
+        "entropy": 0.0,
+        "approx_kl": 0.0,
+        "clipfrac": 0.0,
+    }
+    updates = 0
+
+    for _ in range(int(ppo_epochs)):
+        perm = torch.randperm(batch, device=actions.device)
+        for start in range(0, batch, minibatch_size):
+            idx = perm[start : start + minibatch_size]
+            logits, values = model(obs[idx])
+            losses = ppo_losses(
+                logits,
+                actions[idx],
+                old_logprobs[idx],
+                returns[idx],
+                adv[idx],
+                values,
+                clip=clip,
+                value_coef=value_coef,
+                entropy_coef=entropy_coef,
+                normalize_adv=False,
+            )
+            optimizer.zero_grad()
+            losses["loss_total"].backward()
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            optimizer.step()
+            for key in stats:
+                stats[key] += float(losses[key].item())
+            updates += 1
+
+    if updates > 0:
+        for key in stats:
+            stats[key] /= updates
+    stats["updates"] = updates
+    return stats

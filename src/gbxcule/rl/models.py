@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W
+from gbxcule.rl.packed_pixels import get_unpack_lut
 
 
 def _require_torch() -> Any:
@@ -28,6 +29,7 @@ class PixelActorCriticCNN:  # type: ignore[no-any-unimported]
         in_frames: int = 4,
         height: int = DOWNSAMPLE_H,
         width: int = DOWNSAMPLE_W,
+        input_format: str = "u8",
     ) -> None:
         torch = _require_torch()
         if num_actions < 1:
@@ -37,11 +39,23 @@ class PixelActorCriticCNN:  # type: ignore[no-any-unimported]
         if height < 1 or width < 1:
             raise ValueError("height/width must be >= 1")
 
+        if input_format not in ("u8", "packed2"):
+            raise ValueError("input_format must be 'u8' or 'packed2'")
+
         self._torch = torch
         self.num_actions = int(num_actions)
         self.in_frames = int(in_frames)
         self.height = int(height)
         self.width = int(width)
+        self.input_format = input_format
+        if self.input_format == "packed2":
+            if self.width % 4 != 0:
+                raise ValueError("width must be divisible by 4 for packed2 inputs")
+            self.input_width = self.width // 4
+            self._unpack_lut = None
+        else:
+            self.input_width = self.width
+            self._unpack_lut = None
 
         self.trunk = torch.nn.Sequential(
             torch.nn.Conv2d(self.in_frames, 32, kernel_size=8, stride=4),
@@ -113,9 +127,24 @@ class PixelActorCriticCNN:  # type: ignore[no-any-unimported]
             raise ValueError("obs must be uint8 shade values")
         if obs.shape[1] != self.in_frames:
             raise ValueError("obs stack depth mismatch")
-        if obs.shape[2] != self.height or obs.shape[3] != self.width:
+        if obs.shape[2] != self.height or obs.shape[3] != self.input_width:
             raise ValueError("obs spatial size mismatch")
-        x = obs.to(torch.float32) / 3.0
+        if self.input_format == "packed2":
+            lut = self._unpack_lut
+            if lut is None or lut.device != obs.device:
+                lut = get_unpack_lut(device=obs.device, dtype=torch.uint8)
+                self._unpack_lut = lut
+            unpacked = lut[obs.to(torch.int64)].reshape(
+                obs.shape[0],
+                obs.shape[1],
+                obs.shape[2],
+                obs.shape[3] * 4,
+            )
+            x = unpacked.to(torch.float32) / 3.0
+        else:
+            if obs.shape[3] != self.width:
+                raise ValueError("obs spatial size mismatch")
+            x = obs.to(torch.float32) / 3.0
         features = self.trunk(x)
         features = self.fc(features)
         logits = self.policy(features)

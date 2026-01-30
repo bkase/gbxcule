@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 import warp as wp
 
 from gbxcule.backends.warp_vec import WarpVecCudaBackend
@@ -59,8 +58,12 @@ def test_render_packed_to_external_buffer() -> None:
             device="cuda",
             dtype=torch.uint8,
         )
-        backend.render_pixels_snapshot_packed_to_torch(out2, base_offset_bytes=frame_bytes)
+        backend.render_pixels_snapshot_packed_to_torch(
+            out2, base_offset_bytes=frame_bytes
+        )
         torch.cuda.synchronize()
-        assert torch.equal(out2.view(-1)[frame_bytes:frame_bytes * 2].view_as(out), internal)
+        assert torch.equal(
+            out2.view(-1)[frame_bytes : frame_bytes * 2].view_as(out), internal
+        )
     finally:
         backend.close()
