@@ -39,6 +39,19 @@ def load_manifest(path: Path) -> list[FixtureEntry]:
     return entries
 
 
+def fixture_root() -> Path:
+    return Path(__file__).parents[1] / "fixtures" / "dreamer_v3"
+
+
+def load_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_fixture(name: str) -> Any:
+    root = fixture_root()
+    return load_json(root / name)
+
+
 def read_fixture_dir(root: Path) -> dict[str, Any]:
     manifest_path = root / "manifest.json"
     entries = load_manifest(manifest_path)

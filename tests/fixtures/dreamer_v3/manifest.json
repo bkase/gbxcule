@@ -1,1 +1,43 @@
-[]
+[
+  {
+    "name": "bins",
+    "dtype": "float32",
+    "shape": [
+      7
+    ],
+    "file": "bins.json",
+    "notes": "linspace in symlog space, low=-20, high=20"
+  },
+  {
+    "name": "symlog_cases",
+    "dtype": "json",
+    "shape": [
+      9
+    ],
+    "file": "symlog_cases.json",
+    "notes": "symlog/symexp roundtrip cases"
+  },
+  {
+    "name": "twohot_cases",
+    "dtype": "json",
+    "shape": [
+      5
+    ],
+    "file": "twohot_cases.json",
+    "notes": "twohot weights for selected values"
+  },
+  {
+    "name": "symlog_twohot_dist",
+    "dtype": "json",
+    "shape": [],
+    "file": "symlog_twohot_dist.json",
+    "notes": "log_prob and mean for SymlogTwoHot distribution"
+  },
+  {
+    "name": "return_ema_cases",
+    "dtype": "json",
+    "shape": [],
+    "file": "return_ema_cases.json",
+    "notes": "Moments/ReturnEMA updates"
+  }
+]
