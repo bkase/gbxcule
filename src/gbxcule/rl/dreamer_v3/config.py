@@ -118,6 +118,9 @@ class AlgoConfig:
     learning_starts: int = 1024
     per_rank_batch_size: int = 16
     per_rank_sequence_length: int = 64
+    dense_units: int = 1024
+    mlp_layers: int = 5
+    dense_act: str = "torch.nn.SiLU"
     unimix: float = 0.01
     hafner_initialization: bool = True
     cnn_keys: KeyGroup = field(default_factory=KeyGroup)
@@ -134,6 +137,12 @@ class AlgoConfig:
             errors.append("per_rank_batch_size must be >= 1")
         if self.per_rank_sequence_length < 2:
             errors.append("per_rank_sequence_length must be >= 2")
+        if self.dense_units < 1:
+            errors.append("dense_units must be >= 1")
+        if self.mlp_layers < 1:
+            errors.append("mlp_layers must be >= 1")
+        if not isinstance(self.dense_act, str) or not self.dense_act:
+            errors.append("dense_act must be non-empty string")
         if not 0.0 <= self.unimix <= 1.0:
             errors.append("unimix must be in [0, 1]")
         if not isinstance(self.hafner_initialization, bool):
@@ -155,6 +164,58 @@ class RewardModelConfig:
 
 
 @dataclass
+class LayerNormConfig:
+    eps: float = 1e-3
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        errors += _validate_positive("layer_norm.eps", self.eps)
+        return errors
+
+
+@dataclass
+class RecurrentModelConfig:
+    recurrent_state_size: int = 4096
+    dense_units: int = 1024
+    layer_norm: LayerNormConfig = field(default_factory=LayerNormConfig)
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        errors += _validate_positive(
+            "recurrent_model.recurrent_state_size", self.recurrent_state_size
+        )
+        errors += _validate_positive("recurrent_model.dense_units", self.dense_units)
+        errors += self.layer_norm.validate()
+        return errors
+
+
+@dataclass
+class TransitionModelConfig:
+    hidden_size: int = 1024
+    layer_norm: LayerNormConfig = field(default_factory=LayerNormConfig)
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        errors += _validate_positive("transition_model.hidden_size", self.hidden_size)
+        errors += self.layer_norm.validate()
+        return errors
+
+
+@dataclass
+class RepresentationModelConfig:
+    hidden_size: int = 1024
+    layer_norm: LayerNormConfig = field(default_factory=LayerNormConfig)
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        errors += _validate_positive(
+            "representation_model.hidden_size", self.hidden_size
+        )
+        errors += self.layer_norm.validate()
+        return errors
+
+
+@dataclass
 class WorldModelConfig:
     discrete_size: int = 32
     stochastic_size: int = 32
@@ -166,6 +227,13 @@ class WorldModelConfig:
     decoupled_rssm: bool = False
     learnable_initial_recurrent_state: bool = True
     reward_model: RewardModelConfig = field(default_factory=RewardModelConfig)
+    recurrent_model: RecurrentModelConfig = field(default_factory=RecurrentModelConfig)
+    transition_model: TransitionModelConfig = field(
+        default_factory=TransitionModelConfig
+    )
+    representation_model: RepresentationModelConfig = field(
+        default_factory=RepresentationModelConfig
+    )
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -185,6 +253,9 @@ class WorldModelConfig:
         if not isinstance(self.learnable_initial_recurrent_state, bool):
             errors.append("learnable_initial_recurrent_state must be bool")
         errors += self.reward_model.validate()
+        errors += self.recurrent_model.validate()
+        errors += self.transition_model.validate()
+        errors += self.representation_model.validate()
         return errors
 
 

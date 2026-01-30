@@ -1,0 +1,15 @@
+{
+  "action_dim": 4,
+  "batch_size": 2,
+  "dense_units": 7,
+  "discrete_size": 3,
+  "embed_dim": 6,
+  "hafner_init": true,
+  "hidden_size": 8,
+  "layer_norm_eps": 0.001,
+  "recurrent_state_size": 5,
+  "seed": 20260130,
+  "seq_len": 3,
+  "stochastic_size": 2,
+  "unimix": 0.01
+}

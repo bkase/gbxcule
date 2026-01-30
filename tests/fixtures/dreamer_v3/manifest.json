@@ -1,43 +1,73 @@
 [
   {
-    "dtype": "float32",
-    "file": "bins.json",
     "name": "bins",
-    "notes": "linspace in symlog space",
+    "dtype": "float32",
     "shape": [
       7
-    ]
+    ],
+    "file": "bins.json",
+    "notes": "linspace in symlog space"
   },
   {
-    "dtype": "json",
-    "file": "symlog_cases.json",
     "name": "symlog_cases",
-    "notes": "symlog/symexp roundtrip cases",
+    "dtype": "json",
     "shape": [
       9
-    ]
+    ],
+    "file": "symlog_cases.json",
+    "notes": "symlog/symexp roundtrip cases"
   },
   {
-    "dtype": "json",
-    "file": "twohot_cases.json",
     "name": "twohot_cases",
-    "notes": "twohot weights for selected values",
+    "dtype": "json",
     "shape": [
       5
-    ]
+    ],
+    "file": "twohot_cases.json",
+    "notes": "twohot weights for selected values"
   },
   {
-    "dtype": "json",
-    "file": "symlog_twohot_dist.json",
     "name": "symlog_twohot_dist",
-    "notes": "log_prob and mean for SymlogTwoHot distribution",
-    "shape": []
+    "dtype": "json",
+    "shape": [],
+    "file": "symlog_twohot_dist.json",
+    "notes": "log_prob and mean for SymlogTwoHot distribution"
   },
   {
-    "dtype": "json",
-    "file": "return_ema_cases.json",
     "name": "return_ema_cases",
-    "notes": "Moments/ReturnEMA updates",
-    "shape": []
+    "dtype": "json",
+    "shape": [],
+    "file": "return_ema_cases.json",
+    "notes": "Moments/ReturnEMA updates"
+  },
+  {
+    "name": "rssm_meta",
+    "dtype": "json",
+    "shape": [],
+    "file": "rssm_meta.json"
+  },
+  {
+    "name": "rssm_state_dict",
+    "dtype": "pt",
+    "shape": [],
+    "file": "rssm_state_dict.pt"
+  },
+  {
+    "name": "rssm_initial_state",
+    "dtype": "npz",
+    "shape": [],
+    "file": "rssm_initial_state.npz"
+  },
+  {
+    "name": "rssm_dynamic_step",
+    "dtype": "npz",
+    "shape": [],
+    "file": "rssm_dynamic_step.npz"
+  },
+  {
+    "name": "rssm_scan",
+    "dtype": "npz",
+    "shape": [],
+    "file": "rssm_scan.npz"
   }
 ]
