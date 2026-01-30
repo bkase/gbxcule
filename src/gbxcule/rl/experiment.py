@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from gbxcule.rl.schemas import (
+    RL_FAILURE_SCHEMA_VERSION,
+    RL_METRICS_SCHEMA_VERSION,
+    RL_RUN_SCHEMA_VERSION,
+)
+
 
 def _slug(text: str) -> str:
     out = []
@@ -104,6 +110,7 @@ class Experiment:
         meta_payload = {
             "run_id": self.run_id,
             "timestamp_utc": self.timestamp.isoformat(),
+            "schema_version": RL_RUN_SCHEMA_VERSION,
             "algo": self.algo,
             "rom_id": self.rom_id,
             "tag": self.tag,
@@ -132,6 +139,7 @@ class Experiment:
         payload = dict(record)
         payload.setdefault("run_id", self.run_id)
         payload.setdefault("trace_id", self.trace_id)
+        payload.setdefault("schema_version", RL_METRICS_SCHEMA_VERSION)
         _append_jsonl_atomic(self.metrics_path, payload)
 
     def save_checkpoint(self, name: str, payload: Any) -> Path:
@@ -159,6 +167,7 @@ class Experiment:
             failure_payload: dict[str, Any] = {
                 "run_id": self.run_id,
                 "timestamp_utc": datetime.now(UTC).isoformat(),
+                "schema_version": RL_FAILURE_SCHEMA_VERSION,
                 "kind": kind,
                 "trace_id": trace,
             }
