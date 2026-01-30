@@ -149,6 +149,7 @@ def main() -> int:
     goal = torch.tensor(goal_np, device="cuda", dtype=torch.uint8).unsqueeze(
         0
     )  # [1, 72, 80]
+    goal_f = goal.to(dtype=torch.float32)
     print(f"Goal template shape: {goal.shape}")
 
     model = PixelActorCriticCNN(num_actions=backend.num_actions, in_frames=1)
@@ -204,8 +205,8 @@ def main() -> int:
         for update_idx in range(cfg.updates):
             rollout.reset()
             update_start = time.time()
-            update_goals = 0
-            update_episodes = 0
+            update_goals = torch.zeros((), device="cuda", dtype=torch.int64)
+            update_episodes = torch.zeros((), device="cuda", dtype=torch.int64)
 
             for _step in range(cfg.steps_per_rollout):
                 with torch.no_grad():
@@ -224,7 +225,7 @@ def main() -> int:
                 episode_steps += 1
 
                 # Compute distance to goal
-                diff = torch.abs(next_obs.float() - goal.float())
+                diff = torch.abs(next_obs.float() - goal_f)
                 curr_dist = diff.mean(dim=(1, 2, 3)) / 3.0
 
                 # Check done (goal reached)
@@ -239,8 +240,8 @@ def main() -> int:
                 reward[done] += goal_bonus
 
                 reset_mask = done | trunc
-                update_goals += int(done.sum().item())
-                update_episodes += int(reset_mask.sum().item())
+                update_goals += done.sum()
+                update_episodes += reset_mask.sum()
 
                 # Store in rollout buffer
                 rollout.add(
@@ -253,17 +254,17 @@ def main() -> int:
                 )
 
                 # Handle resets
-                if reset_mask.any():
-                    reset_cache.apply_mask_torch(reset_mask.to(torch.uint8))
-                    episode_steps[reset_mask] = 0
+                reset_cache.apply_mask_torch(reset_mask.to(torch.uint8))
+                episode_steps = torch.where(
+                    reset_mask, torch.zeros_like(episode_steps), episode_steps
+                )
 
-                    # Re-render after reset
-                    backend.render_pixels_snapshot_torch()
-                    next_obs = backend.pixels_torch().unsqueeze(1)
-                    curr_dist = (
-                        torch.abs(next_obs.float() - goal.float()).mean(dim=(1, 2, 3))
-                        / 3.0
-                    )
+                # Re-render after reset (always, to avoid host sync)
+                backend.render_pixels_snapshot_torch()
+                next_obs = backend.pixels_torch().unsqueeze(1)
+                curr_dist = (
+                    torch.abs(next_obs.float() - goal_f).mean(dim=(1, 2, 3)) / 3.0
+                )
 
                 prev_dist = curr_dist
                 obs = next_obs
@@ -301,13 +302,15 @@ def main() -> int:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             optimizer.step()
 
-            total_goals += update_goals
-            total_episodes += update_episodes
+            update_goals_i = int(update_goals.item())
+            update_episodes_i = int(update_episodes.item())
+            total_goals += update_goals_i
+            total_episodes += update_episodes_i
 
             env_steps = (update_idx + 1) * cfg.num_envs * cfg.steps_per_rollout
             update_time = time.time() - update_start
             sps = cfg.num_envs * cfg.steps_per_rollout / update_time
-            sr = update_goals / max(1, update_episodes)
+            sr = update_goals_i / max(1, update_episodes_i)
 
             record = {
                 "run_id": run_id,
@@ -317,8 +320,8 @@ def main() -> int:
                 "loss_total": float(losses["loss_total"].item()),
                 "entropy": float(losses["entropy"].item()),
                 "sps": int(sps),
-                "goals": update_goals,
-                "episodes": update_episodes,
+                "goals": update_goals_i,
+                "episodes": update_episodes_i,
                 "success_rate": sr,
                 "total_goals": total_goals,
             }
@@ -330,7 +333,7 @@ def main() -> int:
                     f"Update {update_idx + 1}/{cfg.updates} | "
                     f"Steps: {env_steps:,} | "
                     f"SPS: {sps:,.0f} | "
-                    f"Goals: {update_goals}/{update_episodes} ({100 * sr:.0f}%) | "
+                    f"Goals: {update_goals_i}/{update_episodes_i} ({100 * sr:.0f}%) | "
                     f"Loss: {losses['loss_total']:.4f}"
                 )
 

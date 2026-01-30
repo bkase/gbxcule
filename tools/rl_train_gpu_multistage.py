@@ -107,6 +107,7 @@ def main() -> int:
     from gbxcule.rl.pokered_pixels_goal_env import PokeredPixelsGoalEnv
     from gbxcule.rl.ppo import compute_gae, logprob_from_logits, ppo_losses
     from gbxcule.rl.rollout import RolloutBuffer
+    from gbxcule.rl.stage_goal_distance import compute_stage_goal_distance
 
     output_dir = (
         Path(args.output_dir)
@@ -182,6 +183,7 @@ def main() -> int:
         if goal_t.ndim == 2:
             goal_t = goal_t.unsqueeze(0)  # [1, 72, 80]
         stage_goals.append(goal_t)
+    stage_goals_f = torch.stack(stage_goals).to(dtype=torch.float32)
 
     # Create reset caches after setting up env with each stage's state
     print("Creating reset caches for each stage...")
@@ -241,18 +243,9 @@ def main() -> int:
     episode_steps = torch.zeros(cfg.num_envs, dtype=torch.int32, device="cuda")
     prev_dist = torch.ones(cfg.num_envs, dtype=torch.float32, device="cuda")
 
-    def compute_dist_for_stages(obs_stack, env_stages):
-        """Compute distance to each env's current stage goal."""
-        # obs_stack: [N, 1, 72, 80]
-        dists = torch.zeros(cfg.num_envs, dtype=torch.float32, device="cuda")
-        for stage_idx in range(len(STAGES)):
-            mask = env_stages == stage_idx
-            if mask.any():
-                goal = stage_goals[stage_idx]  # [1, 72, 80]
-                diff = torch.abs(obs_stack[mask].float() - goal.float())
-                dists[mask] = diff.mean(dim=(1, 2, 3)) / 3.0
-        return dists
-
+    max_steps_tensor = torch.tensor(
+        [stage.max_steps for stage in STAGES], device="cuda"
+    )
     tau = 0.05
     step_cost = -0.01
     alpha = 1.0
@@ -278,8 +271,12 @@ def main() -> int:
         for update_idx in range(start_update, cfg.updates):
             rollout.reset()
             update_start = time.time()
-            update_stage_goals = [0] * len(STAGES)
-            update_stage_episodes = [0] * len(STAGES)
+            update_stage_goals = torch.zeros(
+                (len(STAGES),), device="cuda", dtype=torch.int64
+            )
+            update_stage_episodes = torch.zeros(
+                (len(STAGES),), device="cuda", dtype=torch.int64
+            )
 
             for _step in range(cfg.steps_per_rollout):
                 with torch.no_grad():
@@ -298,15 +295,14 @@ def main() -> int:
                 episode_steps += 1
 
                 # Compute distances for current stage goals
-                curr_dist = compute_dist_for_stages(next_obs, env_stages)
+                curr_dist = compute_stage_goal_distance(
+                    next_obs, stage_goals_f, env_stages
+                )
 
                 # Check done (goal reached)
                 done = curr_dist < tau
 
                 # Check truncation (max steps per stage)
-                max_steps_tensor = torch.tensor(
-                    [STAGES[i].max_steps for i in range(len(STAGES))], device="cuda"
-                )
                 env_max_steps = max_steps_tensor[env_stages]
                 trunc = episode_steps >= env_max_steps
 
@@ -330,36 +326,34 @@ def main() -> int:
                 # Track stats and handle stage transitions
                 for stage_idx in range(len(STAGES)):
                     stage_mask = env_stages == stage_idx
-                    stage_done = done & stage_mask
-                    stage_reset = reset_mask & stage_mask
+                    update_stage_goals[stage_idx] += (done & stage_mask).sum()
+                    update_stage_episodes[stage_idx] += (reset_mask & stage_mask).sum()
 
-                    update_stage_goals[stage_idx] += int(stage_done.sum().item())
-                    update_stage_episodes[stage_idx] += int(stage_reset.sum().item())
+                # Handle resets and stage progression (no per-step sync)
+                advancing = done & (env_stages < len(STAGES) - 1)
+                env_stages = torch.where(advancing, env_stages + 1, env_stages)
 
-                # Handle resets and stage progression
-                if reset_mask.any():
-                    # Envs that completed their goal advance to next stage
-                    advancing = done & (env_stages < len(STAGES) - 1)
-                    env_stages[advancing] += 1
+                failing = trunc | (done & (env_stages == len(STAGES) - 1))
+                env_stages = torch.where(
+                    failing, torch.zeros_like(env_stages), env_stages
+                )
 
-                    # Envs that failed (truncated) or completed final stage -> stage 0
-                    failing = trunc | (done & (env_stages == len(STAGES) - 1))
-                    env_stages[failing] = 0
+                for stage_idx in range(len(STAGES)):
+                    stage_reset_mask = reset_mask & (env_stages == stage_idx)
+                    stage_caches[stage_idx].apply_mask_torch(
+                        stage_reset_mask.to(torch.uint8)
+                    )
 
-                    # Reset envs to their current stage's starting state
-                    for stage_idx in range(len(STAGES)):
-                        stage_reset_mask = reset_mask & (env_stages == stage_idx)
-                        if stage_reset_mask.any():
-                            stage_caches[stage_idx].apply_mask_torch(
-                                stage_reset_mask.to(torch.uint8)
-                            )
+                episode_steps = torch.where(
+                    reset_mask, torch.zeros_like(episode_steps), episode_steps
+                )
 
-                    episode_steps[reset_mask] = 0
-
-                    # Re-render after reset
-                    env.backend.render_pixels_snapshot_torch()
-                    next_obs = env.backend.pixels_torch().unsqueeze(1)
-                    curr_dist = compute_dist_for_stages(next_obs, env_stages)
+                # Re-render after reset (always, to avoid host sync)
+                env.backend.render_pixels_snapshot_torch()
+                next_obs = env.backend.pixels_torch().unsqueeze(1)
+                curr_dist = compute_stage_goal_distance(
+                    next_obs, stage_goals_f, env_stages
+                )
 
                 prev_dist = curr_dist
                 obs = next_obs
@@ -398,9 +392,11 @@ def main() -> int:
             optimizer.step()
 
             # Stats
+            update_stage_goals_list = update_stage_goals.detach().cpu().tolist()
+            update_stage_episodes_list = update_stage_episodes.detach().cpu().tolist()
             for i in range(len(STAGES)):
-                stage_goals_count[i] += update_stage_goals[i]
-                stage_episodes_count[i] += update_stage_episodes[i]
+                stage_goals_count[i] += update_stage_goals_list[i]
+                stage_episodes_count[i] += update_stage_episodes_list[i]
 
             env_steps = (update_idx + 1) * cfg.num_envs * cfg.steps_per_rollout
             update_time = time.time() - update_start
@@ -417,8 +413,8 @@ def main() -> int:
                 "loss_total": float(losses["loss_total"].item()),
                 "entropy": float(losses["entropy"].item()),
                 "sps": int(sps),
-                "stage_goals": update_stage_goals,
-                "stage_episodes": update_stage_episodes,
+                "stage_goals": update_stage_goals_list,
+                "stage_episodes": update_stage_episodes_list,
                 "stage_dist": stage_dist,
                 "total_stage_goals": stage_goals_count.copy(),
             }

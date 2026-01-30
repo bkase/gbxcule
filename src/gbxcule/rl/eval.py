@@ -156,9 +156,7 @@ def run_greedy_eval(  # type: ignore[no-untyped-def]
     median_steps = _lower_median_int(steps_success)
     steps_p50_success = _lower_median_int(steps_success)
     return_mean_success = (
-        float(sum(success_returns) / len(success_returns))
-        if success_returns
-        else None
+        float(sum(success_returns) / len(success_returns)) if success_returns else None
     )
     return_mean_fail = (
         float(sum(fail_returns) / len(fail_returns)) if fail_returns else None
