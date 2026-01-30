@@ -148,6 +148,50 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         self.logprobs[self._step].copy_(logprobs)
         self._step += 1
 
+    def obs_slot(self, step_idx: int):  # type: ignore[no-untyped-def]
+        if step_idx < 0 or step_idx >= self.steps:
+            raise ValueError("step_idx out of range")
+        return self.obs_u8[step_idx]
+
+    def set_step_fields(  # type: ignore[no-untyped-def]
+        self,
+        step_idx: int,
+        actions,
+        rewards,
+        dones,
+        values,
+        logprobs,
+    ) -> None:
+        torch = self._torch
+        if step_idx < 0 or step_idx >= self.steps:
+            raise ValueError("step_idx out of range")
+        if actions.shape != (self.num_envs,):
+            raise ValueError("actions shape mismatch")
+        if actions.dtype is not torch.int32:
+            raise ValueError("actions must be int32")
+        if rewards.shape != (self.num_envs,):
+            raise ValueError("rewards shape mismatch")
+        if rewards.dtype is not torch.float32:
+            raise ValueError("rewards must be float32")
+        if dones.shape != (self.num_envs,):
+            raise ValueError("dones shape mismatch")
+        if dones.dtype is not torch.bool:
+            raise ValueError("dones must be bool")
+        if values.shape != (self.num_envs,):
+            raise ValueError("values shape mismatch")
+        if values.dtype is not torch.float32:
+            raise ValueError("values must be float32")
+        if logprobs.shape != (self.num_envs,):
+            raise ValueError("logprobs shape mismatch")
+        if logprobs.dtype is not torch.float32:
+            raise ValueError("logprobs must be float32")
+
+        self.actions[step_idx].copy_(actions)
+        self.rewards[step_idx].copy_(rewards)
+        self.dones[step_idx].copy_(dones)
+        self.values[step_idx].copy_(values)
+        self.logprobs[step_idx].copy_(logprobs)
+
     def as_batch(self, *, flatten_obs: bool = True):  # type: ignore[no-untyped-def]
         if self._step != self.steps:
             raise RuntimeError("rollout buffer is not full")
