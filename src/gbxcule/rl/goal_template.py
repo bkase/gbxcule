@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W
+from gbxcule.rl.packed_pixels import pack_2bpp_u8
 
 GOAL_TEMPLATE_SCHEMA_VERSION = 1
 
@@ -236,6 +237,7 @@ def load_goal_template(
     shade_levels: int | None = 4,
     dist_metric: str | None = None,
     pipeline_version: int | None = None,
+    obs_format: str | None = None,
 ) -> tuple[np.ndarray, GoalTemplateMeta]:
     template_path = output_dir / "goal_template.npy"
     meta_path = output_dir / "goal_template.meta.json"
@@ -257,4 +259,13 @@ def load_goal_template(
         dist_metric=dist_metric,
         pipeline_version=pipeline_version,
     )
+    if obs_format is not None:
+        if obs_format not in ("u8", "packed2"):
+            raise ValueError("obs_format must be 'u8' or 'packed2'")
+        if obs_format == "packed2":
+            import torch
+
+            template_t = torch.from_numpy(template).to(torch.uint8)
+            packed = pack_2bpp_u8(template_t)
+            template = packed.cpu().numpy()
     return template, meta

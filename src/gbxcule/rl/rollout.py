@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W
+from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W, DOWNSAMPLE_W_BYTES
 
 
 def _require_torch() -> Any:
@@ -27,6 +27,7 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         steps: int,
         num_envs: int,
         stack_k: int,
+        obs_format: str = "u8",
         height: int = DOWNSAMPLE_H,
         width: int = DOWNSAMPLE_W,
         device: str = "cuda",
@@ -42,9 +43,19 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
             raise ValueError("height/width must be >= 1")
 
         self._torch = torch
+        if obs_format not in ("u8", "packed2"):
+            raise ValueError("obs_format must be 'u8' or 'packed2'")
+
+        if obs_format == "packed2":
+            if width == DOWNSAMPLE_W:
+                width = DOWNSAMPLE_W_BYTES
+            if width != DOWNSAMPLE_W_BYTES:
+                raise ValueError("packed2 width must equal DOWNSAMPLE_W_BYTES")
+
         self.steps = int(steps)
         self.num_envs = int(num_envs)
         self.stack_k = int(stack_k)
+        self.obs_format = obs_format
         self.height = int(height)
         self.width = int(width)
         self.device = torch.device(device)
@@ -84,6 +95,10 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
     @property
     def step(self) -> int:
         return self._step
+
+    @property
+    def obs(self):  # type: ignore[no-untyped-def]
+        return self.obs_u8
 
     def reset(self) -> None:
         self._step = 0
