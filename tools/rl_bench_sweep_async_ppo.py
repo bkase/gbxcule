@@ -83,9 +83,15 @@ def _parse_args() -> argparse.Namespace:
         help="Comma-separated env counts",
     )
     parser.add_argument(
-        "--obs-formats",
+        "--obs-format",
+        dest="obs_formats",
         default="u8_baseline,packed2_directwrite",
         help="Comma-separated pipeline labels",
+    )
+    parser.add_argument(
+        "--obs-formats",
+        dest="obs_formats",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--modes",

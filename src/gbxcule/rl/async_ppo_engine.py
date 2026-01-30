@@ -137,6 +137,8 @@ class AsyncPPOEngine:
         )
         goal_np = template.squeeze(0) if template.ndim == 3 else template
         goal_t = torch.tensor(goal_np, device=device, dtype=torch.uint8)
+        if goal_t.ndim == 2:
+            goal_t = goal_t.unsqueeze(0)
         if goal_t.ndim == 3:
             goal_t = goal_t.unsqueeze(0)
         self.goal = goal_t
