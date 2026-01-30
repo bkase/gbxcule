@@ -37,8 +37,36 @@ properties behind automated gates so regressions are caught immediately.
 - Engine has failfast hooks (non-finite detection + shape/device asserts).
 - Golden Bridge fixtures for math, RSSM step, reconstruction loss.
 - Packed2 render pipeline and goal templates for stage1_exit_oak.
+- Sheeprl Dreamer v3 reference is available under `third_party/sheeprl/` and is
+  the semantic source of truth for M8 metrics, loss weights, and discount logic.
 
 If any prerequisite is missing, stop and fix the earlier milestone first.
+
+---
+
+## 1.1) Sheeprl reference alignment (what M8 must mirror)
+
+Use `third_party/sheeprl/sheeprl/algos/dreamer_v3/` as the contract for M8:
+
+- **Metrics names and meanings** match the sheeprl aggregator keys:
+  - `Loss/world_model_loss` (reconstruction loss total)
+  - `Loss/observation_loss`, `Loss/reward_loss`, `Loss/state_loss`,
+    `Loss/continue_loss`
+  - `State/kl`, `State/post_entropy`, `State/prior_entropy`
+  - `Loss/policy_loss`, `Loss/value_loss`
+  - `Grads/world_model`, `Grads/actor`, `Grads/critic`
+  - `Rewards/rew_avg`, `Game/ep_len_avg` for eval summaries
+- **KL construction** uses sheeprl weighting:
+  - `beta_dyn = 0.5`, `beta_rep = 0.1`, `free_nats = 1.0`, `kl_regularizer = 1.0`
+  - `Loss/state_loss` is the weighted + free-nats KL, `State/kl` is the raw KL.
+- **Continue targets** use `1 - terminated` (not truncated) and are fed to a
+  Bernoulli continue head (`Loss/continue_loss`), with `continue_scale_factor=1.0`.
+- **Lambda returns and discounting**:
+  - `continues = gamma * continue`, with the *first* continue from real data.
+  - Discount weighting is `cumprod(continues)` (sheeprl uses cumprod/gamma trick).
+- **Return normalization** uses Moments (ReturnEMA) with p05/p95 percentiles.
+
+M8 gates should explicitly verify these semantics with fixtures and logs.
 
 ---
 
@@ -64,17 +92,24 @@ These should follow the existing Experiment harness conventions:
 - `bench/runs/rl/<timestamp>__dreamer_v3__<rom>__<tag>/`
 - `meta.json`, `config.json`, `metrics.jsonl`, `checkpoints/`, `failures/`
 
-### 2.2 Metrics payload
-Dreamer metrics must include (minimum list):
+### 2.2 Metrics payload (sheeprl parity + gbxcule additions)
+Emit **sheeprl-compatible names** plus gbxcule-specific signals. Minimum list:
 
-- Env and throughput: `env_steps`, `opt_steps`, `sps`, `train_sps`
-- Replay: `replay_size`, `replay_ratio`, `commit_stride`, `ready_steps`
-- Losses: `loss_model`, `loss_actor`, `loss_critic`
-- Reconstruction: `obs_nll`, `reward_nll`, `continue_nll`
-- KL terms: `kl_dyn`, `kl_rep`, `kl_total`, `free_bits_applied`
-- Entropy: `prior_entropy`, `posterior_entropy`, `action_entropy`
-- Value stats: `value_mean`, `value_std`, `adv_mean`, `adv_std`
-- ReturnEMA: `ret_p05`, `ret_p95`, `ret_scale`
+- **Sheeprl-style core losses/entropy (required):**
+  - `Loss/world_model_loss`, `Loss/observation_loss`, `Loss/reward_loss`,
+    `Loss/state_loss`, `Loss/continue_loss`
+  - `Loss/policy_loss`, `Loss/value_loss`
+  - `State/kl`, `State/post_entropy`, `State/prior_entropy`
+  - `Grads/world_model`, `Grads/actor`, `Grads/critic` (if available)
+  - `Rewards/rew_avg`, `Game/ep_len_avg` (eval summaries)
+- **Gbxcule-specific operational metrics (required):**
+  - Env/throughput: `env_steps`, `opt_steps`, `sps`, `train_sps`
+  - Replay: `replay_size`, `replay_ratio`, `commit_stride`, `ready_steps`
+  - ReturnEMA: `ret_p05`, `ret_p95`, `ret_scale` (Moments low/high + invscale)
+  - Action/value stats: `action_entropy`, `value_mean`, `value_std`,
+    `adv_mean`, `adv_std`
+  - KL breakdown (if available): `kl_dyn`, `kl_rep`, `kl_total`,
+    `free_bits_applied`
 
 Add run metadata for: rom sha, state sha, goal sha, action codec, torch/warp
 versions, GPU name, git commit + dirty flag.
@@ -105,15 +140,16 @@ entropy drift.
 ### Metrics to track
 - Reconstruction losses should drop quickly.
 - KL terms should stay above free_bits without exploding.
-- `prior_entropy` and `posterior_entropy` should stay close
-  (ratio in ~[0.7, 1.3] after warmup).
-- `obs_nll` and `reward_nll` stable and decreasing.
+- `State/prior_entropy` and `State/post_entropy` should stay close
+  (ratio in ~[0.7, 1.3] after warmup); this mirrors sheeprl’s entropy logging.
+- `Loss/observation_loss` and `Loss/reward_loss` stable and decreasing.
+- `Loss/continue_loss` finite and stable (targets are `1 - terminated`).
 
 ### Acceptance criteria (smoke gate)
 - Recon loss improves by >= 25% within the first N updates
   (choose N to fit < 5 minutes on GPU).
 - No NaNs/Infs in any loss/entropy.
-- `abs(prior_entropy - posterior_entropy) / max(1, prior_entropy) < 0.3`
+- `abs(State/prior_entropy - State/post_entropy) / max(1, State/prior_entropy) < 0.3`
   after warmup.
 
 ### Acceptance criteria (regression gate)
@@ -122,7 +158,8 @@ entropy drift.
 
 ### Artifacts
 - Short recon video (decoded frames) for visual inspection.
-- A metrics plot: obs_nll, reward_nll, kl_dyn, kl_rep, entropies.
+- A metrics plot: `Loss/observation_loss`, `Loss/reward_loss`,
+  `Loss/state_loss`, `State/kl`, entropies.
 - Saved config + reproducible script.
 
 ---
@@ -145,6 +182,8 @@ learns a real task and does not collapse.
 - Distances to goal (p10/p50/p90) should trend down.
 - Actor/critic losses stable (no explosion).
 - Replay ratio and throughput stable.
+- `Loss/value_loss` includes the target-critic mean regularization term
+  (sheeprl-style), so monitor it for sudden jumps.
 
 ### Acceptance criteria (smoke gate)
 - Success rate > 0 and done_rate > 0 within a short run.
@@ -170,6 +209,10 @@ learns a real task and does not collapse.
 - `pytest -q tests/rl_dreamer` (fixtures, math, RSSM, WM)
 - CPU dreamer smoke (tiny batch, 1-2 updates)
 - Standing Still CPU fixture run (short, deterministic)
+- Sheeprl parity micro-checks (fixtures):
+  - `compute_lambda_values` vs sheeprl formula
+  - `reconstruction_loss` weighting (`beta_dyn/beta_rep/free_nats`)
+  - `continue_targets = 1 - terminated`
 
 ### GPU main gate (DGX)
 - CUDA dreamer smoke: end-to-end train step (short)
@@ -195,6 +238,8 @@ Each gate must emit a JSON summary and a one-line pass/fail report.
 Targets:
 - Record a baseline once; enforce <= 15% regression.
 - If unpack kernel is used, enforce a hard ceiling on unpack time.
+- Replay ratio should match target (sheeprl uses `replay_ratio=1` by default);
+  flag sustained drift > 20% from target.
 
 ---
 
@@ -214,6 +259,7 @@ Targets:
 4) **Standing Still dataset and run mode**
    - Add fixed-action mode (or static ROM option).
    - Ensure deterministic action sequence with fixed RNG.
+   - Confirm continue targets follow sheeprl semantics (`1 - terminated`).
 
 5) **Regression checks**
    - Implement baseline capture (store summary JSON).
@@ -222,6 +268,7 @@ Targets:
 6) **Documentation**
    - Add `docs/dreamer_v3_validation.md` with exact commands and thresholds.
    - Update `history/dreamer-plan.md` or cross-link M8 doc.
+   - Add a short “sheeprl parity” section (metrics + loss weights + moments).
 
 7) **Baseline runs**
    - Run Standing Still (GPU) and Exit Oak (GPU) once.
@@ -241,7 +288,7 @@ Targets:
 
 ## 9) Known risks and mitigations
 
-- **Latent drift**: track `prior_entropy` vs `posterior_entropy` explicitly.
+- **Latent drift**: track `State/prior_entropy` vs `State/post_entropy` explicitly.
 - **Replay starvation**: enforce commit_stride <= seq_len/2 and log ready_steps.
 - **Hidden host transfers**: keep memcpy gate in M8 main gate.
 - **Threshold tuning**: calibrate once, then lock baseline JSON.

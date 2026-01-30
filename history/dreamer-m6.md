@@ -31,6 +31,11 @@ Implement a **CUDA-native ReplayRing** that accepts **packed2 pixel frames writt
 5) **Canonical time-major contract**
 - Replay remains `[Tcap, N, ...]` time-major; do not introduce `[B, T]` storage internally.
 
+6) **Sheeprl-aligned sequence semantics**
+- Each sequence is **single‑env contiguous** and **may cross episode boundaries** (no boundary filtering).
+- **Do not sample the active write index** (sheeprl excludes `pos`; treat it as invalid/uncommitted).
+- Data alignment matches sheeprl training: **actions align with the same‑time observation**, and **rewards/terminations align with the resulting observation** (reward at t=0 is 0; `is_first[0]=1` in training).
+
 ---
 
 ## Dependencies / Preconditions
@@ -58,6 +63,9 @@ If any precondition is missing, stop and backfill before implementing M6.
   - `is_first: bool[Tcap, N]`
   - `continue: float32[Tcap, N]`
   - `episode_id: int32[Tcap, N]`
+- Optional debug/compat fields (recommended for parity with sheeprl):
+  - `terminated: bool[Tcap, N]`
+  - `truncated: bool[Tcap, N]`
 - **`obs_slot(t)` returns a contiguous view** suitable for direct-write by Warp.
 
 2) **Commit scheme (CUDA events + safe sampling window)**
@@ -108,6 +116,28 @@ If any precondition is missing, stop and backfill before implementing M6.
 - Use `WarpVecCudaBackend.render_pixels_snapshot_packed_to_torch(slot, base_offset=0)` to write packed2 bytes directly into `ReplayRingCUDA.obs_slot(t)`.
 - No intermediate buffers; no `.copy_()` from a staging tensor.
 
+### E) Sheeprl Reference Alignment (Must Match Training)
+
+Sheeprl’s Dreamer v3 loop uses **non‑strict sequential replay** and a **specific time alignment**:
+
+- **Sampling**: sequences are contiguous **within a single env**, and **episode boundaries are allowed** (no filtering). This matches `SequentialReplayBuffer`.
+- **Invalid index**: the current write pointer (`pos`) is never sampled; replicate this by excluding `write_t` (or anything beyond `committed_t`).
+- **Alignment**:
+  - `obs[t]` is the observation at time `t`.
+  - `action[t]` is the action **taken at `obs[t]`**.
+  - `reward[t]`, `terminated[t]`, `truncated[t]` correspond to the **transition that produced `obs[t]`**.
+  - Thus **`reward[0]=0`** and training shifts actions by one: `batch_actions = concat(zero, actions[:-1])`.
+  - Training also forces `is_first[0]=1` for every sampled sequence.
+
+If we choose a different alignment (reward for transition *out of* `obs[t]`), we must update the training logic accordingly. For parity with sheeprl and Golden Bridge fixtures, **prefer the sheeprl alignment**.
+
+### F) Terminal/Reset Handling (Sheeprl Pattern)
+
+- When an env ends and auto‑resets, sheeprl inserts a **terminal observation row** (with the last reward/terminated/truncated) and then marks the **next reset observation** with `is_first=1` and zeroed reward/term/trunc.
+- If our environment does not auto‑reset, we still need to ensure:
+  - the **terminal observation** is recorded with correct `terminated/truncated`, and
+  - the **next reset observation** has `is_first=1`.
+
 ---
 
 ## Implementation Plan (Step‑by‑Step)
@@ -145,17 +175,21 @@ Add a small helper in `src/gbxcule/rl/dreamer_v3/replay_commit.py`:
 
 Add a CUDA ingestion function (likely in `engine_cuda.py` or a new `ingest_cuda.py`):
 
-- On each env step:
-  1. Obtain `slot = replay.obs_slot(write_t % capacity)`.
-  2. `backend.render_pixels_snapshot_packed_to_torch(slot, 0)`.
-  3. Fill action/reward/is_first/continue/episode_id for `write_t`.
-  4. If `(write_t + 1) % commit_stride == 0`, record commit event and advance `committed_t`.
+- **Initialize**: write the first observation with `reward=0`, `terminated=0`, `truncated=0`, `is_first=1`.
+- On each env step (sheeprl‑aligned):
+  1. **Write `action[t]` at index `t`** (action chosen from `obs[t]`).
+  2. Step the env to obtain `obs[t+1]`, `reward[t+1]`, `terminated[t+1]`, `truncated[t+1]`.
+  3. **Write `obs[t+1]` into `obs_slot(t+1)`**, and write `reward/terminated/truncated/is_first/continue/episode_id` at index `t+1`.
+     - `continue = 0.0` iff `terminated`, else `1.0` (timeouts use `1.0`).
+  4. If the env auto‑resets and yields a final observation, insert that final obs row before the reset obs (see Design Note F).
+  5. If `(write_t + 1) % commit_stride == 0`, record commit event and advance `committed_t`.
 
 - Ensure **all of this happens on the actor stream**, and the learner waits on the commit event before sampling.
 
 ### 4) Sampling guardrail
 
 - Modify `sample_sequences` to accept `max_t` (logical time) and ignore any indices past `max_t`.
+- Exclude the **current write index** (`write_t`) even if it is within `max_t` (sheeprl does not sample `pos`).
 - If `max_t - min_ready < seq_len`, return “not enough data yet” (learner should wait).
 
 ### 5) Zero-copy guard & profiler test
@@ -181,6 +215,8 @@ These should be small and fast, using a CPU mock of the commit logic if needed:
 - `test_commit_stride_logic()` — commit counter updates correctly.
 - `test_safe_max_t()` — sampling never includes uncommitted data.
 - `test_wraparound_indexing()` — ring indexing remains valid across wrap.
+- `test_exclude_write_index()` — active write slot is never sampled (sheeprl parity).
+- `test_alignment_zero_reward_first()` — first row has `reward=0` and `is_first=1`.
 
 ### CUDA Tests (skippable without GPU)
 
@@ -239,6 +275,9 @@ These should be small and fast, using a CPU mock of the commit logic if needed:
 5) **Unpack bottleneck**
 - Mitigation: keep LUT path + optional Triton/Warp kernel switch.
 
+6) **Off-by-one alignment bugs**
+- Mitigation: sheeprl‑aligned ingestion + explicit alignment test (`reward[0]=0`, `is_first[0]=1`, action shift in training).
+
 ---
 
 ## Out of Scope (Explicitly Not M6)
@@ -258,4 +297,3 @@ These should be small and fast, using a CPU mock of the commit logic if needed:
 - `git commit -m "dreamer: add M6 cuda ingestion plan"`
 - `git push`
 - `br close <id> --reason="Completed"`
-
