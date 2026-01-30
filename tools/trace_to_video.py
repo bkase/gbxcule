@@ -89,7 +89,7 @@ def main():
 
     # Create video
     try:
-        import cv2
+        import cv2  # pyright: ignore[reportMissingImports]
     except ImportError:
         print("Error: opencv-python required. Install with: pip install opencv-python")
         return 1
