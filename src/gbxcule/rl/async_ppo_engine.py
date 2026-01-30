@@ -35,6 +35,7 @@ class AsyncPPOEngineConfig:
     state_path: str
     goal_dir: str
     device: str = "cuda"
+    obs_format: str = "u8"
     num_envs: int = 1024
     frames_per_step: int = 24
     release_after_frames: int = 8
@@ -66,6 +67,11 @@ class AsyncPPOEngine:
     ) -> None:
         torch = _require_torch()
         device = config.device
+        obs_format = config.obs_format
+        if obs_format not in ("u8", "packed2"):
+            raise ValueError("obs_format must be 'u8' or 'packed2'")
+        if obs_format == "packed2" and device != "cuda":
+            raise ValueError("packed2 currently requires CUDA device")
         if device == "cuda":
             if not _cuda_available():
                 raise RuntimeError("CUDA not available for AsyncPPOEngine.")
@@ -83,6 +89,7 @@ class AsyncPPOEngine:
         self.config = config
         self._torch = torch
         self.experiment = experiment
+        self.obs_format = obs_format
         if device == "cuda":
             backend = WarpVecCudaBackend(
                 str(Path(config.rom_path)),
@@ -126,25 +133,36 @@ class AsyncPPOEngine:
             stack_k=1,
             dist_metric=None,
             pipeline_version=None,
+            obs_format="packed2" if obs_format == "packed2" else None,
         )
         goal_np = template.squeeze(0) if template.ndim == 3 else template
-        self.goal = torch.tensor(goal_np, device=device, dtype=torch.uint8).unsqueeze(0)
-        self.goal_f = self.goal.to(dtype=torch.float32)
+        goal_t = torch.tensor(goal_np, device=device, dtype=torch.uint8)
+        if goal_t.ndim == 3:
+            goal_t = goal_t.unsqueeze(0)
+        self.goal = goal_t
+        self.goal_f = self.goal.to(dtype=torch.float32) if obs_format == "u8" else None
 
         self.actor_model = PixelActorCriticCNN(
-            num_actions=backend.num_actions, in_frames=1
+            num_actions=backend.num_actions,
+            in_frames=1,
+            input_format=obs_format,
         ).to(device)
         self.learner_model = PixelActorCriticCNN(
-            num_actions=backend.num_actions, in_frames=1
+            num_actions=backend.num_actions,
+            in_frames=1,
+            input_format=obs_format,
         ).to(device)
         self.optimizer = torch.optim.Adam(self.learner_model.parameters(), lr=config.lr)
 
         buffer_count = 2 if device == "cuda" else 1
+        obs_steps = config.steps_per_rollout + 1 if obs_format == "packed2" else None
         self.rollout_buffers = [
             RolloutBuffer(
                 steps=config.steps_per_rollout,
                 num_envs=config.num_envs,
                 stack_k=1,
+                obs_format=obs_format,
+                obs_steps=obs_steps,
                 device=device,
             )
             for _ in range(buffer_count)
@@ -213,6 +231,13 @@ class AsyncPPOEngine:
 
         if cfg.device == "cpu":
             return self._run_cpu(
+                update_count,
+                compute_gae=compute_gae,
+                logprob_from_logits=logprob_from_logits,
+                ppo_update_minibatch=ppo_update_minibatch,
+            )
+        if cfg.obs_format == "packed2":
+            return self._run_cuda_packed(
                 update_count,
                 compute_gae=compute_gae,
                 logprob_from_logits=logprob_from_logits,
@@ -545,6 +570,232 @@ class AsyncPPOEngine:
         t_actor_ms /= update_count
         t_learner_ms /= update_count
         t_total_ms /= update_count
+        overlap_eff = (
+            (t_actor_ms + t_learner_ms) / t_total_ms if t_total_ms > 0 else 0.0
+        )
+
+        metrics = {
+            "num_envs": int(cfg.num_envs),
+            "frames_per_step": int(cfg.frames_per_step),
+            "release_after_frames": int(cfg.release_after_frames),
+            "steps_per_rollout": int(cfg.steps_per_rollout),
+            "updates": int(update_count),
+            "ppo_epochs": int(cfg.ppo_epochs),
+            "minibatch_size": int(cfg.minibatch_size),
+            "env_steps": int(env_steps),
+            "elapsed_s": float(elapsed),
+            "sps": float(sps),
+            "t_actor_rollout_ms": float(t_actor_ms),
+            "t_learner_update_ms": float(t_learner_ms),
+            "t_total_update_ms": float(t_total_ms),
+            "overlap_efficiency": float(overlap_eff),
+        }
+        if self.experiment is not None:
+            self.experiment.log_metrics(metrics)
+        return metrics
+
+    def _run_cuda_packed(
+        self,
+        update_count: int,
+        *,
+        compute_gae,
+        logprob_from_logits,
+        ppo_update_minibatch,
+    ) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+        from gbxcule.rl.packed_metrics import packed_l1_distance
+
+        torch = self._torch
+        cfg = self.config
+        backend = cast(WarpVecCudaBackend, self.backend)
+        manager = self.manager
+        actor_stream = self.actor_stream
+        learner_stream = self.learner_stream
+        policy_ready_event = self.policy_ready_event
+        assert manager is not None
+        assert actor_stream is not None
+        assert learner_stream is not None
+        assert policy_ready_event is not None
+
+        actor_events: list[tuple[Any, Any]] = []
+        learner_events: list[tuple[Any, Any]] = []
+        total_events: list[tuple[Any, Any]] = []
+        default_stream = torch.cuda.current_stream()
+
+        start = time.perf_counter()
+        for update_idx in range(update_count):
+            buf_idx = update_idx % 2
+            prev_idx = (update_idx - 1) % 2
+
+            actor_start = torch.cuda.Event(enable_timing=True)
+            actor_end = torch.cuda.Event(enable_timing=True)
+            learner_start = torch.cuda.Event(enable_timing=True)
+            learner_end = torch.cuda.Event(enable_timing=True)
+            total_start = torch.cuda.Event(enable_timing=True)
+            total_end = torch.cuda.Event(enable_timing=True)
+            total_start.record(default_stream)
+
+            with torch.cuda.stream(learner_stream):
+                learner_start.record(learner_stream)
+                if update_idx > 0:
+                    manager.wait_ready(prev_idx, learner_stream)
+                    rollout = self.rollout_buffers[prev_idx]
+                    with torch.no_grad():
+                        _, last_value = self.learner_model(self.obs)
+                    advantages, returns = compute_gae(
+                        rollout.rewards,
+                        rollout.values,
+                        rollout.dones,
+                        last_value,
+                        gamma=cfg.gamma,
+                        gae_lambda=cfg.gae_lambda,
+                    )
+                    batch = rollout.as_batch(flatten_obs=True)
+                    ppo_update_minibatch(
+                        model=self.learner_model,
+                        optimizer=self.optimizer,
+                        obs=batch["obs_u8"],
+                        actions=batch["actions"],
+                        old_logprobs=batch["logprobs"],
+                        returns=returns.reshape(-1),
+                        advantages=advantages.reshape(-1),
+                        clip=cfg.clip,
+                        value_coef=cfg.value_coef,
+                        entropy_coef=cfg.entropy_coef,
+                        ppo_epochs=cfg.ppo_epochs,
+                        minibatch_size=cfg.minibatch_size,
+                        grad_clip=cfg.grad_clip,
+                    )
+                    self._sync_actor_weights()
+                    policy_ready_event.record(learner_stream)
+                    manager.mark_free(prev_idx, learner_stream)
+                learner_end.record(learner_stream)
+
+            with torch.cuda.stream(actor_stream):
+                manager.wait_free(buf_idx, actor_stream)
+                actor_stream.wait_event(policy_ready_event)
+                rollout = self.rollout_buffers[buf_idx]
+                rollout.reset()
+                actor_start.record(actor_stream)
+
+                slot0 = rollout.obs_slot(0)
+                backend.render_pixels_snapshot_packed_to_torch(slot0, 0)
+                obs = slot0
+                self.obs = obs
+                self.prev_dist = packed_l1_distance(obs, self.goal)
+
+                for t in range(cfg.steps_per_rollout):
+                    with torch.no_grad():
+                        logits, values = self.actor_model(obs)
+                        actions_i64 = torch.multinomial(
+                            torch.softmax(logits, dim=-1), num_samples=1
+                        ).squeeze(1)
+                        logprobs = logprob_from_logits(logits, actions_i64)
+                    actions = actions_i64.to(torch.int32)
+                    backend.step_torch(actions)
+                    next_slot = rollout.obs_slot(t + 1)
+                    backend.render_pixels_snapshot_packed_to_torch(next_slot, 0)
+                    self.episode_steps = self.episode_steps + 1
+
+                    curr_dist = packed_l1_distance(next_slot, self.goal)
+                    done = curr_dist < cfg.tau
+                    trunc = self.episode_steps >= cfg.max_steps
+                    reward = torch.full((cfg.num_envs,), cfg.step_cost, device="cuda")
+                    reward += cfg.alpha * (self.prev_dist - curr_dist)
+                    reward[done] += cfg.goal_bonus
+                    reset_mask = done | trunc
+
+                    rollout.set_step_fields(
+                        t,
+                        actions,
+                        reward,
+                        reset_mask,
+                        values.detach(),
+                        logprobs.detach(),
+                    )
+
+                    self.reset_cache.apply_mask_torch(reset_mask.to(torch.uint8))
+                    self.episode_steps = torch.where(
+                        reset_mask,
+                        torch.zeros_like(self.episode_steps),
+                        self.episode_steps,
+                    )
+                    if reset_mask.any().item():
+                        backend.render_pixels_snapshot_packed_to_torch(next_slot, 0)
+                        curr_dist = packed_l1_distance(next_slot, self.goal)
+
+                    self.prev_dist = curr_dist
+                    obs = next_slot
+
+                self.obs = obs
+                actor_end.record(actor_stream)
+                manager.mark_ready(buf_idx, actor_stream, policy_version=update_idx)
+
+            default_stream.wait_event(actor_end)
+            default_stream.wait_event(learner_end)
+            total_end.record(default_stream)
+            actor_events.append((actor_start, actor_end))
+            learner_events.append((learner_start, learner_end))
+            total_events.append((total_start, total_end))
+
+        with torch.cuda.stream(learner_stream):
+            last_idx = (update_count - 1) % 2
+            manager.wait_ready(last_idx, learner_stream)
+            rollout = self.rollout_buffers[last_idx]
+            with torch.no_grad():
+                _, last_value = self.learner_model(self.obs)
+            advantages, returns = compute_gae(
+                rollout.rewards,
+                rollout.values,
+                rollout.dones,
+                last_value,
+                gamma=cfg.gamma,
+                gae_lambda=cfg.gae_lambda,
+            )
+            batch = rollout.as_batch(flatten_obs=True)
+            ppo_update_minibatch(
+                model=self.learner_model,
+                optimizer=self.optimizer,
+                obs=batch["obs_u8"],
+                actions=batch["actions"],
+                old_logprobs=batch["logprobs"],
+                returns=returns.reshape(-1),
+                advantages=advantages.reshape(-1),
+                clip=cfg.clip,
+                value_coef=cfg.value_coef,
+                entropy_coef=cfg.entropy_coef,
+                ppo_epochs=cfg.ppo_epochs,
+                minibatch_size=cfg.minibatch_size,
+                grad_clip=cfg.grad_clip,
+            )
+            self._sync_actor_weights()
+            policy_ready_event.record(learner_stream)
+            manager.mark_free(last_idx, learner_stream)
+
+        torch.cuda.synchronize()
+        elapsed = time.perf_counter() - start
+        env_steps = cfg.num_envs * cfg.steps_per_rollout * update_count
+        sps = env_steps / elapsed if elapsed > 0 else 0.0
+
+        t_actor_ms = 0.0
+        t_learner_ms = 0.0
+        t_total_ms = 0.0
+        timed_updates = 0
+        for idx in range(update_count):
+            if idx == 0:
+                continue
+            a_start, a_end = actor_events[idx]
+            l_start, l_end = learner_events[idx]
+            t_start, t_end = total_events[idx]
+            t_actor_ms += float(a_start.elapsed_time(a_end))
+            t_learner_ms += float(l_start.elapsed_time(l_end))
+            t_total_ms += float(t_start.elapsed_time(t_end))
+            timed_updates += 1
+
+        if timed_updates > 0:
+            t_actor_ms /= timed_updates
+            t_learner_ms /= timed_updates
+            t_total_ms /= timed_updates
+
         overlap_eff = (
             (t_actor_ms + t_learner_ms) / t_total_ms if t_total_ms > 0 else 0.0
         )

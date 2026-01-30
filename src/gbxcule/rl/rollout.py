@@ -28,6 +28,7 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         num_envs: int,
         stack_k: int,
         obs_format: str = "u8",
+        obs_steps: int | None = None,
         height: int = DOWNSAMPLE_H,
         width: int = DOWNSAMPLE_W,
         device: str = "cuda",
@@ -53,6 +54,9 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
                 raise ValueError("packed2 width must equal DOWNSAMPLE_W_BYTES")
 
         self.steps = int(steps)
+        self.obs_steps = int(obs_steps) if obs_steps is not None else int(steps)
+        if self.obs_steps < self.steps:
+            raise ValueError("obs_steps must be >= steps")
         self.num_envs = int(num_envs)
         self.stack_k = int(stack_k)
         self.obs_format = obs_format
@@ -61,7 +65,7 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         self.device = torch.device(device)
 
         self.obs_u8 = torch.empty(
-            (self.steps, self.num_envs, self.stack_k, self.height, self.width),
+            (self.obs_steps, self.num_envs, self.stack_k, self.height, self.width),
             dtype=torch.uint8,
             device=self.device,
         )
@@ -149,7 +153,7 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         self._step += 1
 
     def obs_slot(self, step_idx: int):  # type: ignore[no-untyped-def]
-        if step_idx < 0 or step_idx >= self.steps:
+        if step_idx < 0 or step_idx >= self.obs_steps:
             raise ValueError("step_idx out of range")
         return self.obs_u8[step_idx]
 
@@ -191,15 +195,18 @@ class RolloutBuffer:  # type: ignore[no-any-unimported]
         self.dones[step_idx].copy_(dones)
         self.values[step_idx].copy_(values)
         self.logprobs[step_idx].copy_(logprobs)
+        if step_idx == self._step:
+            self._step += 1
 
     def as_batch(self, *, flatten_obs: bool = True):  # type: ignore[no-untyped-def]
         if self._step != self.steps:
             raise RuntimeError("rollout buffer is not full")
         batch = self.steps * self.num_envs
+        obs_u8 = self.obs_u8[: self.steps]
         obs = (
-            self.obs_u8.reshape(batch, self.stack_k, self.height, self.width)
+            obs_u8.reshape(batch, self.stack_k, self.height, self.width)
             if flatten_obs
-            else self.obs_u8
+            else obs_u8
         )
         return {
             "obs_u8": obs,
