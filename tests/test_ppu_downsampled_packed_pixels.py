@@ -35,11 +35,15 @@ def test_packed_render_matches_unpacked_cpu() -> None:
         actions = np.zeros((backend.num_envs,), dtype=np.int32)
         for _ in range(3):
             backend.step(actions)
-            unpacked_np = backend.pixels_wp().numpy().reshape(
-                backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W
+            unpacked_np = (
+                backend.pixels_wp()
+                .numpy()
+                .reshape(backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W)
             )
-            packed_np = backend.pixels_packed_wp().numpy().reshape(
-                backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
+            packed_np = (
+                backend.pixels_packed_wp()
+                .numpy()
+                .reshape(backend.num_envs, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
             )
             packed_t = torch.from_numpy(packed_np.astype(np.uint8))
             unpacked_t = torch.from_numpy(unpacked_np.astype(np.uint8))

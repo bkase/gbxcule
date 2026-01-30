@@ -676,6 +676,7 @@ class WarpVecBaseBackend:
                 inputs=[
                     self._mem,
                     self._pix_packed,
+                    0,
                 ],
                 device=self._device,
             )
@@ -810,13 +811,17 @@ class WarpVecBaseBackend:
     def pixels_packed_wp(self):
         """Return the packed downsampled pixel buffer (Warp array)."""
         if self._pix_packed is None or not self._initialized:
-            raise RuntimeError("Packed pixel buffer not initialized. Call reset() first.")
+            raise RuntimeError(
+                "Packed pixel buffer not initialized. Call reset() first."
+            )
         return self._pix_packed
 
     def pixels_packed_torch(self):
         """Return a torch view of the packed downsampled pixel buffer."""
         if self._pix_packed is None or not self._initialized:
-            raise RuntimeError("Packed pixel buffer not initialized. Call reset() first.")
+            raise RuntimeError(
+                "Packed pixel buffer not initialized. Call reset() first."
+            )
         import importlib.util
 
         if importlib.util.find_spec("torch") is None:
@@ -1212,6 +1217,67 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         stream = self._wp.stream_from_torch(torch.cuda.current_stream())
         with self._wp.ScopedStream(stream):
             self.render_pixels_snapshot()
+
+    def render_pixels_snapshot_packed_to_torch(
+        self, out, base_offset_bytes: int = 0
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Render packed pixels into a provided torch buffer (CUDA only)."""
+        if self.device != "cuda":
+            raise RuntimeError(
+                "render_pixels_snapshot_packed_to_torch() is only supported on CUDA "
+                "backends."
+            )
+        if not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        if self._mem is None:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+
+        import importlib
+
+        try:
+            torch = importlib.import_module("torch")
+        except Exception as exc:
+            raise RuntimeError(
+                "Torch not available for render_pixels_snapshot_packed_to_torch()."
+            ) from exc
+
+        tensor_type = getattr(torch, "Tensor", None)
+        if tensor_type is None or not isinstance(out, tensor_type):
+            raise TypeError("out must be a torch.Tensor")
+        if out.device.type != "cuda":
+            raise ValueError("out must be a CUDA tensor")
+        if out.dtype is not torch.uint8:
+            raise ValueError("out must have dtype torch.uint8")
+        if not out.is_contiguous():
+            raise ValueError("out must be contiguous")
+        if base_offset_bytes < 0:
+            raise ValueError("base_offset_bytes must be >= 0")
+
+        out_flat = out.view(-1)
+        frame_bytes = self.num_envs * DOWNSAMPLE_W_BYTES * DOWNSAMPLE_H
+        if base_offset_bytes + frame_bytes > int(out_flat.numel()):
+            raise ValueError("out does not have enough capacity for packed frame")
+
+        if self._ppu_render_downsampled_packed_kernel is None:
+            self._ppu_render_downsampled_packed_kernel = (
+                get_ppu_render_downsampled_packed_kernel()
+            )
+        if self._force_lcdc_on_render:
+            self._apply_lcdc_override()
+
+        out_wp = self._wp.from_torch(out_flat)
+        stream = self._wp.stream_from_torch(torch.cuda.current_stream())
+        with self._wp.ScopedStream(stream):
+            self._wp.launch(
+                self._ppu_render_downsampled_packed_kernel,
+                dim=frame_bytes,
+                inputs=[
+                    self._mem,
+                    out_wp,
+                    int(base_offset_bytes),
+                ],
+                device=self._device,
+            )
 
     def read_memory(self, env_idx: int, lo: int, hi: int) -> bytes:
         if self._mem is None or not self._initialized:

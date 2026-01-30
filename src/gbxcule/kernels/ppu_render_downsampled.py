@@ -208,6 +208,7 @@ def ppu_render_shades_downsampled_all_envs(
 def ppu_render_shades_downsampled_packed_all_envs(
     mem: wp.array(dtype=wp.uint8),
     out_pixels: wp.array(dtype=wp.uint8),
+    base_offset: wp.int32,
 ):
     idx = wp.tid()
     out_stride = DOWNSAMPLE_W_BYTES * DOWNSAMPLE_H
@@ -229,10 +230,8 @@ def ppu_render_shades_downsampled_packed_all_envs(
     s2 = _ppu_sample_shade(mem, base, (ox + 2) * 2, y)
     s3 = _ppu_sample_shade(mem, base, (ox + 3) * 2, y)
 
-    packed = (s0 & 0x03) | ((s1 & 0x03) << 2) | ((s2 & 0x03) << 4) | (
-        (s3 & 0x03) << 6
-    )
-    out_pixels[idx] = wp.uint8(packed)
+    packed = (s0 & 0x03) | ((s1 & 0x03) << 2) | ((s2 & 0x03) << 4) | ((s3 & 0x03) << 6)
+    out_pixels[base_offset + idx] = wp.uint8(packed)
 
 
 def get_ppu_render_downsampled_kernel():  # type: ignore[no-untyped-def]
