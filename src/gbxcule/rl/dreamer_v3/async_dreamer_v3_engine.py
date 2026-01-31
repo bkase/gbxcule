@@ -110,6 +110,7 @@ class AsyncDreamerV3Engine:
 
         self._policy_version = 0
         self._last_sync_version = -1
+        self._wall_start = time.time()
         if self.device.type == "cuda":
             self._actor_stream = torch.cuda.Stream()
             self._learner_stream = torch.cuda.Stream()
@@ -306,12 +307,32 @@ class AsyncDreamerV3Engine:
             if self._policy_steps > 0
             else 0.0
         )
+        start_time = self.replay.total_steps - self.replay.size
+        if self.commit.committed_t >= 0:
+            committed_available = self.commit.committed_t - start_time + 1
+        else:
+            committed_available = 0
+        committed_available = max(0, int(committed_available))
         overlap_eff = (actor_ms + learner_ms) / total_ms if total_ms > 0 else 0.0
+        env_steps_iter = int(self.config.num_envs * self.config.steps_per_rollout)
+        sps = float(env_steps_iter) / (total_ms / 1000.0) if total_ms > 0 else 0.0
+        train_sps = float(updates) / (learner_ms / 1000.0) if learner_ms > 0 else 0.0
         metrics = {
             "env_steps": int(self._policy_steps),
             "train_steps": int(self._train_steps),
+            "opt_steps": int(self._train_steps),
+            "wall_time_s": float(time.time() - self._wall_start),
             "updates": int(updates),
+            "replay_ratio": float(replay_ratio_actual),
             "replay_ratio_actual": float(replay_ratio_actual),
+            "replay_ratio_target": float(self.config.replay_ratio),
+            "replay_size": int(self.replay.size),
+            "commit_stride": int(self.config.commit_stride),
+            "ready_steps": int(committed_available),
+            "min_ready_steps": int(self.config.min_ready_steps),
+            "seq_len": int(self.config.seq_len),
+            "sps": float(sps),
+            "train_sps": float(train_sps),
             "actor_ms": float(actor_ms),
             "learner_ms": float(learner_ms),
             "total_ms": float(total_ms),
