@@ -202,9 +202,7 @@ class RSSM(torch.nn.Module):  # type: ignore[misc]
 
     def _uniform_mix(self, logits):  # type: ignore[no-untyped-def]
         dim = logits.dim()
-        if dim == 2:
-            logits = logits.view(*logits.shape[:-1], -1, self.discrete)
-        elif dim == 3:
+        if dim == 2 or dim == 3:
             logits = logits.view(*logits.shape[:-1], -1, self.discrete)
         elif dim == 4:
             pass
