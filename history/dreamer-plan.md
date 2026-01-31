@@ -401,6 +401,7 @@ Optional (debug/logging; not required for algorithm correctness):
 - Unified CLI: `tools/rl_train_gpu.py --algo dreamer_v3`
 - Eval tool: `tools/rl_eval.py --algo dreamer_v3`
 - Bench tool: `tools/rl_gpu_bench_dreamer.py`
+- Validation runbook: `docs/dreamer_v3_validation.md`
 - Two validation scenarios:
   1. **Standing Still / Reconstruction**: recon quality improves fast
   2. **Exit Oak**: success rate rises; stable training (no collapse)
