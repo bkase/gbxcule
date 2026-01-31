@@ -4,6 +4,9 @@ This plan turns Milestone M8 (full-system validation and regression gates) into 
 repeatable, automated release process. It assumes M0-M7 are complete and the
 Dreamer v3 engine can run on both CPU (deterministic) and CUDA (async, zero-copy).
 
+**Status note:** M0-M7 are implemented and committed. M8 is strictly about
+validation, gating, and release-quality tooling.
+
 ---
 
 ## 0) Objective and scope
@@ -31,6 +34,7 @@ properties behind automated gates so regressions are caught immediately.
 ## 1) Prerequisites (must already exist)
 
 - M0-M7 code complete, tests green.
+- AsyncDreamerV3Engine is the canonical engine on both CPU and CUDA.
 - Dreamer config includes beta_dyn, beta_rep, free_bits, ReturnEMA, and
   stable GRU FP32 internals.
 - ReplayRingCUDA supports packed2 and commit markers.
