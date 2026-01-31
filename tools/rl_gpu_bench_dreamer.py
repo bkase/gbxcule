@@ -182,7 +182,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pretrain-steps", type=int, default=0)
     parser.add_argument("--min-ready-steps", type=int, default=16)
     parser.add_argument("--safety-margin", type=int, default=16)
-    parser.add_argument("--max-learner-steps-per-tick", type=int, default=None)
+    parser.add_argument("--max-learner-steps-per-tick", type=int, default=256)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output-tag", default="dreamer_bench")
     parser.add_argument("--run-root", default="bench/runs/rl")
@@ -271,9 +271,9 @@ def main() -> int:
         min_ready_steps=int(args.min_ready_steps),
         safety_margin=int(args.safety_margin),
         max_learner_steps_per_tick=(
-            int(args.max_learner_steps_per_tick)
-            if args.max_learner_steps_per_tick is not None
-            else None
+            None
+            if args.max_learner_steps_per_tick in (None, 0)
+            else int(args.max_learner_steps_per_tick)
         ),
         debug=bool(args.debug),
         output_tag=str(args.output_tag),

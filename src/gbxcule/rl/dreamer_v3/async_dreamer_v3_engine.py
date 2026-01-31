@@ -92,6 +92,7 @@ class AsyncDreamerV3Engine:
         self._ratio = Ratio(config.replay_ratio, config.pretrain_steps)
         self._policy_steps = 0
         self._train_steps = 0
+        self._update_backlog = 0
         self._prefill_steps = config.learning_starts - int(config.learning_starts > 0)
 
         self._obs = self._env_reset()
@@ -251,9 +252,13 @@ class AsyncDreamerV3Engine:
         if self._policy_steps < cfg.learning_starts:
             return 0, {}
         ratio_steps = max(0, self._policy_steps - self._prefill_steps)
-        updates = self._ratio(ratio_steps)
+        requested_updates = self._ratio(ratio_steps)
+        if requested_updates > 0:
+            self._update_backlog += int(requested_updates)
+
+        updates = self._update_backlog
         if cfg.max_learner_steps_per_tick is not None:
-            updates = min(updates, cfg.max_learner_steps_per_tick)
+            updates = min(updates, int(cfg.max_learner_steps_per_tick))
 
         if updates < 1:
             return 0, {}
@@ -284,6 +289,7 @@ class AsyncDreamerV3Engine:
             self._train_steps += 1
 
         if updates_done > 0:
+            self._update_backlog = max(0, int(self._update_backlog - updates_done))
             for key in list(losses.keys()):
                 losses[key] /= float(updates_done)
             self._sync_actor_weights(stream=stream)
@@ -321,6 +327,7 @@ class AsyncDreamerV3Engine:
             "env_steps": int(self._policy_steps),
             "train_steps": int(self._train_steps),
             "opt_steps": int(self._train_steps),
+            "update_backlog": int(self._update_backlog),
             "wall_time_s": float(time.time() - self._wall_start),
             "updates": int(updates),
             "replay_ratio": float(replay_ratio_actual),

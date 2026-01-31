@@ -206,7 +206,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pretrain-steps", type=int, default=0)
     parser.add_argument("--min-ready-steps", type=int, default=16)
     parser.add_argument("--safety-margin", type=int, default=16)
-    parser.add_argument("--max-learner-steps-per-tick", type=int, default=None)
+    parser.add_argument("--max-learner-steps-per-tick", type=int, default=256)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=50)
     parser.add_argument("--output-tag", default="dreamer_v3")
@@ -290,7 +290,11 @@ def main() -> int:
         pretrain_steps=int(args.pretrain_steps),
         min_ready_steps=int(args.min_ready_steps),
         safety_margin=int(args.safety_margin),
-        max_learner_steps_per_tick=args.max_learner_steps_per_tick,
+        max_learner_steps_per_tick=(
+            None
+            if args.max_learner_steps_per_tick in (None, 0)
+            else int(args.max_learner_steps_per_tick)
+        ),
         debug=bool(args.debug),
         checkpoint_every=int(args.checkpoint_every),
         output_tag=str(args.output_tag),

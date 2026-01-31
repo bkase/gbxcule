@@ -13,6 +13,10 @@ uv run python tools/rl_train_gpu.py --algo dreamer_v3 --mode full \
   --goal-dir states/rl_stage1_exit_oak --output-tag exit_oak_smoke
 ```
 
+Note: training caps learner updates per tick by default (`--max-learner-steps-per-tick=256`)
+to avoid long stalls with large env counts. Increase or disable the cap if you
+want strict replay-ratio catchup (set it to `0` to disable).
+
 ### Eval (GPU)
 ```
 uv run python tools/rl_eval.py --algo dreamer_v3 --checkpoint <checkpoint.pt> \
