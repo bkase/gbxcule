@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, TypeGuard
+from typing import Any, TypeGuard
 
 DEFAULT_KEYS = [
     "Loss/world_model_loss",
@@ -268,9 +269,7 @@ def _capture(args: argparse.Namespace) -> Baseline:
     return baseline
 
 
-def _compare(
-    args: argparse.Namespace, baseline: Baseline
-) -> CompareResult:  # type: ignore[no-untyped-def]
+def _compare(args: argparse.Namespace, baseline: Baseline) -> CompareResult:  # type: ignore[no-untyped-def]
     payload = _load_records(Path(args.input))
     threshold_pct = (
         float(args.threshold_pct)
