@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-01-31T12:47:15.730817+00:00",
+  "source": "bench/runs/rl/dreamer_bench_small.json",
+  "input_kind": "json",
+  "env_steps_min": null,
+  "env_steps_max": null,
+  "count": 1,
+  "keys": [
+    "actor_ms_mean",
+    "learner_ms_mean",
+    "replay_ratio_mean",
+    "sps_mean",
+    "total_ms_mean",
+    "train_sps_mean"
+  ],
+  "metrics": {
+    "sps_mean": 4.395766712040473,
+    "train_sps_mean": 4.788768855171093,
+    "actor_ms_mean": 19898.545572916668,
+    "learner_ms_mean": 11883.954361958275,
+    "total_ms_mean": 31782.60546875,
+    "replay_ratio_mean": 0.27777777777777773
+  },
+  "missing_keys": [],
+  "threshold_pct": 0.15,
+  "abs_tol": 1e-06
+}

@@ -76,7 +76,7 @@ Example (training metrics JSONL, last 25 records):
 ```
 uv run python tools/rl_dreamer_regression.py capture \
   --input bench/runs/rl/<run_id>/metrics.jsonl \
-  --output bench/baselines/dreamer_v3/standing_still.json \
+  --output bench/baselines/dreamer_v3/standing_still_small.json \
   --last 25 --threshold-pct 0.15
 ```
 
@@ -89,20 +89,20 @@ uv run python tools/rl_eval.py --algo dreamer_v3 --checkpoint <checkpoint.pt> \
 
 uv run python tools/rl_dreamer_regression.py capture \
   --input bench/runs/rl/exit_oak_eval.json \
-  --output bench/baselines/dreamer_v3/exit_oak_eval.json \
+  --output bench/baselines/dreamer_v3/exit_oak_eval_small.json \
   --keys success_rate,mean_return,Game/ep_len_avg
 ```
 
 ### Compare against baselines
 ```
 uv run python tools/rl_dreamer_regression.py compare \
-  --baseline bench/baselines/dreamer_v3/standing_still.json \
+  --baseline bench/baselines/dreamer_v3/standing_still_small.json \
   --input bench/runs/rl/<run_id>/metrics.jsonl
 ```
 
 ```
 uv run python tools/rl_dreamer_regression.py compare \
-  --baseline bench/baselines/dreamer_v3/exit_oak_eval.json \
+  --baseline bench/baselines/dreamer_v3/exit_oak_eval_small.json \
   --input bench/runs/rl/exit_oak_eval.json \
   --threshold-pct 0.15
 ```
