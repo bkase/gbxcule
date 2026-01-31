@@ -1,7 +1,8 @@
-"""ReplayRing for Dreamer v3 (time-major, device-agnostic)."""
+"""CPU replay ring for Dreamer v3 (M1)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
@@ -12,7 +13,7 @@ def _require_torch() -> Any:
 
     try:
         return importlib.import_module("torch")
-    except Exception as exc:  # pragma: no cover - exercised in runtime
+    except Exception as exc:
         raise RuntimeError(
             "Torch is required for gbxcule.rl.dreamer_v3. Install with `uv sync`."
         ) from exc
@@ -26,8 +27,21 @@ def _require_generator(gen: Any) -> None:
         raise ValueError("gen must be a torch.Generator")
 
 
+@dataclass
+class ReplaySample:
+    obs: Any
+    action: Any
+    reward: Any
+    is_first: Any
+    continues: Any
+    episode_id: Any
+    terminated: Any
+    truncated: Any
+    meta: dict[str, Any] | None = None
+
+
 class ReplayRing:  # type: ignore[no-any-unimported]
-    """Time-major replay ring with deterministic sampling and continuity checks."""
+    """Time-major CPU replay ring with non-strict sampling."""
 
     def __init__(
         self,
@@ -89,6 +103,16 @@ class ReplayRing:  # type: ignore[no-any-unimported]
             dtype=torch.int32,
             device=self.device,
         )
+        self.terminated = torch.empty(
+            (self.capacity, self.num_envs),
+            dtype=torch.bool,
+            device=self.device,
+        )
+        self.truncated = torch.empty(
+            (self.capacity, self.num_envs),
+            dtype=torch.bool,
+            device=self.device,
+        )
 
         self._head = 0
         self._size = 0
@@ -123,6 +147,8 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         is_first,
         continue_,
         episode_id,
+        terminated=None,
+        truncated=None,
         validate_args: bool = True,
     ) -> int:
         torch = self._torch
@@ -154,62 +180,66 @@ class ReplayRing:  # type: ignore[no-any-unimported]
                 raise ValueError("episode_id shape mismatch")
             if episode_id.dtype is not torch.int32:
                 raise ValueError("episode_id must be int32")
-            if action.device != self.device:
-                raise ValueError("action device mismatch")
-            if reward.device != self.device:
-                raise ValueError("reward device mismatch")
-            if is_first.device != self.device:
-                raise ValueError("is_first device mismatch")
-            if continue_.device != self.device:
-                raise ValueError("continue device mismatch")
-            if episode_id.device != self.device:
-                raise ValueError("episode_id device mismatch")
+            if terminated is not None:
+                if terminated.shape != (self.num_envs,):
+                    raise ValueError("terminated shape mismatch")
+                if terminated.dtype is not torch.bool:
+                    raise ValueError("terminated must be bool")
+            if truncated is not None:
+                if truncated.shape != (self.num_envs,):
+                    raise ValueError("truncated shape mismatch")
+                if truncated.dtype is not torch.bool:
+                    raise ValueError("truncated must be bool")
+
+        if obs is not None:
+            self.obs[self._head].copy_(obs)
+        self.action[self._head].copy_(action)
+        self.reward[self._head].copy_(reward)
+        self.is_first[self._head].copy_(is_first)
+        self.continues[self._head].copy_(continue_)
+        self.episode_id[self._head].copy_(episode_id)
+        if terminated is not None:
+            self.terminated[self._head].copy_(terminated)
+        else:
+            self.terminated[self._head].fill_(False)
+        if truncated is not None:
+            self.truncated[self._head].copy_(truncated)
+        else:
+            self.truncated[self._head].fill_(False)
 
         idx = self._head
-        if obs is not None:
-            self.obs[idx].copy_(obs)
-        self.action[idx].copy_(action)
-        self.reward[idx].copy_(reward)
-        self.is_first[idx].copy_(is_first)
-        self.continues[idx].copy_(continue_)
-        self.episode_id[idx].copy_(episode_id)
-
         self._head = (self._head + 1) % self.capacity
         self._total_steps += 1
         if self._size < self.capacity:
             self._size += 1
-
-        if self.debug_checks:
-            self.check_invariants()
         return idx
 
     def _chronological_indices(self):  # type: ignore[no-untyped-def]
         torch = self._torch
         if self._size == 0:
             return torch.empty((0,), dtype=torch.int64, device=self.device)
-        if self._size < self.capacity:
-            return torch.arange(self._size, device=self.device, dtype=torch.int64)
-        base = torch.arange(self._size, device=self.device, dtype=torch.int64)
-        return (base + self._head) % self.capacity
+        earliest = self._total_steps - self._size
+        times = torch.arange(self._size, device=self.device, dtype=torch.int64)
+        return (times + earliest) % self.capacity
 
     def check_invariants(self, *, eps: float = 1e-6) -> None:
-        if self._size <= 1:
-            return
         torch = self._torch
+        if self._size < 2:
+            return
         idxes = self._chronological_indices()
-        epi = self.episode_id.index_select(0, idxes)
-        is_first = self.is_first.index_select(0, idxes)
-        cont = self.continues.index_select(0, idxes)
+        is_first = self.is_first[idxes]
+        episode_id = self.episode_id[idxes]
+        cont = self.continues[idxes]
 
-        epi_next = epi[1:]
-        epi_prev = epi[:-1]
-        is_first_next = is_first[1:]
+        next_ep = episode_id[1:]
+        prev_ep = episode_id[:-1]
+        next_first = is_first[1:]
 
-        ok_continuity = (epi_next == epi_prev) | is_first_next
+        ok_continuity = (next_ep == prev_ep) | next_first
         if not torch.all(ok_continuity):
             raise ValueError("episode_id continuity violated")
 
-        ok_increment = (~is_first_next) | (epi_next == epi_prev + 1)
+        ok_increment = (~next_first) | (next_ep == prev_ep + 1)
         if not torch.all(ok_increment):
             raise ValueError("episode_id increment violated at is_first")
 
@@ -223,18 +253,40 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         batch: int,
         seq_len: int,
         gen,
+        committed_t: int | None = None,
+        safety_margin: int = 0,
+        exclude_head: bool = False,
         return_indices: bool = False,
-    ):
+    ) -> dict[str, Any]:
         torch = self._torch
         _require_generator(gen)
         if batch < 1:
             raise ValueError("batch must be >= 1")
         if seq_len < 1:
             raise ValueError("seq_len must be >= 1")
+        if safety_margin < 0:
+            raise ValueError("safety_margin must be >= 0")
         if self._size < seq_len:
             raise ValueError("not enough samples to draw sequence")
 
-        max_start = self._size - seq_len
+        latest = self._total_steps - 1
+        if latest < 0:
+            raise ValueError("replay is empty")
+        if committed_t is None:
+            committed_t = latest
+        if committed_t > latest:
+            committed_t = latest
+
+        earliest = self._total_steps - self._size
+        if exclude_head and self._size == self.capacity:
+            earliest += 1
+
+        safe_max = committed_t - safety_margin
+        min_start = earliest
+        max_start = safe_max - seq_len + 1
+        if max_start < min_start:
+            raise ValueError("not enough committed samples to draw sequence")
+
         env_idx = torch.randint(
             0,
             self.num_envs,
@@ -243,11 +295,16 @@ class ReplayRing:  # type: ignore[no-any-unimported]
             generator=gen,
             dtype=torch.int64,
         )
-        if max_start == 0:
-            start_offsets = torch.zeros((batch,), device=self.device, dtype=torch.int64)
+        if max_start == min_start:
+            start_offsets = torch.full(
+                (batch,),
+                min_start,
+                device=self.device,
+                dtype=torch.int64,
+            )
         else:
             start_offsets = torch.randint(
-                0,
+                min_start,
                 max_start + 1,
                 (batch,),
                 device=self.device,
@@ -257,11 +314,7 @@ class ReplayRing:  # type: ignore[no-any-unimported]
 
         t_offsets = torch.arange(seq_len, device=self.device, dtype=torch.int64)
         time_offsets = start_offsets.view(1, -1) + t_offsets.view(-1, 1)
-        if self._size < self.capacity:
-            time_idx = time_offsets
-        else:
-            time_idx = (time_offsets + self._head) % self.capacity
-
+        time_idx = time_offsets % self.capacity
         env_idx_grid = env_idx.view(1, -1).expand(seq_len, batch)
 
         obs = self.obs[time_idx, env_idx_grid]
@@ -270,6 +323,8 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         is_first = self.is_first[time_idx, env_idx_grid]
         continues = self.continues[time_idx, env_idx_grid]
         episode_id = self.episode_id[time_idx, env_idx_grid]
+        terminated = self.terminated[time_idx, env_idx_grid]
+        truncated = self.truncated[time_idx, env_idx_grid]
 
         out = {
             "obs": obs,
@@ -278,6 +333,8 @@ class ReplayRing:  # type: ignore[no-any-unimported]
             "is_first": is_first,
             "continue": continues,
             "episode_id": episode_id,
+            "terminated": terminated,
+            "truncated": truncated,
         }
         if return_indices:
             out["meta"] = {
@@ -286,3 +343,6 @@ class ReplayRing:  # type: ignore[no-any-unimported]
                 "time_idx": time_idx,
             }
         return out
+
+
+__all__ = ["ReplayRing", "ReplaySample"]

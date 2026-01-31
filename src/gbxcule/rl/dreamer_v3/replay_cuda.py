@@ -157,7 +157,7 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
                     raise ValueError("obs shape mismatch")
                 if obs.dtype is not torch.uint8:
                     raise ValueError("obs must be uint8")
-                if obs.device != self.device:
+                if not _device_matches(obs.device, self.device):
                     raise ValueError("obs device mismatch")
             if action.shape != (self.num_envs,):
                 raise ValueError("action shape mismatch")
