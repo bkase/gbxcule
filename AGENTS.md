@@ -1,5 +1,7 @@
+# AGENTS.md
 
-
+- We use `uv` for our python environment
+- When creating a worktree, copy `red.gb` and `states/pokemonred_bulbasaur_roundtrip2.state` into it (needed for `tests/test_m0_pixel_smoke.py`).
 <!-- br-agent-instructions-v1 -->
 
 ---
