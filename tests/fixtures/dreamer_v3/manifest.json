@@ -41,6 +41,13 @@
     "notes": "Moments/ReturnEMA updates"
   },
   {
+    "name": "lambda_returns_cases",
+    "dtype": "json",
+    "shape": [],
+    "file": "lambda_returns_cases.json",
+    "notes": "lambda return regression cases"
+  },
+  {
     "name": "rssm_meta",
     "dtype": "json",
     "shape": [],

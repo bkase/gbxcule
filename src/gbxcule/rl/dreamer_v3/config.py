@@ -296,20 +296,37 @@ class MomentsConfig:
 
 @dataclass
 class ActorConfig:
+    ent_coef: float = 0.0
+    clip_gradients: float | None = None
     moments: MomentsConfig = field(default_factory=MomentsConfig)
 
     def validate(self) -> list[str]:
-        return self.moments.validate()
+        errors: list[str] = []
+        if self.ent_coef < 0:
+            errors.append("actor.ent_coef must be >= 0")
+        if self.clip_gradients is not None and self.clip_gradients <= 0:
+            errors.append("actor.clip_gradients must be > 0 when set")
+        errors += self.moments.validate()
+        return errors
 
 
 @dataclass
 class CriticConfig:
     bins: int = 255
+    tau: float = 0.005
+    target_update_freq: int = 1
+    clip_gradients: float | None = None
 
     def validate(self) -> list[str]:
         errors: list[str] = []
         if self.bins < 2:
             errors.append("critic.bins must be >= 2")
+        if not 0.0 < self.tau <= 1.0:
+            errors.append("critic.tau must be in (0, 1]")
+        if self.target_update_freq < 1:
+            errors.append("critic.target_update_freq must be >= 1")
+        if self.clip_gradients is not None and self.clip_gradients <= 0:
+            errors.append("critic.clip_gradients must be > 0 when set")
         return errors
 
 

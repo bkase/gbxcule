@@ -53,6 +53,22 @@ def test_invalid_percentiles_rejected() -> None:
     assert any("percentile.high" in err for err in errors)
 
 
+def test_invalid_actor_entropy_rejected() -> None:
+    cfg = DreamerV3Config()
+    cfg.actor.ent_coef = -0.1
+    errors = validate_config(cfg)
+    assert any("actor.ent_coef" in err for err in errors)
+
+
+def test_invalid_critic_tau_rejected() -> None:
+    cfg = DreamerV3Config()
+    cfg.critic.tau = 0.0
+    cfg.critic.target_update_freq = 0
+    errors = validate_config(cfg)
+    assert any("critic.tau" in err for err in errors)
+    assert any("critic.target_update_freq" in err for err in errors)
+
+
 def test_precision_dtype_validation() -> None:
     cfg = DreamerV3Config(precision=PrecisionPolicy(model_dtype="float32"))
     errors = validate_config(cfg)
