@@ -15,6 +15,7 @@ from typing import Any
 from gbxcule.backends.warp_vec import WarpVecCudaBackend
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
 from gbxcule.core.reset_cache import ResetCache
+from gbxcule.rl.pokered_parcel_detectors import EVENTS_LENGTH, EVENTS_START
 from gbxcule.rl.goal_match import (
     RewardShapingConfig,
     compute_done,
