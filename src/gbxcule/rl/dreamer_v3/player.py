@@ -35,7 +35,6 @@ class DreamerActorCore:
         rssm,
         actor,
         action_dim: int,
-        obs_key: str = "pixels",
         greedy: bool = False,
     ) -> None:
         torch = _require_torch()
@@ -51,7 +50,6 @@ class DreamerActorCore:
         self.player_rssm.eval()
 
         self.action_dim = int(action_dim)
-        self.obs_key = str(obs_key)
         self.greedy = bool(greedy)
 
     def sync_player(self) -> None:
@@ -77,8 +75,9 @@ class DreamerActorCore:
     def act(self, obs, is_first, state, *, generator):  # type: ignore[no-untyped-def]
         torch = _require_torch()
         with torch.no_grad():
-            obs_t = obs.unsqueeze(0)
-            obs_dict = {self.obs_key: obs_t}
+            if not isinstance(obs, dict):
+                raise TypeError("DreamerActorCore.act expects dict observations.")
+            obs_dict = {key: value.unsqueeze(0) for key, value in obs.items()}
             embedded = self.player_encoder(obs_dict)
             recurrent, posterior, _, _, _ = self.player_rssm.dynamic(
                 state.posterior.unsqueeze(0),
