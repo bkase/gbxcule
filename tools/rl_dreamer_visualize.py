@@ -49,8 +49,6 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--state", default=None, help="Path to .state file (optional)")
     parser.add_argument("--goal-dir", default=None, help="Goal template dir (optional)")
     parser.add_argument("--task", default=None, help="Task name (goal or parcel)")
-    parser.add_argument("--events-start", type=int, default=None)
-    parser.add_argument("--events-length", type=int, default=None)
     parser.add_argument("--snow-bonus", type=float, default=None)
     parser.add_argument("--snow-size", type=int, default=None)
     parser.add_argument("--get-parcel-bonus", type=float, default=None)
@@ -112,8 +110,6 @@ def _resolve_task(arg: str | None, cfg: dict[str, Any]) -> str:
     cfg_task = cfg.get("task")
     if cfg_task:
         return str(cfg_task)
-    if cfg.get("events_start") is not None or cfg.get("events_length") is not None:
-        return "parcel"
     if cfg.get("snow_bonus") is not None or cfg.get("get_parcel_bonus") is not None:
         return "parcel"
     if cfg.get("goal_dir") is not None:
@@ -284,8 +280,6 @@ class VisualConfig:
     skip_imagined: bool
 
 
-DEFAULT_EVENTS_START = 0xD747
-DEFAULT_EVENTS_LENGTH = 320
 DEFAULT_SNOW_BONUS = 0.01
 DEFAULT_SNOW_SIZE = 65536
 DEFAULT_GET_PARCEL_BONUS = 5.0
@@ -361,7 +355,6 @@ def main() -> int:
 
     goal_path = None
     senses_dim = None
-    events_start = None
     events_length = None
     snow_bonus = None
     snow_size = None
@@ -371,13 +364,9 @@ def main() -> int:
     if task == "parcel":
         parcel_module = importlib.import_module("gbxcule.rl.pokered_packed_parcel_env")
         PokeredPackedParcelEnv = parcel_module.PokeredPackedParcelEnv
+        PARCEL_SENSES_DIM = int(parcel_module.SENSES_DIM)
+        PARCEL_EVENTS_LENGTH = int(parcel_module.EVENTS_LENGTH)
 
-        events_start = _resolve_int(
-            args.events_start, cfg.get("events_start"), DEFAULT_EVENTS_START
-        )
-        events_length = _resolve_int(
-            args.events_length, cfg.get("events_length"), DEFAULT_EVENTS_LENGTH
-        )
         snow_bonus = _resolve_float(
             args.snow_bonus, cfg.get("snow_bonus"), DEFAULT_SNOW_BONUS
         )
@@ -392,7 +381,8 @@ def main() -> int:
         deliver_bonus = _resolve_float(
             args.deliver_bonus, cfg.get("deliver_bonus"), DEFAULT_DELIVER_BONUS
         )
-        senses_dim = 4 + int(events_length)
+        senses_dim = PARCEL_SENSES_DIM
+        events_length = PARCEL_EVENTS_LENGTH
         env = PokeredPackedParcelEnv(
             rom,
             state_path=state,
@@ -401,8 +391,6 @@ def main() -> int:
             release_after_frames=release_after_frames,
             action_codec=cfg.get("action_codec"),
             max_steps=int(cfg.get("max_steps", 2048)),
-            events_start=int(events_start),
-            events_length=int(events_length),
             snow_bonus=float(snow_bonus),
             snow_size=int(snow_size),
             get_parcel_bonus=float(get_parcel_bonus),
@@ -445,8 +433,8 @@ def main() -> int:
     mlp_encoder = None
     if task == "parcel":
         mlp_encoder = MLPEncoder(
-            keys=["senses"],
-            input_dims=[int(senses_dim or 0)],
+            keys=["senses", "events"],
+            input_dims=[int(senses_dim or 0), int(events_length or 0)],
             mlp_layers=int(cfg.get("head_mlp_layers", 2)),
             dense_units=int(cfg.get("dense_units", 512)),
         )
@@ -475,6 +463,7 @@ def main() -> int:
     )
     mlp_decoder = None
     if task == "parcel":
+        # Decoder only reconstructs senses (not events)
         mlp_decoder = MLPDecoder(
             keys=["senses"],
             output_dims=[int(senses_dim or 0)],
@@ -563,7 +552,6 @@ def main() -> int:
     if task == "parcel":
         meta.update(
             {
-                "events_start": int(events_start or 0),
                 "events_length": int(events_length or 0),
                 "senses_dim": int(senses_dim or 0),
                 "snow_bonus": float(snow_bonus or 0.0),
@@ -696,7 +684,6 @@ def main() -> int:
     if task == "parcel":
         trace_payload.update(
             {
-                "events_start": int(events_start or 0),
                 "events_length": int(events_length or 0),
                 "senses_dim": int(senses_dim or 0),
             }

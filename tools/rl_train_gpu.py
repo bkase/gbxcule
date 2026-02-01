@@ -223,6 +223,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-learner-steps-per-tick", type=int, default=256)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--checkpoint-every", type=int, default=50)
+    parser.add_argument(
+        "--resume", default=None, help="Path to checkpoint.pt to resume from"
+    )
     parser.add_argument("--output-tag", default="dreamer_v3")
     parser.add_argument("--run-root", default="bench/runs/rl")
     parser.add_argument("--standing-still-action", type=int, default=0)
@@ -563,6 +566,29 @@ def main() -> int:
     actor_opt = torch.optim.Adam(actor.parameters(), lr=cfg.actor_lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
 
+    # Resume from checkpoint if provided
+    resume_env_steps = 0
+    resume_train_steps = 0
+    if args.resume is not None:
+        resume_path = Path(args.resume)
+        if not resume_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
+        print(f"Resuming from checkpoint: {resume_path}")
+        ckpt = torch.load(resume_path, map_location="cuda")
+        world_model.load_state_dict(ckpt["world_model"])
+        actor.load_state_dict(ckpt["actor"])
+        critic.load_state_dict(ckpt["critic"])
+        target_critic.load_state_dict(ckpt["target_critic"])
+        if "world_opt" in ckpt:
+            world_opt.load_state_dict(ckpt["world_opt"])
+        if "actor_opt" in ckpt:
+            actor_opt.load_state_dict(ckpt["actor_opt"])
+        if "critic_opt" in ckpt:
+            critic_opt.load_state_dict(ckpt["critic_opt"])
+        resume_env_steps = int(ckpt.get("env_steps", 0) or 0)
+        resume_train_steps = int(ckpt.get("train_steps", 0) or 0)
+        print(f"  Resumed: env={resume_env_steps}, train={resume_train_steps}")
+
     moments = ReturnEMA(
         decay=cfg.moments_decay,
         percentiles=(cfg.moments_low, cfg.moments_high),
@@ -809,6 +835,9 @@ def main() -> int:
                     "actor": actor.state_dict(),
                     "critic": critic.state_dict(),
                     "target_critic": target_critic.state_dict(),
+                    "world_opt": world_opt.state_dict(),
+                    "actor_opt": actor_opt.state_dict(),
+                    "critic_opt": critic_opt.state_dict(),
                     "config": asdict(cfg),
                     "env_steps": last_metrics.get("env_steps"),
                     "train_steps": last_metrics.get("train_steps"),
@@ -831,6 +860,9 @@ def main() -> int:
         "actor": actor.state_dict(),
         "critic": critic.state_dict(),
         "target_critic": target_critic.state_dict(),
+        "world_opt": world_opt.state_dict(),
+        "actor_opt": actor_opt.state_dict(),
+        "critic_opt": critic_opt.state_dict(),
         "config": asdict(cfg),
         "env_steps": last_metrics.get("env_steps"),
         "train_steps": last_metrics.get("train_steps"),
