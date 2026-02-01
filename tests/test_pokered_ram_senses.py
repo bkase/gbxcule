@@ -71,10 +71,12 @@ def _assert_backend_matches_state(backend_cls) -> None:  # type: ignore[no-untyp
         backend.reset()
         backend.load_state_file(str(STATE_PATH), env_idx=0)
 
-        map_id = backend.read_memory(0, MAP_ID_ADDR, MAP_ID_ADDR + 1)[0]
-        y_pos = backend.read_memory(0, PLAYER_Y_ADDR, PLAYER_Y_ADDR + 1)[0]
-        x_pos = backend.read_memory(0, PLAYER_X_ADDR, PLAYER_X_ADDR + 1)[0]
-        events = backend.read_memory(0, EVENTS_START, EVENTS_START + EVENTS_LENGTH)
+        mem = backend.memory_torch()
+        map_id = int(mem[0, MAP_ID_ADDR].item())
+        y_pos = int(mem[0, PLAYER_Y_ADDR].item())
+        x_pos = int(mem[0, PLAYER_X_ADDR].item())
+        events_t = mem[0, EVENTS_START : EVENTS_START + EVENTS_LENGTH]
+        events = events_t.cpu().numpy().tobytes()
 
         assert map_id == expected_map_id
         assert y_pos == expected_y

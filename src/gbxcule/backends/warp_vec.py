@@ -200,6 +200,7 @@ class WarpVecBaseBackend:
         self._reward = None
         self._obs = None
         self._lcdc_override = None
+        self._mem_torch = None
 
         self.action_spec = ArraySpec(
             shape=(num_envs,),
@@ -337,6 +338,7 @@ class WarpVecBaseBackend:
             mem_np[base : base + BOOTROM_SIZE] = bootrom_np
 
         self._mem = self._wp.array(mem_np, dtype=self._wp.uint8, device=self._device)
+        self._mem_torch = None
         self._pc = self._wp.zeros(
             self.num_envs, dtype=self._wp.int32, device=self._device
         )
@@ -794,6 +796,30 @@ class WarpVecBaseBackend:
                 )
         return bytes(out)
 
+    def memory_torch(self):  # type: ignore[no-untyped-def]
+        """Return a torch view of the raw device memory buffer."""
+        if self._mem is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        import importlib.util
+
+        if importlib.util.find_spec("torch") is None:
+            raise RuntimeError("Torch not available for memory_torch().")
+        if self._mem_torch is None:
+            mem_t = self._wp.to_torch(self._mem)
+            self._mem_torch = mem_t.view(self.num_envs, MEM_SIZE)
+        return self._mem_torch
+
+    def read_memory_torch(self, env_idx: int, lo: int, hi: int):  # type: ignore[no-untyped-def]
+        """Return a torch slice of RAM (lo>=0x8000) for a given env."""
+        if env_idx < 0 or env_idx >= self.num_envs:
+            raise ValueError(f"env_idx {env_idx} out of range [0, {self.num_envs})")
+        if lo < 0 or hi < 0 or lo > MEM_SIZE or hi > MEM_SIZE or lo > hi:
+            raise ValueError(f"Invalid memory range: lo={lo} hi={hi}")
+        if lo < ROM_LIMIT:
+            raise ValueError("read_memory_torch only supports RAM/IO ranges >= 0x8000")
+        mem = self.memory_torch()
+        return mem[env_idx, lo:hi]
+
     @staticmethod
     def _cart_state_to_dict(state: np.ndarray) -> dict[str, int]:
         if state.shape[0] < CART_STATE_STRIDE:
@@ -1112,6 +1138,7 @@ class WarpVecBaseBackend:
         self._ppu_render_downsampled_packed_kernel = None
         self._reward = None
         self._obs = None
+        self._mem_torch = None
 
 
 class WarpVecCpuBackend(WarpVecBaseBackend):
