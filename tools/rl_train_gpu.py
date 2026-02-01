@@ -79,6 +79,7 @@ def _system_meta() -> dict[str, Any]:
 @dataclass(frozen=True)
 class TrainConfig:
     algo: str
+    task: str
     mode: str
     rom: str
     state: str
@@ -91,6 +92,9 @@ class TrainConfig:
     step_cost: float
     alpha: float
     goal_bonus: float
+    snow_bonus: float
+    get_parcel_bonus: float
+    deliver_bonus: float
     tau: float | None
     k_consecutive: int | None
     seed: int
@@ -146,8 +150,12 @@ class TrainConfig:
     def validate(self) -> None:
         if self.algo != "dreamer_v3":
             raise ValueError("algo must be dreamer_v3")
+        if self.task not in ("goal_template", "oak_parcel"):
+            raise ValueError("task must be goal_template or oak_parcel")
         if self.mode not in ("full", "standing_still"):
             raise ValueError("mode must be full or standing_still")
+        if self.task == "goal_template" and not self.goal_dir:
+            raise ValueError("goal_dir is required for goal_template task")
         if self.num_envs < 1:
             raise ValueError("num_envs must be >= 1")
         if self.steps_per_rollout < 1:
@@ -179,18 +187,24 @@ class TrainConfig:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algo", default="dreamer_v3")
+    parser.add_argument(
+        "--task", default="goal_template", choices=("goal_template", "oak_parcel")
+    )
     parser.add_argument("--mode", default="full", choices=("full", "standing_still"))
     parser.add_argument("--rom", required=True)
     parser.add_argument("--state", required=True)
-    parser.add_argument("--goal-dir", required=True)
+    parser.add_argument("--goal-dir", default="")
     parser.add_argument("--frames-per-step", type=int, default=24)
     parser.add_argument("--release-after-frames", type=int, default=8)
     parser.add_argument("--num-envs", type=int, default=512)
     parser.add_argument("--action-codec", default="pokemonred_puffer_v1")
-    parser.add_argument("--max-steps", type=int, default=128)
+    parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--step-cost", type=float, default=-0.01)
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--goal-bonus", type=float, default=10.0)
+    parser.add_argument("--snow-bonus", type=float, default=0.01)
+    parser.add_argument("--get-parcel-bonus", type=float, default=5.0)
+    parser.add_argument("--deliver-bonus", type=float, default=10.0)
     parser.add_argument("--tau", type=float, default=None)
     parser.add_argument("--k-consecutive", type=int, default=None)
     parser.add_argument("--seed", type=int, default=1234)
@@ -261,8 +275,12 @@ def _save_checkpoint(path, payload) -> None:  # type: ignore[no-untyped-def]
 
 def main() -> int:
     args = _parse_args()
+    max_steps = args.max_steps
+    if max_steps is None:
+        max_steps = 2048 if args.task == "oak_parcel" else 128
     cfg = TrainConfig(
         algo=str(args.algo),
+        task=str(args.task),
         mode=str(args.mode),
         rom=str(args.rom),
         state=str(args.state),
@@ -271,10 +289,13 @@ def main() -> int:
         release_after_frames=int(args.release_after_frames),
         num_envs=int(args.num_envs),
         action_codec=str(args.action_codec),
-        max_steps=int(args.max_steps),
+        max_steps=int(max_steps),
         step_cost=float(args.step_cost),
         alpha=float(args.alpha),
         goal_bonus=float(args.goal_bonus),
+        snow_bonus=float(args.snow_bonus),
+        get_parcel_bonus=float(args.get_parcel_bonus),
+        deliver_bonus=float(args.deliver_bonus),
         tau=args.tau,
         k_consecutive=args.k_consecutive,
         seed=int(args.seed),
@@ -351,8 +372,12 @@ def main() -> int:
     from gbxcule.rl.dreamer_v3.async_dreamer_v3_engine import AsyncDreamerV3Engine
     from gbxcule.rl.dreamer_v3.behavior import Actor, Critic, behavior_step
     from gbxcule.rl.dreamer_v3.config import DreamerEngineConfig
-    from gbxcule.rl.dreamer_v3.decoders import CNNDecoder, MultiDecoder
-    from gbxcule.rl.dreamer_v3.encoders import MultiEncoder, Packed2PixelEncoder
+    from gbxcule.rl.dreamer_v3.decoders import CNNDecoder, MLPDecoder, MultiDecoder
+    from gbxcule.rl.dreamer_v3.encoders import (
+        MLPEncoder,
+        MultiEncoder,
+        Packed2PixelEncoder,
+    )
     from gbxcule.rl.dreamer_v3.heads import ContinueHead, RewardHead
     from gbxcule.rl.dreamer_v3.player import ConstantActorCore, DreamerActorCore
     from gbxcule.rl.dreamer_v3.return_ema import ReturnEMA
@@ -360,24 +385,48 @@ def main() -> int:
     from gbxcule.rl.dreamer_v3.world_model import WorldModel
     from gbxcule.rl.experiment import Experiment
     from gbxcule.rl.goal_template import compute_sha256
-    from gbxcule.rl.pokered_packed_goal_env import PokeredPackedGoalEnv
 
-    env = PokeredPackedGoalEnv(
-        cfg.rom,
-        goal_dir=cfg.goal_dir,
-        state_path=cfg.state,
-        num_envs=cfg.num_envs,
-        frames_per_step=cfg.frames_per_step,
-        release_after_frames=cfg.release_after_frames,
-        action_codec=cfg.action_codec,
-        max_steps=cfg.max_steps,
-        step_cost=cfg.step_cost,
-        alpha=cfg.alpha,
-        goal_bonus=cfg.goal_bonus,
-        tau=cfg.tau,
-        k_consecutive=cfg.k_consecutive,
-        info_mode="stats",
-    )
+    if cfg.task == "goal_template":
+        from gbxcule.rl.pokered_packed_goal_env import PokeredPackedGoalEnv
+
+        env = PokeredPackedGoalEnv(
+            cfg.rom,
+            goal_dir=cfg.goal_dir,
+            state_path=cfg.state,
+            num_envs=cfg.num_envs,
+            frames_per_step=cfg.frames_per_step,
+            release_after_frames=cfg.release_after_frames,
+            action_codec=cfg.action_codec,
+            max_steps=cfg.max_steps,
+            step_cost=cfg.step_cost,
+            alpha=cfg.alpha,
+            goal_bonus=cfg.goal_bonus,
+            tau=cfg.tau,
+            k_consecutive=cfg.k_consecutive,
+            info_mode="stats",
+        )
+        senses_dim = None
+    else:
+        import importlib
+
+        parcel_mod = importlib.import_module("gbxcule.rl.pokered_packed_parcel_env")
+        PokeredPackedParcelEnv = getattr(parcel_mod, "PokeredPackedParcelEnv")
+        events_length = int(getattr(parcel_mod, "EVENTS_LENGTH"))
+
+        env = PokeredPackedParcelEnv(
+            cfg.rom,
+            state_path=cfg.state,
+            num_envs=cfg.num_envs,
+            frames_per_step=cfg.frames_per_step,
+            release_after_frames=cfg.release_after_frames,
+            action_codec=cfg.action_codec,
+            max_steps=cfg.max_steps,
+            snow_bonus=cfg.snow_bonus,
+            get_parcel_bonus=cfg.get_parcel_bonus,
+            deliver_bonus=cfg.deliver_bonus,
+            info_mode="stats",
+        )
+        senses_dim = 4 + events_length
 
     action_dim = int(env.num_actions)
     obs_shape = (1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
@@ -389,10 +438,18 @@ def main() -> int:
         channels_multiplier=cfg.cnn_channels_multiplier,
         stages=cfg.cnn_stages,
     )
-    encoder = MultiEncoder(cnn_encoder, None)
+    mlp_encoder = None
+    if senses_dim is not None:
+        mlp_encoder = MLPEncoder(
+            keys=["senses"],
+            input_dims=[senses_dim],
+            mlp_layers=cfg.head_mlp_layers,
+            dense_units=cfg.dense_units,
+        )
+    encoder = MultiEncoder(cnn_encoder, mlp_encoder)
     rssm = build_rssm(
         action_dim=action_dim,
-        embed_dim=encoder.cnn_output_dim,
+        embed_dim=encoder.cnn_output_dim + encoder.mlp_output_dim,
         stochastic_size=cfg.stochastic_size,
         discrete_size=cfg.discrete_size,
         recurrent_state_size=cfg.recurrent_state_size,
@@ -412,7 +469,16 @@ def main() -> int:
         encoder_output_shape=cnn_encoder.output_shape,
         stages=cfg.cnn_stages,
     )
-    observation_model = MultiDecoder(decoder, None)
+    mlp_decoder = None
+    if senses_dim is not None:
+        mlp_decoder = MLPDecoder(
+            keys=["senses"],
+            output_dims=[senses_dim],
+            latent_state_size=latent_state_size,
+            mlp_layers=cfg.head_mlp_layers,
+            dense_units=cfg.dense_units,
+        )
+    observation_model = MultiDecoder(decoder, mlp_decoder)
     reward_model = RewardHead(
         input_dim=latent_state_size,
         bins=cfg.reward_bins,
@@ -431,7 +497,7 @@ def main() -> int:
         reward_model=reward_model,
         continue_model=continue_model,
         cnn_keys=["pixels"],
-        mlp_keys=[],
+        mlp_keys=["senses"] if senses_dim is not None else [],
         reward_low=cfg.reward_low,
         reward_high=cfg.reward_high,
         continue_scale_factor=cfg.continue_scale_factor,
@@ -490,10 +556,8 @@ def main() -> int:
 
     rom_path = Path(cfg.rom)
     state_path = Path(cfg.state)
-    goal_path = Path(cfg.goal_dir) / "goal_template.npy"
     rom_sha = compute_sha256(rom_path)
     state_sha = compute_sha256(state_path)
-    goal_sha = compute_sha256(goal_path) if goal_path.exists() else "unknown"
     git_commit, git_dirty = _git_info()
     meta = {
         "rom": {"rom_path": str(rom_path), "rom_sha256": rom_sha},
@@ -508,9 +572,22 @@ def main() -> int:
         "algo": {"algo_name": cfg.algo, "algo_version": 1},
         "code": {"git_commit": git_commit, "git_dirty": git_dirty},
         "system": _system_meta(),
-        "goal": {"goal_dir": cfg.goal_dir, "goal_sha256": goal_sha},
+        "task": cfg.task,
         "mode": cfg.mode,
     }
+    if cfg.task == "goal_template":
+        goal_path = Path(cfg.goal_dir) / "goal_template.npy"
+        goal_sha = compute_sha256(goal_path) if goal_path.exists() else "unknown"
+        meta["goal"] = {"goal_dir": cfg.goal_dir, "goal_sha256": goal_sha}
+    else:
+        meta["env"].update(
+            {
+                "snow_bonus": cfg.snow_bonus,
+                "get_parcel_bonus": cfg.get_parcel_bonus,
+                "deliver_bonus": cfg.deliver_bonus,
+                "max_steps": cfg.max_steps,
+            }
+        )
 
     experiment = Experiment(
         algo=cfg.algo,
@@ -541,7 +618,9 @@ def main() -> int:
     )
 
     def world_model_update(batch):  # type: ignore[no-untyped-def]
-        obs = {"pixels": batch.obs}
+        obs = batch.obs
+        if not isinstance(obs, dict):
+            obs = {"pixels": obs}
         rewards = batch.reward
         continues = batch.continues
         if rewards.ndim == 2:
@@ -598,7 +677,9 @@ def main() -> int:
         if cfg.mode != "full":
             return {}
         with torch.no_grad():
-            obs = {"pixels": batch.obs}
+            obs = batch.obs
+            if not isinstance(obs, dict):
+                obs = {"pixels": obs}
             enc_obs, _ = world_model.prepare_obs(obs, obs_format="packed2")
             outputs = world_model(
                 enc_obs, batch.action, batch.is_first, action_dim=action_dim
