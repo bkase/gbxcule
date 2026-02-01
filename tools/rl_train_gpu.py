@@ -410,8 +410,8 @@ def main() -> int:
         import importlib
 
         parcel_mod = importlib.import_module("gbxcule.rl.pokered_packed_parcel_env")
-        PokeredPackedParcelEnv = getattr(parcel_mod, "PokeredPackedParcelEnv")
-        events_length = int(getattr(parcel_mod, "EVENTS_LENGTH"))
+        PokeredPackedParcelEnv = parcel_mod.PokeredPackedParcelEnv
+        events_length = int(parcel_mod.EVENTS_LENGTH)
 
         env = PokeredPackedParcelEnv(
             cfg.rom,
