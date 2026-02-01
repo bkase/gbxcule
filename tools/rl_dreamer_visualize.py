@@ -369,9 +369,7 @@ def main() -> int:
     deliver_bonus = None
 
     if task == "parcel":
-        parcel_module = importlib.import_module(
-            "gbxcule.rl.pokered_packed_parcel_env"
-        )
+        parcel_module = importlib.import_module("gbxcule.rl.pokered_packed_parcel_env")
         PokeredPackedParcelEnv = parcel_module.PokeredPackedParcelEnv
 
         events_start = _resolve_int(
