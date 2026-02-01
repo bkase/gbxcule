@@ -33,6 +33,44 @@ def _step_tensors(
     return obs, action, reward, is_first_t, continue_t, episode_t
 
 
+def _step_dict_tensors(
+    ring: ReplayRing,
+    *,
+    value: int,
+    senses_dim: int,
+    is_first: bool,
+    episode_id: int,
+    cont: float,
+):
+    pixels = torch.full(
+        (ring.num_envs, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
+        value,
+        dtype=torch.uint8,
+        device=ring.device,
+    )
+    senses = torch.full(
+        (ring.num_envs, senses_dim),
+        float(value),
+        dtype=torch.float32,
+        device=ring.device,
+    )
+    obs = {"pixels": pixels, "senses": senses}
+    action = torch.full((ring.num_envs,), value, dtype=torch.int32, device=ring.device)
+    reward = torch.full(
+        (ring.num_envs,), float(value), dtype=torch.float32, device=ring.device
+    )
+    is_first_t = torch.full(
+        (ring.num_envs,), is_first, dtype=torch.bool, device=ring.device
+    )
+    continue_t = torch.full(
+        (ring.num_envs,), float(cont), dtype=torch.float32, device=ring.device
+    )
+    episode_t = torch.full(
+        (ring.num_envs,), episode_id, dtype=torch.int32, device=ring.device
+    )
+    return obs, action, reward, is_first_t, continue_t, episode_t
+
+
 def test_shapes_and_dtypes() -> None:
     ring = ReplayRing(capacity=8, num_envs=4, device="cpu")
     assert ring.obs.shape == (8, 4, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
@@ -190,3 +228,63 @@ def test_non_strict_sampling_across_is_first() -> None:
     gen = torch.Generator().manual_seed(0)
     batch = ring.sample_sequences(batch=1, seq_len=4, gen=gen)
     assert batch["is_first"][2, 0].item() is True
+
+
+def test_dict_obs_shapes_and_sampling() -> None:
+    senses_dim = 5
+    obs_spec = {
+        "pixels": ((1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES), torch.uint8),
+        "senses": ((senses_dim,), torch.float32),
+    }
+    ring = ReplayRing(capacity=6, num_envs=2, device="cpu", obs_spec=obs_spec)
+    for t in range(4):
+        obs, action, reward, is_first_t, continue_t, episode_t = _step_dict_tensors(
+            ring,
+            value=t,
+            senses_dim=senses_dim,
+            is_first=t == 0,
+            episode_id=0,
+            cont=1.0,
+        )
+        ring.push_step(
+            obs=obs,
+            action=action,
+            reward=reward,
+            is_first=is_first_t,
+            continue_=continue_t,
+            episode_id=episode_t,
+        )
+    gen = torch.Generator().manual_seed(0)
+    batch = ring.sample_sequences(batch=2, seq_len=3, gen=gen)
+    assert set(batch["obs"].keys()) == {"pixels", "senses"}
+    assert batch["obs"]["pixels"].shape == (3, 2, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
+    assert batch["obs"]["pixels"].dtype is torch.uint8
+    assert batch["obs"]["senses"].shape == (3, 2, senses_dim)
+    assert batch["obs"]["senses"].dtype is torch.float32
+
+
+def test_dict_obs_rejects_tensor_obs() -> None:
+    obs_spec = {
+        "pixels": ((1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES), torch.uint8),
+        "senses": ((3,), torch.float32),
+    }
+    ring = ReplayRing(capacity=4, num_envs=2, device="cpu", obs_spec=obs_spec)
+    obs = torch.zeros(
+        (ring.num_envs, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
+        dtype=torch.uint8,
+        device=ring.device,
+    )
+    action = torch.zeros((ring.num_envs,), dtype=torch.int32, device=ring.device)
+    reward = torch.zeros((ring.num_envs,), dtype=torch.float32, device=ring.device)
+    is_first_t = torch.ones((ring.num_envs,), dtype=torch.bool, device=ring.device)
+    continue_t = torch.ones((ring.num_envs,), dtype=torch.float32, device=ring.device)
+    episode_t = torch.zeros((ring.num_envs,), dtype=torch.int32, device=ring.device)
+    with pytest.raises(ValueError, match="obs must be a dict"):
+        ring.push_step(
+            obs=obs,
+            action=action,
+            reward=reward,
+            is_first=is_first_t,
+            continue_=continue_t,
+            episode_id=episode_t,
+        )

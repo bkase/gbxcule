@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
 from gbxcule.rl.dreamer_v3.cuda_guard import profile_no_host_memcpy
 from gbxcule.rl.dreamer_v3.ingest_cuda import ReplayIngestorCUDA
 from gbxcule.rl.dreamer_v3.replay_commit import ReplayCommitManager
@@ -35,6 +36,30 @@ def _step_tensors(ring: ReplayRingCUDA, value: int):
         dtype=torch.uint8,
         device=ring.device,
     )
+    action = torch.full((ring.num_envs,), value, dtype=torch.int32, device=ring.device)
+    reward = torch.full(
+        (ring.num_envs,), float(value), dtype=torch.float32, device=ring.device
+    )
+    is_first = torch.zeros((ring.num_envs,), dtype=torch.bool, device=ring.device)
+    continue_t = torch.ones((ring.num_envs,), dtype=torch.float32, device=ring.device)
+    episode_id = torch.zeros((ring.num_envs,), dtype=torch.int32, device=ring.device)
+    return obs, action, reward, is_first, continue_t, episode_id
+
+
+def _step_dict_tensors(ring: ReplayRingCUDA, value: int, senses_dim: int):
+    pixels = torch.full(
+        (ring.num_envs, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
+        value,
+        dtype=torch.uint8,
+        device=ring.device,
+    )
+    senses = torch.full(
+        (ring.num_envs, senses_dim),
+        float(value),
+        dtype=torch.float32,
+        device=ring.device,
+    )
+    obs = {"pixels": pixels, "senses": senses}
     action = torch.full((ring.num_envs,), value, dtype=torch.int32, device=ring.device)
     reward = torch.full(
         (ring.num_envs,), float(value), dtype=torch.float32, device=ring.device
@@ -102,6 +127,34 @@ def test_ingestor_alignment_initial_step() -> None:
     assert ring.reward[0, 0].item() == 0.0
     assert ring.is_first[0, 0].item() is True
     assert ring.action[0, 0].item() == 0
+
+
+def test_dict_obs_cpu_sampling() -> None:
+    senses_dim = 4
+    obs_spec = {
+        "pixels": ((1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES), torch.uint8),
+        "senses": ((senses_dim,), torch.float32),
+    }
+    ring = ReplayRingCUDA(capacity=6, num_envs=2, device="cpu", obs_spec=obs_spec)
+    for t in range(4):
+        obs, action, reward, is_first, continue_t, episode_id = _step_dict_tensors(
+            ring, value=t, senses_dim=senses_dim
+        )
+        ring.push_step(
+            obs=obs,
+            action=action,
+            reward=reward,
+            is_first=is_first,
+            continue_=continue_t,
+            episode_id=episode_id,
+        )
+    gen = torch.Generator().manual_seed(0)
+    batch = ring.sample_sequences(batch=2, seq_len=3, gen=gen)
+    assert set(batch["obs"].keys()) == {"pixels", "senses"}
+    assert batch["obs"]["pixels"].shape == (3, 2, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
+    assert batch["obs"]["pixels"].dtype is torch.uint8
+    assert batch["obs"]["senses"].shape == (3, 2, senses_dim)
+    assert batch["obs"]["senses"].dtype is torch.float32
 
 
 @pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
