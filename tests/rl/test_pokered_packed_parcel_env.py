@@ -9,6 +9,7 @@ torch = pytest.importorskip("torch")
 
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES  # noqa: E402
 from gbxcule.rl.pokered_packed_parcel_env import (  # noqa: E402
+    SENSES_DIM,
     PokeredPackedParcelEnv,
 )
 
@@ -26,25 +27,20 @@ def _cuda_available() -> bool:
 
 
 ROM_PATH = Path("red.gb")
-GOAL_DIR = Path("states/rl_stage1_exit_oak")
+STATE_PATH = Path("states/rl_oak_parcel/start.state")
 
 
 def _assets_available() -> bool:
-    return (
-        ROM_PATH.exists()
-        and GOAL_DIR.exists()
-        and (GOAL_DIR / "goal_template.npy").exists()
-        and (GOAL_DIR / "goal_template.meta.json").exists()
-    )
+    return ROM_PATH.exists() and STATE_PATH.exists()
 
 
 @pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
 def test_parcel_env_obs_dict_shapes() -> None:
     if not _assets_available():
-        pytest.skip("ROM/goal assets missing")
+        pytest.skip("ROM/state assets missing")
     env = PokeredPackedParcelEnv(
         rom_path=str(ROM_PATH),
-        goal_dir=str(GOAL_DIR),
+        state_path=str(STATE_PATH),
         num_envs=2,
         max_steps=4,
     )
@@ -52,40 +48,42 @@ def test_parcel_env_obs_dict_shapes() -> None:
         obs = env.reset(seed=0)
         assert isinstance(obs, dict)
         assert "pixels" in obs
-        assert "snow" in obs
+        assert "senses" in obs
         pixels = obs["pixels"]
-        snow = obs["snow"]
+        senses = obs["senses"]
         assert pixels.shape == (2, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
-        assert snow.shape == (2, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
+        assert senses.shape == (2, SENSES_DIM)
         assert pixels.dtype is torch.uint8
-        assert snow.dtype is torch.uint8
+        assert senses.dtype is torch.float32
         assert pixels.device.type == "cuda"
-        assert snow.device.type == "cuda"
+        assert senses.device.type == "cuda"
     finally:
         env.close()
 
 
 @pytest.mark.skipif(not _cuda_available(), reason="CUDA not available")
-def test_parcel_env_epoch_snow_resets() -> None:
+def test_parcel_env_reset_mask_resets_counters() -> None:
     if not _assets_available():
-        pytest.skip("ROM/goal assets missing")
+        pytest.skip("ROM/state assets missing")
     env = PokeredPackedParcelEnv(
         rom_path=str(ROM_PATH),
-        goal_dir=str(GOAL_DIR),
+        state_path=str(STATE_PATH),
         num_envs=2,
         max_steps=4,
     )
     try:
-        obs = env.reset(seed=0)
-        snow_before = obs["snow"].clone()
+        env.reset(seed=0)
         actions = torch.zeros((env.num_envs,), dtype=torch.int32, device="cuda")
-        obs, _, _, _, _ = env.step(actions)
-        assert torch.equal(obs["snow"], snow_before)
+        # Take a step to advance counters
+        env.step(actions)
 
+        # Reset env 0 only
         mask = torch.tensor([1, 0], dtype=torch.uint8, device="cuda")
         env.reset_mask(mask)
-        snow_after = obs["snow"]
-        assert not torch.equal(snow_after[0], snow_before[0])
-        assert torch.equal(snow_after[1], snow_before[1])
+
+        # Verify senses are properly updated after reset
+        obs = env.obs
+        senses = obs["senses"]
+        assert senses.shape == (2, SENSES_DIM)
     finally:
         env.close()

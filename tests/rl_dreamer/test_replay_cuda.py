@@ -30,6 +30,7 @@ ROM_PATH = Path("bench/roms/out/BG_STATIC.gb")
 
 
 def _step_tensors(ring: ReplayRingCUDA, value: int):
+    assert ring.obs_shape is not None
     obs = torch.full(
         (ring.num_envs, *ring.obs_shape),
         value,
@@ -168,6 +169,7 @@ def test_cuda_direct_write_and_alignment() -> None:
     ring = ReplayRingCUDA(capacity=4, num_envs=1, device="cuda")
     ring.assert_alignment()
     slot = ring.obs_slot(0)
+    assert not isinstance(slot, dict)
     assert slot.is_contiguous()
     backend = WarpVecCudaBackend(
         str(ROM_PATH),
@@ -197,6 +199,7 @@ def test_cuda_commit_event_gating() -> None:
     actor_stream = torch.cuda.Stream()
     learner_stream = torch.cuda.Stream()
     slot = ring.obs_slot(0)
+    assert not isinstance(slot, dict)
     with torch.cuda.stream(actor_stream):
         slot.fill_(9)
         dummy = torch.zeros((1,), dtype=torch.int32, device="cuda")

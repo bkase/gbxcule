@@ -11,6 +11,7 @@ from gbxcule.rl.dreamer_v3.replay import ReplayRing  # noqa: E402
 def _step_tensors(
     ring: ReplayRing, *, value: int, is_first: bool, episode_id: int, cont: float
 ):
+    assert ring.obs_shape is not None
     obs = torch.full(
         (ring.num_envs, *ring.obs_shape),
         value,
@@ -73,6 +74,7 @@ def _step_dict_tensors(
 
 def test_shapes_and_dtypes() -> None:
     ring = ReplayRing(capacity=8, num_envs=4, device="cpu")
+    assert not isinstance(ring.obs, dict)
     assert ring.obs.shape == (8, 4, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
     assert ring.obs.dtype is torch.uint8
     assert ring.action.shape == (8, 4)
@@ -90,6 +92,8 @@ def test_shapes_and_dtypes() -> None:
 def test_obs_slot_returns_view() -> None:
     ring = ReplayRing(capacity=4, num_envs=2, device="cpu")
     slot = ring.obs_slot(2)
+    assert not isinstance(slot, dict)
+    assert not isinstance(ring.obs, dict)
     slot.fill_(7)
     assert ring.obs[2].sum().item() == 7 * slot.numel()
 

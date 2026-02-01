@@ -1,30 +1,43 @@
 """Packed2 parcel environment for Pokemon Red (CUDA, Dreamer-ready).
 
-Observations are dicts with packed2 uint8 frames:
-  pixels: uint8[num_envs, 1, 72, 20] on CUDA
-  snow:   uint8[num_envs, 1, 72, 20] on CUDA (epoch-trick noise)
+Observations are dicts:
+  pixels: uint8[num_envs, 1, 72, 20] on CUDA (packed 2bpp)
+  senses: float32[num_envs, senses_dim] on CUDA
+    layout: [map_id, x, y, events_t..., last_reward]
 """
 
 from __future__ import annotations
 
 import importlib
-import secrets
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from gbxcule.backends.warp_vec import WarpVecCudaBackend
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES
 from gbxcule.core.reset_cache import ResetCache
-from gbxcule.rl.pokered_parcel_detectors import EVENTS_LENGTH, EVENTS_START
-from gbxcule.rl.goal_match import (
-    RewardShapingConfig,
-    compute_done,
-    compute_reward,
-    compute_trunc,
-    update_consecutive,
+from gbxcule.rl.pokered_parcel_detectors import (
+    EVENTS_LENGTH,
+    EVENTS_START,
+    delivered_parcel,
+    has_parcel,
 )
-from gbxcule.rl.goal_template import load_goal_template
-from gbxcule.rl.packed_metrics import packed_l1_distance
+
+# Re-export for tools/rl_train_gpu.py
+__all__ = ["PokeredPackedParcelEnv", "EVENTS_LENGTH", "EVENTS_START", "SENSES_DIM"]
+
+# RAM addresses for location
+MAP_ID_ADDR: Final[int] = 0xD35E
+PLAYER_Y_ADDR: Final[int] = 0xD361
+PLAYER_X_ADDR: Final[int] = 0xD362
+
+# Snow hash primes
+HASH_PRIME_MAP: Final[int] = 73856093
+HASH_PRIME_X: Final[int] = 19349663
+HASH_PRIME_Y: Final[int] = 83492791
+HASH_PRIME_STAGE: Final[int] = 536870909
+
+# Senses layout: [map_id, x, y, events..., last_reward]
+SENSES_DIM: Final[int] = 3 + EVENTS_LENGTH + 1  # 324
 
 
 def _require_torch() -> Any:
@@ -38,24 +51,22 @@ def _require_torch() -> Any:
 
 
 class PokeredPackedParcelEnv:
-    """Packed2 RL env wrapper with dict obs and epoch-trick snow."""
+    """Packed2 RL env with dict obs, epoch-trick snow, and parcel rewards."""
 
     def __init__(
         self,
         rom_path: str,
         *,
-        goal_dir: str,
         state_path: str | None = None,
         num_envs: int = 1,
         frames_per_step: int = 24,
         release_after_frames: int = 8,
         action_codec: str | None = None,
-        max_steps: int = 128,
-        step_cost: float = -0.01,
-        alpha: float = 1.0,
-        goal_bonus: float = 10.0,
-        tau: float | None = None,
-        k_consecutive: int | None = None,
+        max_steps: int = 2048,
+        snow_bonus: float = 0.01,
+        get_parcel_bonus: float = 5.0,
+        deliver_bonus: float = 10.0,
+        snow_size: int = 65536,
         force_lcdc_on_render: bool = True,
         skip_reset_if_empty: bool = False,
         info_mode: str = "full",
@@ -86,144 +97,84 @@ class PokeredPackedParcelEnv:
             **backend_kwargs,
         )
 
-        action_codec_id = self.backend.action_codec.id
-        template, meta = load_goal_template(
-            Path(goal_dir),
-            action_codec_id=action_codec_id,
-            frames_per_step=frames_per_step,
-            release_after_frames=release_after_frames,
-            stack_k=1,
-            dist_metric=None,
-            pipeline_version=None,
-            obs_format="packed2",
-        )
-
         self._torch = torch
         self.num_envs = int(num_envs)
         self.num_actions = int(self.backend.num_actions)
         self.max_steps = int(max_steps)
         self._state_path = str(Path(state_path)) if state_path is not None else None
 
-        goal = torch.tensor(template, device="cuda", dtype=torch.uint8)
-        if goal.ndim == 2:
-            goal = goal.unsqueeze(0)
-        if goal.ndim == 3:
-            goal = goal.unsqueeze(0)
-        self._goal = goal
-        self._tau = float(tau) if tau is not None else float(meta.tau)
-        self._k_consecutive = (
-            int(k_consecutive) if k_consecutive is not None else int(meta.k_consecutive)
-        )
-        self._reward_cfg = RewardShapingConfig(
-            step_cost=step_cost, alpha=alpha, goal_bonus=goal_bonus
-        )
+        # Reward config
+        self._snow_bonus = float(snow_bonus)
+        self._get_parcel_bonus = float(get_parcel_bonus)
+        self._deliver_bonus = float(deliver_bonus)
+
+        # Snow table config (epoch-trick)
+        self._snow_size = int(snow_size)
+
         self._skip_reset_if_empty = bool(skip_reset_if_empty)
         if info_mode not in {"full", "stats", "none"}:
             raise ValueError(f"info_mode must be full, stats, or none, got {info_mode}")
         self._info_mode = info_mode
 
+        # Buffers (allocated on first reset)
         self._obs: dict[str, Any] | None = None
         self._pixels: Any | None = None
-        self._snow: Any | None = None
+        self._senses: Any | None = None
         self._start_pixels: Any | None = None
-        self._start_dist: Any | None = None
-        self._prev_dist: Any | None = None
-        self._consec_match: Any | None = None
         self._episode_step: Any | None = None
+        self._last_reward: Any | None = None
+        self._stage_u8: Any | None = None  # 0=no parcel, 1=has parcel
         self._reset_cache: ResetCache | None = None
-        self._snow_gen: Any | None = None
-        self._snow_seed = secrets.randbits(64)
+
+        # Epoch-trick snow table
+        self._snow_table: Any | None = None  # [num_envs, snow_size] int16
+        self._episode_id: Any | None = None  # [num_envs] int16
 
     @property
-    def obs(self):  # type: ignore[no-untyped-def]
+    def obs(self) -> dict[str, Any]:
         if self._obs is None:
             raise RuntimeError("Call reset() before accessing obs.")
         return self._obs
 
-    def reset_torch(self, seed: int | None = None):  # type: ignore[no-untyped-def]
+    def reset_torch(self, seed: int | None = None) -> dict[str, Any]:
         return self.reset(seed=seed)
 
-    def _ensure_snow_gen(self, seed: int | None) -> None:
-        torch = self._torch
-        gen = self._snow_gen
-        if gen is None:
-            gen = torch.Generator(device="cuda")
-            self._snow_gen = gen
-            base_seed = self._snow_seed if seed is None else int(seed)
-            gen.manual_seed(int(base_seed))
-        elif seed is not None:
-            gen.manual_seed(int(seed))
-
-    def _sample_snow(self, mask=None) -> None:  # type: ignore[no-untyped-def]
-        torch = self._torch
-        snow = self._snow
-        if snow is None:
-            return
-        gen = self._snow_gen
-        if mask is None:
-            snow.copy_(
-                torch.randint(
-                    0,
-                    256,
-                    snow.shape,
-                    dtype=torch.uint8,
-                    device="cuda",
-                    generator=gen,
-                )
-            )
-            return
-        if mask.dtype is not torch.bool:
-            mask = mask.to(torch.bool)
-        if torch.any(mask):
-            count = int(mask.sum().item())
-            new_snow = torch.randint(
-                0,
-                256,
-                (count, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
-                dtype=torch.uint8,
-                device="cuda",
-                generator=gen,
-            )
-            snow[mask] = new_snow
-
-    def reset(self, seed: int | None = None):  # type: ignore[no-untyped-def]
+    def reset(self, seed: int | None = None) -> dict[str, Any]:
         torch = self._torch
         self.backend.reset(seed=seed)
         if self._state_path is not None:
             self.backend.load_state_file(self._state_path, env_idx=0)
 
+        # Allocate pixels buffer
         if self._pixels is None:
             self._pixels = torch.empty(
                 (self.num_envs, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
                 dtype=torch.uint8,
                 device="cuda",
             )
-        assert self._pixels is not None
         self.backend.render_pixels_snapshot_packed_to_torch(self._pixels, 0)
 
+        # Allocate senses buffer
+        if self._senses is None:
+            self._senses = torch.zeros(
+                (self.num_envs, SENSES_DIM),
+                dtype=torch.float32,
+                device="cuda",
+            )
+
+        # Setup reset cache
         if self._reset_cache is None:
             self._reset_cache = ResetCache.from_backend(self.backend, env_idx=0)
 
         mask_all = torch.ones((self.num_envs,), device="cuda", dtype=torch.uint8)
         self._reset_cache.apply_mask_torch(mask_all)
 
+        # Cache start state pixels
+        assert self._pixels is not None
         self._start_pixels = self._pixels[0].clone()
         self._pixels[:] = self._start_pixels
 
-        dist = packed_l1_distance(self._pixels, self._goal)
-        self._start_dist = dist.clone()
-        if self._prev_dist is None:
-            self._prev_dist = dist.clone()
-        else:
-            self._prev_dist.copy_(dist)
-
-        if self._consec_match is None:
-            self._consec_match = torch.zeros(
-                (self.num_envs,), dtype=torch.int32, device="cuda"
-            )
-        else:
-            self._consec_match.zero_()
-
+        # Allocate episode counters
         if self._episode_step is None:
             self._episode_step = torch.zeros(
                 (self.num_envs,), dtype=torch.int32, device="cuda"
@@ -231,27 +182,99 @@ class PokeredPackedParcelEnv:
         else:
             self._episode_step.zero_()
 
-        if self._snow is None:
-            self._snow = torch.empty(
-                (self.num_envs, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
-                dtype=torch.uint8,
-                device="cuda",
+        if self._last_reward is None:
+            self._last_reward = torch.zeros(
+                (self.num_envs,), dtype=torch.float32, device="cuda"
             )
-        self._ensure_snow_gen(seed)
-        self._sample_snow()
+        else:
+            self._last_reward.zero_()
 
-        self._obs = {"pixels": self._pixels, "snow": self._snow}
+        if self._stage_u8 is None:
+            self._stage_u8 = torch.zeros(
+                (self.num_envs,), dtype=torch.uint8, device="cuda"
+            )
+        else:
+            self._stage_u8.zero_()
+
+        # Allocate epoch-trick snow table
+        if self._snow_table is None:
+            self._snow_table = torch.zeros(
+                (self.num_envs, self._snow_size), dtype=torch.int16, device="cuda"
+            )
+        if self._episode_id is None:
+            self._episode_id = torch.ones(
+                (self.num_envs,), dtype=torch.int16, device="cuda"
+            )
+        else:
+            # Reset episode IDs
+            assert self._episode_id is not None
+            assert self._snow_table is not None
+            self._episode_id.fill_(1)
+            self._snow_table.zero_()
+
+        # Build initial senses
+        self._update_senses()
+
+        self._obs = {"pixels": self._pixels, "senses": self._senses}
         return self._obs
 
-    def step_torch(self, actions):  # type: ignore[no-untyped-def]
+    def _update_senses(self) -> None:
+        """Update senses buffer from current RAM state."""
+        mem = self.backend.memory_torch()
+
+        # Read location
+        map_id = mem[:, MAP_ID_ADDR].float()
+        x = mem[:, PLAYER_X_ADDR].float()
+        y = mem[:, PLAYER_Y_ADDR].float()
+
+        # Read events
+        events = mem[:, EVENTS_START : EVENTS_START + EVENTS_LENGTH].float()
+
+        # Fill senses: [map_id, x, y, events..., last_reward]
+        assert self._senses is not None
+        assert self._last_reward is not None
+        self._senses[:, 0] = map_id
+        self._senses[:, 1] = x
+        self._senses[:, 2] = y
+        self._senses[:, 3 : 3 + EVENTS_LENGTH] = events
+        self._senses[:, -1] = self._last_reward
+
+    def _compute_snow_reward(
+        self, map_id: Any, x: Any, y: Any, stage: Any
+    ) -> tuple[Any, Any]:
+        """Compute fresh-snow exploration reward using epoch trick."""
+        assert self._snow_table is not None
+        assert self._episode_id is not None
+
+        # Hash: XOR/prime mix of (map_id, x, y, stage)
+        hash_idx = (
+            (map_id.int() * HASH_PRIME_MAP)
+            ^ (x.int() * HASH_PRIME_X)
+            ^ (y.int() * HASH_PRIME_Y)
+            ^ (stage.int() * HASH_PRIME_STAGE)
+        ) % self._snow_size
+
+        # Check if novel
+        stored_id = self._snow_table.gather(1, hash_idx.unsqueeze(1)).squeeze(1)
+        is_novel = stored_id != self._episode_id
+
+        # Mark visited
+        self._snow_table.scatter_(
+            1, hash_idx.unsqueeze(1), self._episode_id.unsqueeze(1)
+        )
+
+        snow_reward = is_novel.float() * self._snow_bonus
+        return snow_reward, is_novel
+
+    def step_torch(self, actions: Any) -> tuple[dict[str, Any], Any, Any, Any, Any]:
         return self.step(actions)
 
-    def step(self, actions):  # type: ignore[no-untyped-def]
+    def step(self, actions: Any) -> tuple[dict[str, Any], Any, Any, Any, Any]:
         if self._pixels is None or self._episode_step is None:
             raise RuntimeError("Call reset() before step().")
         if self._obs is None:
             raise RuntimeError("Obs dict not initialized. Call reset() first.")
-        if self._reset_cache is None or self._start_dist is None:
+        if self._reset_cache is None:
             raise RuntimeError("Reset cache not initialized. Call reset() first.")
 
         torch = self._torch
@@ -267,31 +290,77 @@ class PokeredPackedParcelEnv:
         if not actions.is_contiguous():
             raise ValueError("actions must be contiguous")
 
+        # Step the backend
         self.backend.step_torch(actions)
         self.backend.render_pixels_snapshot_packed_to_torch(self._pixels, 0)
 
+        # Read memory for detectors and location
+        mem = self.backend.memory_torch()
+        events = mem[:, EVENTS_START : EVENTS_START + EVENTS_LENGTH]
+        map_id = mem[:, MAP_ID_ADDR]
+        x = mem[:, PLAYER_X_ADDR]
+        y = mem[:, PLAYER_Y_ADDR]
+
+        # Compute detectors
+        has_parcel_now = has_parcel(mem, events)
+        delivered_now = delivered_parcel(mem, events)
+
+        # Stage transitions
+        assert self._stage_u8 is not None
+        stage_prev = self._stage_u8.clone()
+        self._stage_u8 = has_parcel_now.to(torch.uint8)
+
+        # Compute rewards
+        got_parcel = (stage_prev == 0) & (self._stage_u8 == 1)
+        snow_reward, is_novel = self._compute_snow_reward(map_id, x, y, self._stage_u8)
+
+        reward = (
+            snow_reward
+            + got_parcel.float() * self._get_parcel_bonus
+            + delivered_now.float() * self._deliver_bonus
+        )
+
+        # Done/truncation
+        terminated = delivered_now
         self._episode_step.add_(1)
+        truncated = self._episode_step >= self.max_steps
 
-        dist = packed_l1_distance(self._pixels, self._goal)
-        self._consec_match = update_consecutive(self._consec_match, dist, tau=self._tau)
-        done = compute_done(self._consec_match, k_consecutive=self._k_consecutive)
-        trunc = compute_trunc(self._episode_step, max_steps=self.max_steps)
-        reward = compute_reward(self._prev_dist, dist, done, self._reward_cfg)
-        self._prev_dist = dist
+        # Update senses with *previous* reward (for proprioception)
+        self._update_senses()
 
+        # Now update last_reward for next step's senses
+        assert self._last_reward is not None
+        self._last_reward = reward.clone()
+
+        # Build info
         if self._info_mode == "full":
-            info = {"dist": dist, "reset_mask": done | trunc}
+            info = {
+                "map_id": map_id,
+                "x": x,
+                "y": y,
+                "stage": self._stage_u8,
+                "is_novel": is_novel,
+                "got_parcel": got_parcel,
+                "delivered": delivered_now,
+                "reset_mask": terminated | truncated,
+            }
         elif self._info_mode == "stats":
-            info = {"dist": dist}
+            info = {
+                "stage": self._stage_u8,
+                "got_parcel": got_parcel,
+                "delivered": delivered_now,
+            }
         else:
             info = {}
-        return self._obs, reward, done, trunc, info
 
-    def reset_mask(self, mask):  # type: ignore[no-untyped-def]
-        if self._reset_cache is None or self._start_dist is None:
+        return self._obs, reward, terminated, truncated, info
+
+    def reset_mask(self, mask: Any) -> None:
+        if self._reset_cache is None:
             raise RuntimeError("Reset cache not initialized. Call reset() first.")
-        if self._pixels is None or self._snow is None:
+        if self._pixels is None:
             raise RuntimeError("Obs buffer not initialized. Call reset() first.")
+
         torch = self._torch
         tensor_type = getattr(torch, "Tensor", None)
         if tensor_type is None or not isinstance(mask, tensor_type):
@@ -307,26 +376,52 @@ class PokeredPackedParcelEnv:
 
         self._reset_cache.apply_mask_torch(reset_mask.to(torch.uint8))
 
+        # Reset counters for masked envs
+        assert self._episode_step is not None
+        assert self._last_reward is not None
+        assert self._stage_u8 is not None
         zeros_i32 = torch.zeros_like(self._episode_step)
-        self._episode_step = torch.where(reset_mask, zeros_i32, self._episode_step)
-        zeros_consec = torch.zeros_like(self._consec_match)
-        self._consec_match = torch.where(reset_mask, zeros_consec, self._consec_match)
-        self._prev_dist = torch.where(reset_mask, self._start_dist, self._prev_dist)
+        zeros_f32 = torch.zeros_like(self._last_reward)
+        zeros_u8 = torch.zeros_like(self._stage_u8)
 
+        self._episode_step = torch.where(reset_mask, zeros_i32, self._episode_step)
+        self._last_reward = torch.where(reset_mask, zeros_f32, self._last_reward)
+        self._stage_u8 = torch.where(reset_mask, zeros_u8, self._stage_u8)
+
+        # Epoch trick: increment episode_id for masked envs (no full clear)
+        assert self._episode_id is not None
+        assert self._snow_table is not None
+        new_episode_id = self._episode_id + 1
+        self._episode_id = torch.where(
+            reset_mask, new_episode_id.to(torch.int16), self._episode_id
+        )
+
+        # Handle overflow (wrap to 0 means we need to clear those env rows)
+        assert self._snow_table is not None
+        assert self._episode_id is not None
+        snow_table = self._snow_table
+        episode_id = self._episode_id
+        overflowed = reset_mask & (episode_id == 0)
+        if overflowed.any():
+            snow_table[overflowed] = 0
+            episode_id[overflowed] = 1
+
+        # Restore start pixels
         if self._start_pixels is not None:
             self._pixels[reset_mask] = self._start_pixels
 
-        self._sample_snow(reset_mask)
+        # Update senses for reset envs
+        self._update_senses()
 
     def close(self) -> None:
         self.backend.close()
         self._obs = None
         self._pixels = None
-        self._snow = None
+        self._senses = None
         self._start_pixels = None
-        self._start_dist = None
-        self._prev_dist = None
-        self._consec_match = None
         self._episode_step = None
+        self._last_reward = None
+        self._stage_u8 = None
         self._reset_cache = None
-        self._snow_gen = None
+        self._snow_table = None
+        self._episode_id = None

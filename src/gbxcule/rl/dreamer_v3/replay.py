@@ -105,6 +105,7 @@ class ReplayRing:  # type: ignore[no-any-unimported]
             self.obs_spec = None
 
         if self._obs_is_dict:
+            assert self.obs_spec is not None
             self.obs = {
                 key: torch.empty(
                     (self.capacity, self.num_envs, *shape),
@@ -114,6 +115,7 @@ class ReplayRing:  # type: ignore[no-any-unimported]
                 for key, (shape, dtype) in self.obs_spec.items()
             }
         else:
+            assert self.obs_shape is not None
             c, h, w = self.obs_shape
             self.obs = torch.empty(
                 (self.capacity, self.num_envs, c, h, w),
@@ -179,7 +181,10 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         if step_idx < 0 or step_idx >= self.capacity:
             raise ValueError("step_idx out of range")
         if self._obs_is_dict:
+            assert self.obs_spec is not None
+            assert isinstance(self.obs, dict)
             return {key: self.obs[key][step_idx] for key in self.obs_spec}
+        assert not isinstance(self.obs, dict)
         return self.obs[step_idx]
 
     def push_step(  # type: ignore[no-untyped-def]
@@ -199,6 +204,7 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         if validate_args:
             if obs is not None:
                 if self._obs_is_dict:
+                    assert self.obs_spec is not None
                     if not isinstance(obs, dict):
                         raise ValueError("obs must be a dict when obs_spec is set")
                     if set(obs.keys()) != set(self.obs_spec.keys()):
@@ -212,6 +218,7 @@ class ReplayRing:  # type: ignore[no-any-unimported]
                         if value.device != self.device:
                             raise ValueError("obs device mismatch")
                 else:
+                    assert self.obs_shape is not None
                     if isinstance(obs, dict):
                         raise ValueError("obs must be a tensor when obs_spec is unset")
                     if obs.shape != (self.num_envs, *self.obs_shape):
@@ -253,9 +260,12 @@ class ReplayRing:  # type: ignore[no-any-unimported]
 
         if obs is not None:
             if self._obs_is_dict:
+                assert self.obs_spec is not None
+                assert isinstance(self.obs, dict)
                 for key in self.obs_spec:
                     self.obs[key][self._head].copy_(obs[key])
             else:
+                assert not isinstance(self.obs, dict)
                 self.obs[self._head].copy_(obs)
         self.action[self._head].copy_(action)
         self.reward[self._head].copy_(reward)
@@ -382,11 +392,11 @@ class ReplayRing:  # type: ignore[no-any-unimported]
         env_idx_grid = env_idx.view(1, -1).expand(seq_len, batch)
 
         if self._obs_is_dict:
-            obs = {
-                key: self.obs[key][time_idx, env_idx_grid]
-                for key in self.obs_spec
-            }
+            assert self.obs_spec is not None
+            assert isinstance(self.obs, dict)
+            obs = {key: self.obs[key][time_idx, env_idx_grid] for key in self.obs_spec}
         else:
+            assert not isinstance(self.obs, dict)
             obs = self.obs[time_idx, env_idx_grid]
         action = self.action[time_idx, env_idx_grid]
         reward = self.reward[time_idx, env_idx_grid]
