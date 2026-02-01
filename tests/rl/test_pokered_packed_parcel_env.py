@@ -9,6 +9,7 @@ torch = pytest.importorskip("torch")
 
 from gbxcule.core.abi import DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES  # noqa: E402
 from gbxcule.rl.pokered_packed_parcel_env import (  # noqa: E402
+    EVENTS_LENGTH,
     SENSES_DIM,
     PokeredPackedParcelEnv,
 )
@@ -49,14 +50,19 @@ def test_parcel_env_obs_dict_shapes() -> None:
         assert isinstance(obs, dict)
         assert "pixels" in obs
         assert "senses" in obs
+        assert "events" in obs
         pixels = obs["pixels"]
         senses = obs["senses"]
+        events = obs["events"]
         assert pixels.shape == (2, 1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
         assert senses.shape == (2, SENSES_DIM)
+        assert events.shape == (2, EVENTS_LENGTH)
         assert pixels.dtype is torch.uint8
         assert senses.dtype is torch.float32
+        assert events.dtype is torch.uint8
         assert pixels.device.type == "cuda"
         assert senses.device.type == "cuda"
+        assert events.device.type == "cuda"
     finally:
         env.close()
 
@@ -81,9 +87,11 @@ def test_parcel_env_reset_mask_resets_counters() -> None:
         mask = torch.tensor([1, 0], dtype=torch.uint8, device="cuda")
         env.reset_mask(mask)
 
-        # Verify senses are properly updated after reset
+        # Verify senses and events are properly updated after reset
         obs = env.obs
         senses = obs["senses"]
+        events = obs["events"]
         assert senses.shape == (2, SENSES_DIM)
+        assert events.shape == (2, EVENTS_LENGTH)
     finally:
         env.close()

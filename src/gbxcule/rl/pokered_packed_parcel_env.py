@@ -2,8 +2,8 @@
 
 Observations are dicts:
   pixels: uint8[num_envs, 1, 72, 20] on CUDA (packed 2bpp)
-  senses: float32[num_envs, senses_dim] on CUDA
-    layout: [map_id, x, y, events_t..., last_reward]
+  senses: float32[num_envs, 4] on CUDA - [map_id, x, y, last_reward]
+  events: uint8[num_envs, 320] on CUDA - raw event flag bytes
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ HASH_PRIME_X: Final[int] = 19349663
 HASH_PRIME_Y: Final[int] = 83492791
 HASH_PRIME_STAGE: Final[int] = 536870909
 
-# Senses layout: [map_id, x, y, events..., last_reward]
-SENSES_DIM: Final[int] = 3 + EVENTS_LENGTH + 1  # 324
+# Senses layout: [map_id, x, y, last_reward] (events are separate uint8 tensor)
+SENSES_DIM: Final[int] = 4
 
 
 def _require_torch() -> Any:
@@ -120,6 +120,7 @@ class PokeredPackedParcelEnv:
         self._obs: dict[str, Any] | None = None
         self._pixels: Any | None = None
         self._senses: Any | None = None
+        self._events: Any | None = None
         self._start_pixels: Any | None = None
         self._episode_step: Any | None = None
         self._last_reward: Any | None = None
@@ -154,11 +155,19 @@ class PokeredPackedParcelEnv:
             )
         self.backend.render_pixels_snapshot_packed_to_torch(self._pixels, 0)
 
-        # Allocate senses buffer
+        # Allocate senses buffer (small: map_id, x, y, last_reward)
         if self._senses is None:
             self._senses = torch.zeros(
                 (self.num_envs, SENSES_DIM),
                 dtype=torch.float32,
+                device="cuda",
+            )
+
+        # Allocate events buffer (uint8, memory-efficient)
+        if self._events is None:
+            self._events = torch.zeros(
+                (self.num_envs, EVENTS_LENGTH),
+                dtype=torch.uint8,
                 device="cuda",
             )
 
@@ -212,32 +221,36 @@ class PokeredPackedParcelEnv:
             self._episode_id.fill_(1)
             self._snow_table.zero_()
 
-        # Build initial senses
-        self._update_senses()
+        # Build initial senses and events
+        self._update_senses_and_events()
 
-        self._obs = {"pixels": self._pixels, "senses": self._senses}
+        self._obs = {
+            "pixels": self._pixels,
+            "senses": self._senses,
+            "events": self._events,
+        }
         return self._obs
 
-    def _update_senses(self) -> None:
-        """Update senses buffer from current RAM state."""
+    def _update_senses_and_events(self) -> None:
+        """Update senses and events buffers from current RAM state."""
         mem = self.backend.memory_torch()
 
-        # Read location
+        # Read location into senses
         map_id = mem[:, MAP_ID_ADDR].float()
         x = mem[:, PLAYER_X_ADDR].float()
         y = mem[:, PLAYER_Y_ADDR].float()
 
-        # Read events
-        events = mem[:, EVENTS_START : EVENTS_START + EVENTS_LENGTH].float()
-
-        # Fill senses: [map_id, x, y, events..., last_reward]
+        # Fill senses: [map_id, x, y, last_reward]
         assert self._senses is not None
         assert self._last_reward is not None
         self._senses[:, 0] = map_id
         self._senses[:, 1] = x
         self._senses[:, 2] = y
-        self._senses[:, 3 : 3 + EVENTS_LENGTH] = events
-        self._senses[:, -1] = self._last_reward
+        self._senses[:, 3] = self._last_reward
+
+        # Copy events directly as uint8 (no float conversion)
+        assert self._events is not None
+        self._events.copy_(mem[:, EVENTS_START : EVENTS_START + EVENTS_LENGTH])
 
     def _compute_snow_reward(
         self, map_id: Any, x: Any, y: Any, stage: Any
@@ -325,8 +338,8 @@ class PokeredPackedParcelEnv:
         self._episode_step.add_(1)
         truncated = self._episode_step >= self.max_steps
 
-        # Update senses with *previous* reward (for proprioception)
-        self._update_senses()
+        # Update senses/events with *previous* reward (for proprioception)
+        self._update_senses_and_events()
 
         # Now update last_reward for next step's senses
         assert self._last_reward is not None
@@ -410,14 +423,15 @@ class PokeredPackedParcelEnv:
         if self._start_pixels is not None:
             self._pixels[reset_mask] = self._start_pixels
 
-        # Update senses for reset envs
-        self._update_senses()
+        # Update senses/events for reset envs
+        self._update_senses_and_events()
 
     def close(self) -> None:
         self.backend.close()
         self._obs = None
         self._pixels = None
         self._senses = None
+        self._events = None
         self._start_pixels = None
         self._episode_step = None
         self._last_reward = None

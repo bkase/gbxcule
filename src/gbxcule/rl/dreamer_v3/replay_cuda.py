@@ -62,8 +62,12 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
             if not isinstance(obs_spec, dict) or not obs_spec:
                 raise ValueError("obs_spec must be a non-empty dict")
             required = {"pixels", "senses"}
-            if set(obs_spec.keys()) != required:
+            allowed = {"pixels", "senses", "events"}
+            keys = set(obs_spec.keys())
+            if not keys.issuperset(required):
                 raise ValueError("obs_spec must have pixels and senses keys")
+            if not keys.issubset(allowed):
+                raise ValueError("obs_spec keys must be pixels, senses, and/or events")
             normalized: dict[str, tuple[tuple[int, ...], Any]] = {}
             for key, spec in obs_spec.items():
                 if not isinstance(spec, (tuple, list)) or len(spec) != 2:
@@ -82,6 +86,11 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
                         raise ValueError("senses obs_spec dtype must be float32")
                     if len(shape) != 1:
                         raise ValueError("senses obs_spec must be 1D")
+                elif key == "events":
+                    if dtype is not torch.uint8:
+                        raise ValueError("events obs_spec dtype must be uint8")
+                    if len(shape) != 1:
+                        raise ValueError("events obs_spec must be 1D")
                 normalized[key] = (shape, dtype)
             self.obs_spec = normalized
             self.obs_shape = None
