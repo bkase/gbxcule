@@ -98,7 +98,7 @@ class WarpVecBaseBackend:
         device: Device,
         device_name: str,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
-        stage: Stage = "emulate_only",
+        stage: Stage = "obs_only",
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
@@ -496,6 +496,18 @@ class WarpVecBaseBackend:
 
         self._initialized = True
         obs = empty_obs(self.num_envs, self._obs_dim)
+        if self._stage in ("obs_only", "full_step"):
+            if self._actions is None:
+                raise RuntimeError("Backend not initialized. Call reset() first.")
+            self._launch_step(
+                self._actions,
+                frames_to_run=0,
+                release_after_frames=0,
+                render=False,
+            )
+            if not self._sync_after_step:
+                self._wp.synchronize()
+            obs = self._read_obs_buffer()
         return obs, {"seed": seed}
 
     def step(
@@ -536,14 +548,26 @@ class WarpVecBaseBackend:
 
         self._launch_step(self._actions)
 
-        obs = empty_obs(self.num_envs, self._obs_dim)
+        if self._stage in ("obs_only", "full_step"):
+            if not self._sync_after_step:
+                self._wp.synchronize()
+            obs = self._read_obs_buffer()
+        else:
+            obs = empty_obs(self.num_envs, self._obs_dim)
         reward = np.zeros((self.num_envs,), dtype=np.float32)
         done = np.zeros((self.num_envs,), dtype=np.bool_)
         trunc = np.zeros((self.num_envs,), dtype=np.bool_)
 
         return obs, reward, done, trunc, {}
 
-    def _launch_step(self, actions: Any) -> None:
+    def _launch_step(
+        self,
+        actions: Any,
+        *,
+        frames_to_run: int | None = None,
+        release_after_frames: int | None = None,
+        render: bool = True,
+    ) -> None:
         if (
             self._mem is None
             or self._rom is None
@@ -552,6 +576,14 @@ class WarpVecBaseBackend:
             or self._cart_state is None
         ):
             raise RuntimeError("Backend not initialized. Call reset() first.")
+        frames_to_run = (
+            self._frames_per_step if frames_to_run is None else frames_to_run
+        )
+        release_after_frames = (
+            self._release_after_frames
+            if release_after_frames is None
+            else release_after_frames
+        )
         self._wp.launch(
             self._kernel,
             dim=self.num_envs,
@@ -609,12 +641,12 @@ class WarpVecBaseBackend:
                 int(self._action_codec_kernel_id),
                 self._reward,
                 self._obs,
-                int(self._frames_per_step),
-                int(self._release_after_frames),
+                int(frames_to_run),
+                int(release_after_frames),
             ],
             device=self._device,
         )
-        if self._render_bg:
+        if render and self._render_bg:
             if self._ppu_render_kernel is None:
                 self._ppu_render_kernel = get_ppu_render_bg_kernel()
             self._wp.launch(
@@ -635,9 +667,15 @@ class WarpVecBaseBackend:
                 ],
                 device=self._device,
             )
-        if self._render_on_step:
+        if render and self._render_on_step:
             self._launch_render_pixels()
         self._synchronize()
+
+    def _read_obs_buffer(self) -> NDArrayF32:
+        if self._obs is None or not self._initialized:
+            raise RuntimeError("Backend not initialized. Call reset() first.")
+        obs = np.array(self._obs.numpy(), copy=True)
+        return obs.reshape(self.num_envs, self._obs_dim)
 
     def _launch_render_pixels(self) -> None:
         if not (self._render_pixels or self._render_pixels_packed):
@@ -1091,7 +1129,7 @@ class WarpVecCpuBackend(WarpVecBaseBackend):
         obs_dim: int = 32,
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
-        stage: Stage = "emulate_only",
+        stage: Stage = "obs_only",
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
@@ -1132,7 +1170,7 @@ class WarpVecCudaBackend(WarpVecBaseBackend):
         obs_dim: int = 32,
         base_seed: int | None = None,
         action_codec: str = DEFAULT_ACTION_CODEC_ID,
-        stage: Stage = "emulate_only",
+        stage: Stage = "obs_only",
         render_bg: bool = False,
         render_pixels: bool = False,
         render_pixels_packed: bool = False,
