@@ -38,4 +38,6 @@ Thumbs.db
 # bv (beads viewer) local config and caches
 .bv/
 
-states/
+states/*
+!states/rl_oak_parcel/
+!states/rl_oak_parcel/*.state
