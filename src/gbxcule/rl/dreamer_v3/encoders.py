@@ -147,7 +147,14 @@ class MLPEncoder(_require_torch().nn.Module):  # type: ignore[misc]
         torch = _require_torch()
         if not isinstance(obs, dict):
             raise TypeError("obs must be a dict")
-        x = torch.cat([obs[k] for k in self.keys], dim=-1)
+        # Convert uint8 inputs to float32 (e.g., events tensor)
+        parts = []
+        for k in self.keys:
+            val = obs[k]
+            if val.dtype is torch.uint8:
+                val = val.to(torch.float32)
+            parts.append(val)
+        x = torch.cat(parts, dim=-1)
         if self.symlog_inputs:
             x = symlog(x)
         x, shape = _merge_time_batch(x)

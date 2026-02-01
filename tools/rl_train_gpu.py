@@ -406,12 +406,15 @@ def main() -> int:
             info_mode="stats",
         )
         senses_dim = None
+        senses_dim_val = 0
+        events_length = 0
     else:
         import importlib
 
         parcel_mod = importlib.import_module("gbxcule.rl.pokered_packed_parcel_env")
         PokeredPackedParcelEnv = parcel_mod.PokeredPackedParcelEnv
         events_length = int(parcel_mod.EVENTS_LENGTH)
+        senses_dim_val = int(parcel_mod.SENSES_DIM)
 
         env = PokeredPackedParcelEnv(
             cfg.rom,
@@ -426,7 +429,8 @@ def main() -> int:
             deliver_bonus=cfg.deliver_bonus,
             info_mode="stats",
         )
-        senses_dim = 4 + events_length
+        # senses (float32) + events (uint8 -> float32)
+        senses_dim = senses_dim_val + events_length
 
     action_dim = int(env.num_actions)
     obs_shape = (1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES)
@@ -439,13 +443,25 @@ def main() -> int:
         stages=cfg.cnn_stages,
     )
     mlp_encoder = None
+    mlp_keys: list[str] = []
     if senses_dim is not None:
-        mlp_encoder = MLPEncoder(
-            keys=["senses"],
-            input_dims=[senses_dim],
-            mlp_layers=cfg.head_mlp_layers,
-            dense_units=cfg.dense_units,
-        )
+        if cfg.task == "oak_parcel":
+            # oak_parcel: senses (float32) and events (uint8 -> float32)
+            mlp_keys = ["senses", "events"]
+            mlp_encoder = MLPEncoder(
+                keys=mlp_keys,
+                input_dims=[senses_dim_val, events_length],
+                mlp_layers=cfg.head_mlp_layers,
+                dense_units=cfg.dense_units,
+            )
+        else:
+            mlp_keys = ["senses"]
+            mlp_encoder = MLPEncoder(
+                keys=mlp_keys,
+                input_dims=[senses_dim],
+                mlp_layers=cfg.head_mlp_layers,
+                dense_units=cfg.dense_units,
+            )
     encoder = MultiEncoder(cnn_encoder, mlp_encoder)
     rssm = build_rssm(
         action_dim=action_dim,
@@ -470,14 +486,25 @@ def main() -> int:
         stages=cfg.cnn_stages,
     )
     mlp_decoder = None
+    # Decoder only reconstructs senses, not events (events are input-only features)
     if senses_dim is not None:
-        mlp_decoder = MLPDecoder(
-            keys=["senses"],
-            output_dims=[senses_dim],
-            latent_state_size=latent_state_size,
-            mlp_layers=cfg.head_mlp_layers,
-            dense_units=cfg.dense_units,
-        )
+        if cfg.task == "oak_parcel":
+            # Only reconstruct senses (4 dims), not events
+            mlp_decoder = MLPDecoder(
+                keys=["senses"],
+                output_dims=[senses_dim_val],
+                latent_state_size=latent_state_size,
+                mlp_layers=cfg.head_mlp_layers,
+                dense_units=cfg.dense_units,
+            )
+        else:
+            mlp_decoder = MLPDecoder(
+                keys=["senses"],
+                output_dims=[senses_dim],
+                latent_state_size=latent_state_size,
+                mlp_layers=cfg.head_mlp_layers,
+                dense_units=cfg.dense_units,
+            )
     observation_model = MultiDecoder(decoder, mlp_decoder)
     reward_model = RewardHead(
         input_dim=latent_state_size,
@@ -490,6 +517,8 @@ def main() -> int:
         mlp_layers=cfg.head_mlp_layers,
         dense_units=cfg.dense_units,
     )
+    # mlp_keys for world model: decoder only reconstructs senses
+    world_model_mlp_keys = ["senses"] if senses_dim is not None else []
     world_model = WorldModel(
         encoder=encoder,
         rssm=rssm,
@@ -497,7 +526,7 @@ def main() -> int:
         reward_model=reward_model,
         continue_model=continue_model,
         cnn_keys=["pixels"],
-        mlp_keys=["senses"] if senses_dim is not None else [],
+        mlp_keys=world_model_mlp_keys,
         reward_low=cfg.reward_low,
         reward_high=cfg.reward_high,
         continue_scale_factor=cfg.continue_scale_factor,
