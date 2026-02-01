@@ -28,6 +28,7 @@ from gbxcule.backends.common import (
     resolve_action_codec,
 )
 from gbxcule.core.action_schedule import split_press_release_ticks, validate_schedule
+from gbxcule.core.obs import build_obs_v3_from_state
 
 
 class PyBoySingleBackend:
@@ -282,19 +283,22 @@ class PyBoySingleBackend:
 
         if self._pyboy is not None:
             reg = self._pyboy.register_file
-
-            # Normalize registers to [0, 1] range
-            # PC and SP are 16-bit, others are 8-bit
-            obs[0, 0] = reg.PC / 65535.0
-            obs[0, 1] = reg.SP / 65535.0
-            obs[0, 2] = reg.A / 255.0
-            obs[0, 3] = reg.F / 255.0
-            obs[0, 4] = reg.B / 255.0
-            obs[0, 5] = reg.C / 255.0
-            obs[0, 6] = reg.D / 255.0
-            obs[0, 7] = reg.E / 255.0
-            obs[0, 8] = (reg.HL >> 8) / 255.0  # H
-            obs[0, 9] = (reg.HL & 0xFF) / 255.0  # L
-            # Remaining slots are zeros
+            hl = int(reg.HL)
+            wram = self._pyboy.memory[0xC000:0xC010]
+            obs_vec = build_obs_v3_from_state(
+                pc=int(reg.PC),
+                sp=int(reg.SP),
+                a=int(reg.A),
+                f=int(reg.F),
+                b=int(reg.B),
+                c=int(reg.C),
+                d=int(reg.D),
+                e=int(reg.E),
+                h=(hl >> 8) & 0xFF,
+                l_reg=hl & 0xFF,
+                wram16=wram,
+                obs_dim=self._obs_dim,
+            )
+            obs[0, : obs_vec.shape[0]] = obs_vec
 
         return obs

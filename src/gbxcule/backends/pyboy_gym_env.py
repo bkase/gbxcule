@@ -13,6 +13,7 @@ from gbxcule.core.action_schedule import (
     run_puffer_press_release_schedule,
     validate_schedule,
 )
+from gbxcule.core.obs import build_obs_v3_from_state
 
 _BOOTROM_PATH = Path("bench/roms/bootrom_fast_dmg.bin")
 
@@ -150,14 +151,21 @@ class PyBoyGymEnv(gym.Env):
             return obs
 
         reg = self._pyboy.register_file
-        obs[0] = reg.PC / 65535.0
-        obs[1] = reg.SP / 65535.0
-        obs[2] = reg.A / 255.0
-        obs[3] = reg.F / 255.0
-        obs[4] = reg.B / 255.0
-        obs[5] = reg.C / 255.0
-        obs[6] = reg.D / 255.0
-        obs[7] = reg.E / 255.0
-        obs[8] = (reg.HL >> 8) / 255.0
-        obs[9] = (reg.HL & 0xFF) / 255.0
+        hl = int(reg.HL)
+        wram = self._pyboy.memory[0xC000:0xC010]
+        obs_vec = build_obs_v3_from_state(
+            pc=int(reg.PC),
+            sp=int(reg.SP),
+            a=int(reg.A),
+            f=int(reg.F),
+            b=int(reg.B),
+            c=int(reg.C),
+            d=int(reg.D),
+            e=int(reg.E),
+            h=(hl >> 8) & 0xFF,
+            l_reg=hl & 0xFF,
+            wram16=wram,
+            obs_dim=self._obs_dim,
+        )
+        obs[: obs_vec.shape[0]] = obs_vec
         return obs
