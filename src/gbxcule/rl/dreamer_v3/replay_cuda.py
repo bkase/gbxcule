@@ -42,6 +42,7 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
         num_envs: int,
         device: str = "cuda",
         obs_shape: tuple[int, int, int] = (1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES),
+        obs_spec: dict[str, tuple[tuple[int, ...], Any]] | None = None,
         debug_checks: bool = False,
     ) -> None:
         torch = _require_torch()
@@ -49,27 +50,68 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
             raise ValueError("capacity must be >= 1")
         if num_envs < 1:
             raise ValueError("num_envs must be >= 1")
-        if len(obs_shape) != 3:
-            raise ValueError("obs_shape must be (C, H, W)")
 
         self._torch = torch
         self.capacity = int(capacity)
         self.num_envs = int(num_envs)
-        self.obs_shape = tuple(int(x) for x in obs_shape)
         self.device = torch.device(device)
         self.debug_checks = bool(debug_checks)
 
-        c, h, w = self.obs_shape
-        if c != 1:
-            raise ValueError("obs_shape channels must be 1 for packed2")
-        if h != DOWNSAMPLE_H or w != DOWNSAMPLE_W_BYTES:
-            raise ValueError("obs_shape must match packed2 geometry")
+        self._obs_is_dict = obs_spec is not None
+        if obs_spec is not None:
+            if not isinstance(obs_spec, dict) or not obs_spec:
+                raise ValueError("obs_spec must be a non-empty dict")
+            required = {"pixels", "senses"}
+            if set(obs_spec.keys()) != required:
+                raise ValueError("obs_spec must have pixels and senses keys")
+            normalized: dict[str, tuple[tuple[int, ...], Any]] = {}
+            for key, spec in obs_spec.items():
+                if not isinstance(spec, (tuple, list)) or len(spec) != 2:
+                    raise ValueError("obs_spec entries must be (shape, dtype)")
+                shape, dtype = spec
+                if not isinstance(shape, (tuple, list)):
+                    raise ValueError("obs_spec shape must be tuple")
+                shape = tuple(int(x) for x in shape)
+                if key == "pixels":
+                    if dtype is not torch.uint8:
+                        raise ValueError("pixels obs_spec dtype must be uint8")
+                    if shape != (1, DOWNSAMPLE_H, DOWNSAMPLE_W_BYTES):
+                        raise ValueError("pixels obs_spec must match packed2 geometry")
+                elif key == "senses":
+                    if dtype is not torch.float32:
+                        raise ValueError("senses obs_spec dtype must be float32")
+                    if len(shape) != 1:
+                        raise ValueError("senses obs_spec must be 1D")
+                normalized[key] = (shape, dtype)
+            self.obs_spec = normalized
+            self.obs_shape = None
+        else:
+            if len(obs_shape) != 3:
+                raise ValueError("obs_shape must be (C, H, W)")
+            self.obs_shape = tuple(int(x) for x in obs_shape)
+            c, h, w = self.obs_shape
+            if c != 1:
+                raise ValueError("obs_shape channels must be 1 for packed2")
+            if h != DOWNSAMPLE_H or w != DOWNSAMPLE_W_BYTES:
+                raise ValueError("obs_shape must match packed2 geometry")
+            self.obs_spec = None
 
-        self.obs = torch.empty(
-            (self.capacity, self.num_envs, c, h, w),
-            dtype=torch.uint8,
-            device=self.device,
-        )
+        if self._obs_is_dict:
+            self.obs = {
+                key: torch.empty(
+                    (self.capacity, self.num_envs, *shape),
+                    dtype=dtype,
+                    device=self.device,
+                )
+                for key, (shape, dtype) in self.obs_spec.items()
+            }
+        else:
+            c, h, w = self.obs_shape
+            self.obs = torch.empty(
+                (self.capacity, self.num_envs, c, h, w),
+                dtype=torch.uint8,
+                device=self.device,
+            )
         self.action = torch.empty(
             (self.capacity, self.num_envs),
             dtype=torch.int32,
@@ -128,12 +170,17 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
     def obs_slot(self, step_idx: int):  # type: ignore[no-untyped-def]
         if step_idx < 0 or step_idx >= self.capacity:
             raise ValueError("step_idx out of range")
+        if self._obs_is_dict:
+            return {key: self.obs[key][step_idx] for key in self.obs_spec}
         return self.obs[step_idx]
 
     def assert_alignment(self, *, alignment: int = 256) -> None:
         if self.device.type != "cuda":
             return
-        ptr = int(self.obs.data_ptr())
+        if self._obs_is_dict:
+            ptr = int(self.obs["pixels"].data_ptr())
+        else:
+            ptr = int(self.obs.data_ptr())
         if ptr % alignment != 0:
             raise ValueError(f"obs data_ptr not {alignment}-byte aligned")
 
@@ -153,12 +200,28 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
         torch = self._torch
         if validate_args:
             if obs is not None:
-                if obs.shape != (self.num_envs, *self.obs_shape):
-                    raise ValueError("obs shape mismatch")
-                if obs.dtype is not torch.uint8:
-                    raise ValueError("obs must be uint8")
-                if not _device_matches(obs.device, self.device):
-                    raise ValueError("obs device mismatch")
+                if self._obs_is_dict:
+                    if not isinstance(obs, dict):
+                        raise ValueError("obs must be a dict when obs_spec is set")
+                    if set(obs.keys()) != set(self.obs_spec.keys()):
+                        raise ValueError("obs dict keys mismatch")
+                    for key, (shape, dtype) in self.obs_spec.items():
+                        value = obs[key]
+                        if value.shape != (self.num_envs, *shape):
+                            raise ValueError("obs shape mismatch")
+                        if value.dtype is not dtype:
+                            raise ValueError("obs dtype mismatch")
+                        if not _device_matches(value.device, self.device):
+                            raise ValueError("obs device mismatch")
+                else:
+                    if isinstance(obs, dict):
+                        raise ValueError("obs must be a tensor when obs_spec is unset")
+                    if obs.shape != (self.num_envs, *self.obs_shape):
+                        raise ValueError("obs shape mismatch")
+                    if obs.dtype is not torch.uint8:
+                        raise ValueError("obs must be uint8")
+                    if not _device_matches(obs.device, self.device):
+                        raise ValueError("obs device mismatch")
             if action.shape != (self.num_envs,):
                 raise ValueError("action shape mismatch")
             if action.dtype is not torch.int32:
@@ -206,7 +269,11 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
 
         idx = self._head
         if obs is not None:
-            self.obs[idx].copy_(obs)
+            if self._obs_is_dict:
+                for key in self.obs_spec:
+                    self.obs[key][idx].copy_(obs[key])
+            else:
+                self.obs[idx].copy_(obs)
         self.action[idx].copy_(action)
         self.reward[idx].copy_(reward)
         self.is_first[idx].copy_(is_first)
@@ -334,7 +401,13 @@ class ReplayRingCUDA:  # type: ignore[no-any-unimported]
         time_idx = time_offsets % self.capacity
         env_idx_grid = env_idx.view(1, -1).expand(seq_len, batch)
 
-        obs = self.obs[time_idx, env_idx_grid]
+        if self._obs_is_dict:
+            obs = {
+                key: self.obs[key][time_idx, env_idx_grid]
+                for key in self.obs_spec
+            }
+        else:
+            obs = self.obs[time_idx, env_idx_grid]
         action = self.action[time_idx, env_idx_grid]
         reward = self.reward[time_idx, env_idx_grid]
         is_first = self.is_first[time_idx, env_idx_grid]
