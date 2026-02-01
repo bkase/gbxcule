@@ -70,25 +70,6 @@ class AsyncDreamerV3Engine:
         self.experiment = experiment
         self.device = torch.device(config.device)
 
-        if self.device.type == "cuda":
-            self.replay = ReplayRingCUDA(
-                capacity=config.replay_capacity,
-                num_envs=config.num_envs,
-                device=config.device,
-                obs_shape=config.obs_shape,  # type: ignore[arg-type]
-            )
-        else:
-            self.replay = ReplayRing(
-                capacity=config.replay_capacity,
-                num_envs=config.num_envs,
-                device=config.device,
-                obs_shape=config.obs_shape,  # type: ignore[arg-type]
-            )
-        self.commit = ReplayCommitManager(
-            commit_stride=config.commit_stride,
-            safety_margin=config.safety_margin,
-            device=config.device,
-        )
         self._ratio = Ratio(config.replay_ratio, config.pretrain_steps)
         self._policy_steps = 0
         self._train_steps = 0
@@ -96,6 +77,16 @@ class AsyncDreamerV3Engine:
         self._prefill_steps = config.learning_starts - int(config.learning_starts > 0)
 
         self._obs = self._env_reset()
+        self._obs_is_dict, self._obs_spec = self._infer_obs_spec(self._obs)
+        if self.device.type == "cuda":
+            self.replay = self._build_replay(ReplayRingCUDA)
+        else:
+            self.replay = self._build_replay(ReplayRing)
+        self.commit = ReplayCommitManager(
+            commit_stride=config.commit_stride,
+            safety_margin=config.safety_margin,
+            device=config.device,
+        )
         self._is_first = torch.ones(
             (config.num_envs,), dtype=torch.bool, device=self.device
         )
@@ -127,6 +118,53 @@ class AsyncDreamerV3Engine:
 
         self._checked_shapes = False
 
+    def _infer_obs_spec(self, obs):  # type: ignore[no-untyped-def]
+        torch = self._torch
+        if isinstance(obs, dict):
+            if not obs:
+                raise ValueError("obs dict must be non-empty")
+            obs_spec: dict[str, tuple[tuple[int, ...], Any]] = {}
+            for key, value in obs.items():
+                if not isinstance(value, torch.Tensor):
+                    raise TypeError(f"obs[{key}] must be torch.Tensor")
+                if value.shape[0] != self.config.num_envs:
+                    raise ValueError(
+                        f"obs[{key}] expected leading dim {self.config.num_envs}, "
+                        f"got {value.shape[0]}"
+                    )
+                obs_spec[key] = (tuple(int(x) for x in value.shape[1:]), value.dtype)
+            return True, obs_spec
+        if not isinstance(obs, torch.Tensor):
+            raise TypeError("obs must be torch.Tensor or dict[str, torch.Tensor]")
+        if obs.shape[0] != self.config.num_envs:
+            raise ValueError(
+                f"obs expected leading dim {self.config.num_envs}, got {obs.shape[0]}"
+            )
+        return False, None
+
+    def _build_replay(self, replay_cls):  # type: ignore[no-untyped-def]
+        if self._obs_is_dict:
+            if self._obs_spec is None:
+                raise ValueError("obs_spec unavailable for dict observations")
+            try:
+                return replay_cls(
+                    capacity=self.config.replay_capacity,
+                    num_envs=self.config.num_envs,
+                    device=self.config.device,
+                    obs_spec=self._obs_spec,
+                )
+            except TypeError as exc:
+                raise TypeError(
+                    "Replay ring does not support obs_spec; merge dict-obs replay "
+                    "support first."
+                ) from exc
+        return replay_cls(
+            capacity=self.config.replay_capacity,
+            num_envs=self.config.num_envs,
+            device=self.config.device,
+            obs_shape=self.config.obs_shape,  # type: ignore[arg-type]
+        )
+
     def _env_reset(self):  # type: ignore[no-untyped-def]
         if hasattr(self.env, "reset_torch"):
             obs = self.env.reset_torch(seed=self.config.seed)
@@ -156,18 +194,46 @@ class AsyncDreamerV3Engine:
     def _assert_shapes(self) -> None:
         if self._checked_shapes or not self.config.debug:
             return
-        if self.device.type == "cuda":
-            if self._obs.device.type != "cuda":
-                raise AssertionError("obs expected device cuda")
+        if self._obs_is_dict:
+            if not isinstance(self._obs, dict):
+                raise AssertionError("obs expected dict")
+            if self._obs_spec is None:
+                raise AssertionError("obs_spec missing for dict obs")
+            if set(self._obs.keys()) != set(self._obs_spec.keys()):
+                raise AssertionError("obs keys mismatch")
+            for key, (shape, dtype) in self._obs_spec.items():
+                value = self._obs[key]
+                if self.device.type == "cuda":
+                    if value.device.type != "cuda":
+                        raise AssertionError(f"obs[{key}] expected device cuda")
+                else:
+                    assert_device(
+                        value, self.device, f"obs[{key}]", self.experiment, None
+                    )
+                assert_shape(
+                    value,
+                    (self.config.num_envs, *shape),
+                    f"obs[{key}]",
+                    self.experiment,
+                    None,
+                )
+                if value.dtype != dtype:
+                    raise AssertionError(
+                        f"obs[{key}] dtype mismatch: {value.dtype} != {dtype}"
+                    )
         else:
-            assert_device(self._obs, self.device, "obs", self.experiment, None)
-        assert_shape(
-            self._obs,
-            (self.config.num_envs, *self.config.obs_shape),
-            "obs",
-            self.experiment,
-            None,
-        )
+            if self.device.type == "cuda":
+                if self._obs.device.type != "cuda":
+                    raise AssertionError("obs expected device cuda")
+            else:
+                assert_device(self._obs, self.device, "obs", self.experiment, None)
+            assert_shape(
+                self._obs,
+                (self.config.num_envs, *self.config.obs_shape),
+                "obs",
+                self.experiment,
+                None,
+            )
         self._checked_shapes = True
 
     def _actor_rollout(self, *, stream=None) -> int:  # type: ignore[no-untyped-def]
