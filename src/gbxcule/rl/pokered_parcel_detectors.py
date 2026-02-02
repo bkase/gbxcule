@@ -22,6 +22,14 @@ BAG_BYTES: Final[int] = 2 * BAG_CAPACITY
 
 OAKS_PARCEL_ITEM_ID: Final[int] = 0x46
 
+# Interaction detection RAM addresses
+# wJoyIgnore: When non-zero, joypad is being ignored (usually during text/menu)
+WJOY_IGNORE_ADDR: Final[int] = 0xCFBE
+# wTextBoxID: ID of current text box (0 when none)
+WTEXT_BOX_ID_ADDR: Final[int] = 0xCF94
+# wCurrentMenuItem: Current menu selection (useful for detecting menu navigation)
+WCURRENT_MENU_ITEM_ADDR: Final[int] = 0xCC26
+
 EVENT_OAK_GOT_PARCEL_ADDR: Final[int] = 0xD74E
 EVENT_OAK_GOT_PARCEL_BIT: Final[int] = 0
 EVENT_GOT_OAKS_PARCEL_BIT: Final[int] = 1
@@ -88,3 +96,37 @@ def delivered_parcel(mem_u8: torch.Tensor, events_u8: torch.Tensor) -> torch.Boo
     return _event_bit(
         events_u8, index=EVENT_OAK_GOT_PARCEL_INDEX, bit=EVENT_OAK_GOT_PARCEL_BIT
     )
+
+
+def is_in_dialogue(mem_u8: torch.Tensor) -> torch.BoolTensor:
+    """Return True when the game is showing a text box or menu.
+
+    This detects when the player is interacting with the game world
+    (talking to NPCs, reading signs, navigating menus).
+    """
+    if not isinstance(mem_u8, torch.Tensor):
+        raise TypeError("mem_u8 must be a torch.Tensor")
+    if mem_u8.dtype is not torch.uint8:
+        raise ValueError("mem_u8 must be torch.uint8")
+    if mem_u8.ndim == 1:
+        mem_u8 = mem_u8.unsqueeze(0)
+
+    # wJoyIgnore > 0 indicates text/menu is active
+    joy_ignore = mem_u8[:, WJOY_IGNORE_ADDR]
+    # wTextBoxID > 0 indicates a text box is showing
+    text_box = mem_u8[:, WTEXT_BOX_ID_ADDR]
+
+    # Either condition indicates interaction
+    return cast(torch.BoolTensor, (joy_ignore > 0) | (text_box > 0))
+
+
+def get_bag_item_count(mem_u8: torch.Tensor) -> torch.Tensor:
+    """Return the number of unique item slots in the bag (0-20)."""
+    if not isinstance(mem_u8, torch.Tensor):
+        raise TypeError("mem_u8 must be a torch.Tensor")
+    if mem_u8.dtype is not torch.uint8:
+        raise ValueError("mem_u8 must be torch.uint8")
+    if mem_u8.ndim == 1:
+        mem_u8 = mem_u8.unsqueeze(0)
+
+    return mem_u8[:, WNUM_BAG_ITEMS_ADDR]

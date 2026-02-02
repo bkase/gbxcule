@@ -19,7 +19,9 @@ from gbxcule.rl.pokered_parcel_detectors import (
     EVENTS_LENGTH,
     EVENTS_START,
     delivered_parcel,
+    get_bag_item_count,
     has_parcel,
+    is_in_dialogue,
 )
 
 # Re-export for tools/rl_train_gpu.py
@@ -51,7 +53,12 @@ def _require_torch() -> Any:
 
 
 class PokeredPackedParcelEnv:
-    """Packed2 RL env with dict obs, epoch-trick snow, and parcel rewards."""
+    """Packed2 RL env with dict obs, epoch-trick snow, and parcel rewards.
+
+    Supports "curiosity reset" - when key events occur (like getting the parcel),
+    the exploration hash table is cleared so the agent will re-explore familiar
+    areas with fresh curiosity, enabling backtracking behavior.
+    """
 
     def __init__(
         self,
@@ -70,6 +77,10 @@ class PokeredPackedParcelEnv:
         force_lcdc_on_render: bool = True,
         skip_reset_if_empty: bool = False,
         info_mode: str = "full",
+        curiosity_reset_on_parcel: bool = True,
+        # Interaction rewards
+        dialogue_bonus: float = 0.01,
+        item_pickup_bonus: float = 0.05,
     ) -> None:
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
@@ -115,6 +126,11 @@ class PokeredPackedParcelEnv:
         if info_mode not in {"full", "stats", "none"}:
             raise ValueError(f"info_mode must be full, stats, or none, got {info_mode}")
         self._info_mode = info_mode
+        self._curiosity_reset_on_parcel = bool(curiosity_reset_on_parcel)
+
+        # Interaction reward config
+        self._dialogue_bonus = float(dialogue_bonus)
+        self._item_pickup_bonus = float(item_pickup_bonus)
 
         # Buffers (allocated on first reset)
         self._obs: dict[str, Any] | None = None
@@ -126,6 +142,10 @@ class PokeredPackedParcelEnv:
         self._last_reward: Any | None = None
         self._stage_u8: Any | None = None  # 0=no parcel, 1=has parcel
         self._reset_cache: ResetCache | None = None
+
+        # Interaction tracking
+        self._prev_in_dialogue: Any | None = None  # Previous dialogue state
+        self._prev_item_count: Any | None = None  # Previous bag item count
 
         # Epoch-trick snow table
         self._snow_table: Any | None = None  # [num_envs, snow_size] int16
@@ -205,6 +225,24 @@ class PokeredPackedParcelEnv:
         else:
             self._stage_u8.zero_()
 
+        # Initialize interaction tracking
+        mem = self.backend.memory_torch()
+        if self._prev_in_dialogue is None:
+            self._prev_in_dialogue = torch.zeros(
+                (self.num_envs,), dtype=torch.bool, device="cuda"
+            )
+        else:
+            # Set to current dialogue state
+            self._prev_in_dialogue = is_in_dialogue(mem)
+
+        if self._prev_item_count is None:
+            self._prev_item_count = torch.zeros(
+                (self.num_envs,), dtype=torch.uint8, device="cuda"
+            )
+        else:
+            # Set to current item count
+            self._prev_item_count = get_bag_item_count(mem)
+
         # Allocate epoch-trick snow table
         if self._snow_table is None:
             self._snow_table = torch.zeros(
@@ -279,6 +317,44 @@ class PokeredPackedParcelEnv:
         snow_reward = is_novel.float() * self._snow_bonus
         return snow_reward, is_novel
 
+    def curiosity_reset(self, mask: Any) -> None:
+        """Reset curiosity (fresh snow) for masked environments.
+
+        This implements the "Event-Triggered Curiosity Reset" pattern:
+        when a key event occurs (e.g., picking up the parcel), the exploration
+        hash table is cleared for those envs. This makes the whole world "fresh"
+        again, so the agent will happily re-explore areas it has already visited.
+
+        This is critical for backtracking tasks like delivering the parcel,
+        where the agent needs to return to a previously-visited location.
+        """
+        torch = self._torch
+        assert self._episode_id is not None
+        assert self._snow_table is not None
+
+        # Convert mask to bool
+        if mask.dtype is not torch.bool:
+            mask = mask.to(torch.bool)
+
+        if not mask.any():
+            return
+
+        # Increment episode_id for masked envs (epoch trick: clears snow without memset)
+        new_episode_id = self._episode_id + 1
+        self._episode_id = torch.where(
+            mask, new_episode_id.to(torch.int16), self._episode_id
+        )
+
+        # Handle overflow (wrap to 0 means we need to clear those env rows)
+        assert self._episode_id is not None
+        assert self._snow_table is not None
+        episode_id = self._episode_id
+        snow_table = self._snow_table
+        overflowed = mask & (episode_id == 0)
+        if overflowed.any():
+            snow_table[overflowed] = 0
+            episode_id[overflowed] = 1
+
     def step_torch(self, actions: Any) -> tuple[dict[str, Any], Any, Any, Any, Any]:
         return self.step(actions)
 
@@ -325,12 +401,38 @@ class PokeredPackedParcelEnv:
 
         # Compute rewards
         got_parcel = (stage_prev == 0) & (self._stage_u8 == 1)
+
+        # Curiosity reset: when getting parcel, reset snow table so world is fresh
+        # This enables backtracking behavior - agent will re-explore to deliver
+        if self._curiosity_reset_on_parcel and got_parcel.any():
+            self.curiosity_reset(got_parcel)
+
         snow_reward, is_novel = self._compute_snow_reward(map_id, x, y, self._stage_u8)
+
+        # Compute interaction rewards
+        assert self._prev_in_dialogue is not None
+        assert self._prev_item_count is not None
+
+        # Dialogue reward: bonus for entering dialogue/menu (False->True)
+        curr_in_dialogue = is_in_dialogue(mem)
+        entered_dialogue = (~self._prev_in_dialogue) & curr_in_dialogue
+        dialogue_reward = entered_dialogue.float() * self._dialogue_bonus
+
+        # Item pickup reward: bonus for increasing bag item count
+        curr_item_count = get_bag_item_count(mem)
+        item_delta = (curr_item_count.int() - self._prev_item_count.int()).clamp(min=0)
+        item_reward = item_delta.float() * self._item_pickup_bonus
+
+        # Update tracking state
+        self._prev_in_dialogue = curr_in_dialogue
+        self._prev_item_count = curr_item_count
 
         reward = (
             snow_reward
             + got_parcel.float() * self._get_parcel_bonus
             + delivered_now.float() * self._deliver_bonus
+            + dialogue_reward
+            + item_reward
         )
 
         # Done/truncation
@@ -401,6 +503,15 @@ class PokeredPackedParcelEnv:
         self._last_reward = torch.where(reset_mask, zeros_f32, self._last_reward)
         self._stage_u8 = torch.where(reset_mask, zeros_u8, self._stage_u8)
 
+        # Reset interaction tracking for masked envs
+        assert self._prev_in_dialogue is not None
+        assert self._prev_item_count is not None
+        zeros_bool = torch.zeros_like(self._prev_in_dialogue)
+        self._prev_in_dialogue = torch.where(
+            reset_mask, zeros_bool, self._prev_in_dialogue
+        )
+        self._prev_item_count = torch.where(reset_mask, zeros_u8, self._prev_item_count)
+
         # Epoch trick: increment episode_id for masked envs (no full clear)
         assert self._episode_id is not None
         assert self._snow_table is not None
@@ -439,3 +550,5 @@ class PokeredPackedParcelEnv:
         self._reset_cache = None
         self._snow_table = None
         self._episode_id = None
+        self._prev_in_dialogue = None
+        self._prev_item_count = None

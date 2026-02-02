@@ -910,7 +910,9 @@ def main() -> int:
                         actions, actor_state = actor_core.act(
                             obs, is_first, actor_state, generator=action_gen
                         )
-                        next_obs, reward, terminated, truncated, _ = env.step_torch(actions)
+                        next_obs, reward, terminated, truncated, _ = env.step_torch(
+                            actions
+                        )
                         continues = (~terminated).to(dtype=torch.float32)
 
                         replay.push_step(
@@ -996,7 +998,10 @@ def main() -> int:
                 }
                 experiment.log_metrics(last_metrics)
 
-                if cfg.checkpoint_every > 0 and (step_idx + 1) % cfg.checkpoint_every == 0:
+                if (
+                    cfg.checkpoint_every > 0
+                    and (step_idx + 1) % cfg.checkpoint_every == 0
+                ):
                     payload = {
                         "world_model": _get_state_dict(world_model),
                         "actor": _get_state_dict(actor),
@@ -1037,7 +1042,10 @@ def main() -> int:
         try:
             for step_idx in range(iterations):
                 last_metrics = engine.run(num_iterations=1)
-                if cfg.checkpoint_every > 0 and (step_idx + 1) % cfg.checkpoint_every == 0:
+                if (
+                    cfg.checkpoint_every > 0
+                    and (step_idx + 1) % cfg.checkpoint_every == 0
+                ):
                     payload = {
                         "world_model": _get_state_dict(world_model),
                         "actor": _get_state_dict(actor),
