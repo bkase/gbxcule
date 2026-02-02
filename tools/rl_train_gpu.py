@@ -211,18 +211,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=None)
     parser.add_argument("--total-env-steps", type=int, default=200_000)
     parser.add_argument("--steps-per-rollout", type=int, default=32)
-    parser.add_argument("--replay-capacity", type=int, default=131072)
+    parser.add_argument("--replay-capacity", type=int, default=49152)
     parser.add_argument("--seq-len", type=int, default=16)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--commit-stride", type=int, default=4)
-    parser.add_argument("--replay-ratio", type=float, default=1.0)
+    parser.add_argument("--replay-ratio", type=float, default=0.25)
     parser.add_argument("--learning-starts", type=int, default=0)
     parser.add_argument("--pretrain-steps", type=int, default=0)
     parser.add_argument("--min-ready-steps", type=int, default=16)
     parser.add_argument("--safety-margin", type=int, default=16)
     parser.add_argument("--max-learner-steps-per-tick", type=int, default=256)
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--checkpoint-every", type=int, default=50)
+    parser.add_argument("--checkpoint-every", type=int, default=10)
     parser.add_argument(
         "--resume", default=None, help="Path to checkpoint.pt to resume from"
     )
@@ -233,9 +233,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--stochastic-size", type=int, default=32)
     parser.add_argument("--discrete-size", type=int, default=32)
     parser.add_argument("--recurrent-state-size", type=int, default=512)
-    parser.add_argument("--dense-units", type=int, default=512)
-    parser.add_argument("--hidden-size", type=int, default=512)
-    parser.add_argument("--cnn-channels-multiplier", type=int, default=32)
+    parser.add_argument("--dense-units", type=int, default=256)
+    parser.add_argument("--hidden-size", type=int, default=256)
+    parser.add_argument("--cnn-channels-multiplier", type=int, default=16)
     parser.add_argument("--cnn-stages", type=int, default=3)
     parser.add_argument("--head-mlp-layers", type=int, default=2)
     parser.add_argument("--reward-bins", type=int, default=255)
@@ -243,7 +243,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--reward-high", type=float, default=20.0)
     parser.add_argument("--continue-scale-factor", type=float, default=1.0)
     parser.add_argument("--value-bins", type=int, default=255)
-    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--gamma", type=float, default=0.997)
     parser.add_argument("--lambda", dest="lmbda", type=float, default=0.95)
     parser.add_argument("--horizon", type=int, default=15)
     parser.add_argument("--ent-coef", type=float, default=3e-4)
@@ -259,6 +259,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--moments-low", type=float, default=0.05)
     parser.add_argument("--moments-high", type=float, default=0.95)
     parser.add_argument("--moments-max", type=float, default=1.0)
+    parser.add_argument(
+        "--no-amp",
+        action="store_true",
+        help="Disable automatic mixed precision (bfloat16 is enabled by default)",
+    )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="Use synchronous phased training (collect then train) instead of async",
+    )
+    parser.add_argument(
+        "--train-ratio",
+        type=float,
+        default=32.0,
+        help="Training updates per env step (for sync mode, matches DreamerV3 paper)",
+    )
     return parser.parse_args()
 
 
@@ -267,6 +283,13 @@ def _resolve_iterations(cfg: TrainConfig) -> int:
         return int(cfg.iterations)
     steps_per_iter = int(cfg.num_envs * cfg.steps_per_rollout)
     return max(1, int((cfg.total_env_steps + steps_per_iter - 1) // steps_per_iter))
+
+
+def _get_state_dict(model):  # type: ignore[no-untyped-def]
+    """Get state dict from model, handling torch.compile wrapped models."""
+    if hasattr(model, "_orig_mod"):
+        return model._orig_mod.state_dict()
+    return model.state_dict()
 
 
 def _save_checkpoint(path, payload) -> None:  # type: ignore[no-untyped-def]
@@ -562,13 +585,10 @@ def main() -> int:
     ).to("cuda")
     target_critic.load_state_dict(critic.state_dict())
 
-    world_opt = torch.optim.Adam(world_model.parameters(), lr=cfg.world_model_lr)
-    actor_opt = torch.optim.Adam(actor.parameters(), lr=cfg.actor_lr)
-    critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
-
-    # Resume from checkpoint if provided
+    # Resume from checkpoint if provided (must be before torch.compile)
     resume_env_steps = 0
     resume_train_steps = 0
+    ckpt = None
     if args.resume is not None:
         resume_path = Path(args.resume)
         if not resume_path.exists():
@@ -579,15 +599,29 @@ def main() -> int:
         actor.load_state_dict(ckpt["actor"])
         critic.load_state_dict(ckpt["critic"])
         target_critic.load_state_dict(ckpt["target_critic"])
+        resume_env_steps = int(ckpt.get("env_steps", 0) or 0)
+        resume_train_steps = int(ckpt.get("train_steps", 0) or 0)
+        print(f"  Resumed: env={resume_env_steps}, train={resume_train_steps}")
+
+    # NOTE: torch.compile disabled due to convolution_backward shape mismatch bug
+    # TODO: Re-enable once PyTorch fixes the issue or try mode="reduce-overhead"
+    # world_model = torch.compile(world_model)
+    # actor = torch.compile(actor)
+    # critic = torch.compile(critic)
+    # target_critic = torch.compile(target_critic)
+
+    world_opt = torch.optim.Adam(world_model.parameters(), lr=cfg.world_model_lr)
+    actor_opt = torch.optim.Adam(actor.parameters(), lr=cfg.actor_lr)
+    critic_opt = torch.optim.Adam(critic.parameters(), lr=cfg.critic_lr)
+
+    # Load optimizer states if resuming
+    if ckpt is not None:
         if "world_opt" in ckpt:
             world_opt.load_state_dict(ckpt["world_opt"])
         if "actor_opt" in ckpt:
             actor_opt.load_state_dict(ckpt["actor_opt"])
         if "critic_opt" in ckpt:
             critic_opt.load_state_dict(ckpt["critic_opt"])
-        resume_env_steps = int(ckpt.get("env_steps", 0) or 0)
-        resume_train_steps = int(ckpt.get("train_steps", 0) or 0)
-        print(f"  Resumed: env={resume_env_steps}, train={resume_train_steps}")
 
     moments = ReturnEMA(
         decay=cfg.moments_decay,
@@ -672,6 +706,16 @@ def main() -> int:
         debug=cfg.debug,
     )
 
+    # AMP context manager (bfloat16 for safe dynamic range, enabled by default)
+    amp_enabled = not bool(args.no_amp)
+    amp_ctx = (
+        torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        if amp_enabled
+        else torch.inference_mode(mode=False)  # no-op context
+    )
+    if amp_enabled:
+        print("AMP enabled (bfloat16)")
+
     def world_model_update(batch):  # type: ignore[no-untyped-def]
         obs = batch.obs
         if not isinstance(obs, dict):
@@ -683,19 +727,20 @@ def main() -> int:
         if continues.ndim == 2:
             continues = continues.unsqueeze(-1)
         enc_obs, loss_obs = world_model.prepare_obs(obs, obs_format="packed2")
-        outputs = world_model(
-            enc_obs, batch.action, batch.is_first, action_dim=action_dim
-        )
-        metrics = world_model.loss(
-            outputs,
-            loss_obs,
-            rewards,
-            continues,
-            kl_dynamic=0.5,
-            kl_representation=0.1,
-            kl_free_nats=1.0,
-            kl_regularizer=1.0,
-        )
+        with amp_ctx:
+            outputs = world_model(
+                enc_obs, batch.action, batch.is_first, action_dim=action_dim
+            )
+            metrics = world_model.loss(
+                outputs,
+                loss_obs,
+                rewards,
+                continues,
+                kl_dynamic=0.5,
+                kl_representation=0.1,
+                kl_free_nats=1.0,
+                kl_regularizer=1.0,
+            )
         world_opt.zero_grad(set_to_none=True)
         metrics.loss.backward()
         grad_norm = None
@@ -731,7 +776,7 @@ def main() -> int:
     def behavior_update(batch):  # type: ignore[no-untyped-def]
         if cfg.mode != "full":
             return {}
-        with torch.no_grad():
+        with torch.no_grad(), amp_ctx:
             obs = batch.obs
             if not isinstance(obs, dict):
                 obs = {"pixels": obs}
@@ -739,30 +784,31 @@ def main() -> int:
             outputs = world_model(
                 enc_obs, batch.action, batch.is_first, action_dim=action_dim
             )
-        losses = behavior_step(
-            rssm=world_model.rssm,
-            actor=actor,
-            critic=critic,
-            target_critic=target_critic,
-            reward_model=world_model.reward_model,
-            continue_model=world_model.continue_model,
-            posteriors=outputs.posteriors,
-            recurrent_states=outputs.recurrent_states,
-            continues=batch.continues,
-            horizon=cfg.horizon,
-            gamma=cfg.gamma,
-            lmbda=cfg.lmbda,
-            moments=moments,
-            actor_optimizer=actor_opt,
-            critic_optimizer=critic_opt,
-            actor_clip_grad=cfg.actor_clip_grad,
-            critic_clip_grad=cfg.critic_clip_grad,
-            target_update_freq=cfg.target_update_freq,
-            tau=cfg.critic_tau,
-            ent_coef=cfg.ent_coef,
-            generator=behavior_gen,
-            sample_state=True,
-        )
+        with amp_ctx:
+            losses = behavior_step(
+                rssm=world_model.rssm,
+                actor=actor,
+                critic=critic,
+                target_critic=target_critic,
+                reward_model=world_model.reward_model,
+                continue_model=world_model.continue_model,
+                posteriors=outputs.posteriors,
+                recurrent_states=outputs.recurrent_states,
+                continues=batch.continues,
+                horizon=cfg.horizon,
+                gamma=cfg.gamma,
+                lmbda=cfg.lmbda,
+                moments=moments,
+                actor_optimizer=actor_opt,
+                critic_optimizer=critic_opt,
+                actor_clip_grad=cfg.actor_clip_grad,
+                critic_clip_grad=cfg.critic_clip_grad,
+                target_update_freq=cfg.target_update_freq,
+                tau=cfg.critic_tau,
+                ent_coef=cfg.ent_coef,
+                generator=behavior_gen,
+                sample_state=True,
+            )
 
         def _grad_norm(params):  # type: ignore[no-untyped-def]
             grads = [p.grad for p in params if p.grad is not None]
@@ -813,53 +859,215 @@ def main() -> int:
             out["ret_scale"] = ret_scale.detach()
         return out
 
-    engine = AsyncDreamerV3Engine(
-        engine_cfg,
-        env=env,
-        actor_core=actor_core,
-        world_model_update=world_model_update,
-        behavior_update=behavior_update,
-        experiment=experiment,
-    )
-
     iterations = _resolve_iterations(cfg)
     last_metrics: dict[str, Any] = {}
     start = time.time()
     repro = " ".join([json.dumps(arg) if " " in arg else arg for arg in sys.argv])
-    try:
-        for step_idx in range(iterations):
-            last_metrics = engine.run(num_iterations=1)
-            if cfg.checkpoint_every > 0 and (step_idx + 1) % cfg.checkpoint_every == 0:
-                payload = {
-                    "world_model": world_model.state_dict(),
-                    "actor": actor.state_dict(),
-                    "critic": critic.state_dict(),
-                    "target_critic": target_critic.state_dict(),
-                    "world_opt": world_opt.state_dict(),
-                    "actor_opt": actor_opt.state_dict(),
-                    "critic_opt": critic_opt.state_dict(),
-                    "config": asdict(cfg),
-                    "env_steps": last_metrics.get("env_steps"),
-                    "train_steps": last_metrics.get("train_steps"),
-                }
-                ckpt_name = f"ckpt_{step_idx + 1}.pt"
-                experiment.save_checkpoint(ckpt_name, payload)
-    except Exception as exc:
-        experiment.write_failure_bundle(
-            kind="dreamer_v3_train",
-            error=exc,
-            extra={"last_metrics": last_metrics},
-            repro=repro,
+
+    # Choose sync or async training
+    sync_mode = bool(args.sync)
+    train_ratio = float(args.train_ratio)
+
+    if sync_mode:
+        # ========== SYNCHRONOUS PHASED TRAINING ==========
+        print(f"Sync mode: collect {cfg.steps_per_rollout} steps, train {train_ratio}x")
+        from gbxcule.rl.dreamer_v3.async_dreamer_v3_engine import DreamerBatch
+        from gbxcule.rl.dreamer_v3.replay_cuda import ReplayRingCUDA
+
+        # Build replay buffer
+        obs = env.reset_torch(seed=cfg.seed)
+        obs_spec: dict[str, tuple[tuple[int, ...], Any]] = {}
+        for key, value in obs.items():
+            obs_spec[key] = (tuple(int(x) for x in value.shape[1:]), value.dtype)
+
+        replay = ReplayRingCUDA(
+            capacity=cfg.replay_capacity,
+            num_envs=cfg.num_envs,
+            device="cuda",
+            obs_spec=obs_spec,
         )
-        raise
-    finally:
-        engine.close()
+
+        # Actor state
+        is_first = torch.ones((cfg.num_envs,), dtype=torch.bool, device="cuda")
+        episode_id = torch.zeros((cfg.num_envs,), dtype=torch.int32, device="cuda")
+        actor_state = actor_core.init_state(cfg.num_envs, "cuda")
+        action_gen = torch.Generator(device="cuda")
+        action_gen.manual_seed(cfg.seed + 1)
+        sample_gen = torch.Generator(device="cuda")
+        sample_gen.manual_seed(cfg.seed)
+
+        env_steps = 0
+        train_steps = 0
+
+        try:
+            for step_idx in range(iterations):
+                iter_start = time.time()
+
+                # === PHASE 1: COLLECT ===
+                collect_steps = cfg.steps_per_rollout
+                with torch.no_grad():
+                    for _ in range(collect_steps):
+                        actions, actor_state = actor_core.act(
+                            obs, is_first, actor_state, generator=action_gen
+                        )
+                        next_obs, reward, terminated, truncated, _ = env.step_torch(actions)
+                        continues = (~terminated).to(dtype=torch.float32)
+
+                        replay.push_step(
+                            obs=obs,
+                            action=actions,
+                            reward=reward,
+                            is_first=is_first,
+                            continue_=continues,
+                            episode_id=episode_id,
+                            terminated=terminated,
+                            truncated=truncated,
+                        )
+
+                        reset_mask = terminated | truncated
+                        episode_id = episode_id + reset_mask.to(torch.int32)
+                        is_first = reset_mask
+                        if hasattr(env, "reset_mask"):
+                            env.reset_mask(reset_mask)
+                        obs = next_obs
+
+                env_steps += cfg.num_envs * collect_steps
+                torch.cuda.synchronize()
+
+                # === PHASE 2: TRAIN ===
+                # Train ratio: updates per rollout step (not per env step)
+                # With train_ratio=32, steps_per_rollout=32: 1024 updates per iteration
+                num_updates = max(1, int(train_ratio * collect_steps))
+
+                # Wait for enough samples in replay
+                if replay.size >= cfg.min_ready_steps:
+                    wm_losses: dict[str, float] = {}
+                    beh_losses: dict[str, float] = {}
+
+                    for _ in range(num_updates):
+                        sample = replay.sample_sequences(
+                            batch=cfg.batch_size,
+                            seq_len=cfg.seq_len,
+                            gen=sample_gen,
+                            committed_t=replay.total_steps - 1,
+                            safety_margin=cfg.safety_margin,
+                            exclude_head=True,
+                            return_indices=True,
+                        )
+                        batch = DreamerBatch(
+                            obs=sample["obs"],
+                            action=sample["action"],
+                            reward=sample["reward"],
+                            is_first=sample["is_first"],
+                            continues=sample["continue"],
+                            episode_id=sample["episode_id"],
+                            start_times=sample.get("meta", {}).get("start_offset"),
+                            env_indices=sample.get("meta", {}).get("env_idx"),
+                        )
+                        wm_metrics = world_model_update(batch)
+                        beh_metrics = behavior_update(batch)
+
+                        for key, value in wm_metrics.items():
+                            if isinstance(value, torch.Tensor):
+                                wm_losses[key] = float(value.detach().mean().item())
+                        for key, value in beh_metrics.items():
+                            if isinstance(value, torch.Tensor):
+                                beh_losses[key] = float(value.detach().mean().item())
+
+                        train_steps += 1
+
+                    # Sync actor weights after training
+                    actor_core.sync_player()
+                    torch.cuda.synchronize()
+
+                iter_time = time.time() - iter_start
+                wall_time = time.time() - start
+                sps = (cfg.num_envs * collect_steps) / iter_time
+
+                last_metrics = {
+                    "env_steps": env_steps,
+                    "train_steps": train_steps,
+                    "wall_time_s": wall_time,
+                    "sps": sps,
+                    "train_updates_per_iter": num_updates,
+                    "replay_size": replay.size,
+                    **wm_losses,
+                    **beh_losses,
+                }
+                experiment.log_metrics(last_metrics)
+
+                if cfg.checkpoint_every > 0 and (step_idx + 1) % cfg.checkpoint_every == 0:
+                    payload = {
+                        "world_model": _get_state_dict(world_model),
+                        "actor": _get_state_dict(actor),
+                        "critic": _get_state_dict(critic),
+                        "target_critic": _get_state_dict(target_critic),
+                        "world_opt": world_opt.state_dict(),
+                        "actor_opt": actor_opt.state_dict(),
+                        "critic_opt": critic_opt.state_dict(),
+                        "config": asdict(cfg),
+                        "env_steps": env_steps,
+                        "train_steps": train_steps,
+                    }
+                    ckpt_name = f"ckpt_{step_idx + 1}.pt"
+                    experiment.save_checkpoint(ckpt_name, payload)
+
+        except Exception as exc:
+            experiment.write_failure_bundle(
+                kind="dreamer_v3_sync_train",
+                error=exc,
+                extra={"last_metrics": last_metrics},
+                repro=repro,
+            )
+            raise
+        finally:
+            env.close()
+
+    else:
+        # ========== ASYNC TRAINING (original) ==========
+        engine = AsyncDreamerV3Engine(
+            engine_cfg,
+            env=env,
+            actor_core=actor_core,
+            world_model_update=world_model_update,
+            behavior_update=behavior_update,
+            experiment=experiment,
+        )
+
+        try:
+            for step_idx in range(iterations):
+                last_metrics = engine.run(num_iterations=1)
+                if cfg.checkpoint_every > 0 and (step_idx + 1) % cfg.checkpoint_every == 0:
+                    payload = {
+                        "world_model": _get_state_dict(world_model),
+                        "actor": _get_state_dict(actor),
+                        "critic": _get_state_dict(critic),
+                        "target_critic": _get_state_dict(target_critic),
+                        "world_opt": world_opt.state_dict(),
+                        "actor_opt": actor_opt.state_dict(),
+                        "critic_opt": critic_opt.state_dict(),
+                        "config": asdict(cfg),
+                        "env_steps": last_metrics.get("env_steps"),
+                        "train_steps": last_metrics.get("train_steps"),
+                    }
+                    ckpt_name = f"ckpt_{step_idx + 1}.pt"
+                    experiment.save_checkpoint(ckpt_name, payload)
+        except Exception as exc:
+            experiment.write_failure_bundle(
+                kind="dreamer_v3_train",
+                error=exc,
+                extra={"last_metrics": last_metrics},
+                repro=repro,
+            )
+            raise
+        finally:
+            engine.close()
 
     payload = {
-        "world_model": world_model.state_dict(),
-        "actor": actor.state_dict(),
-        "critic": critic.state_dict(),
-        "target_critic": target_critic.state_dict(),
+        "world_model": _get_state_dict(world_model),
+        "actor": _get_state_dict(actor),
+        "critic": _get_state_dict(critic),
+        "target_critic": _get_state_dict(target_critic),
         "world_opt": world_opt.state_dict(),
         "actor_opt": actor_opt.state_dict(),
         "critic_opt": critic_opt.state_dict(),
