@@ -9,7 +9,7 @@ This implements the PPO-based approach for the Oak's Parcel quest with:
 
 Usage:
   uv run python tools/rl_train_ppo_parcel.py --rom red.gb \
-    --state states/pokemonred_bulbasaur_roundtrip2.state --num-envs 16384
+    --state states/rl_stage1_exit_oak_start.state --num-envs 16384
 """
 
 from __future__ import annotations
@@ -307,6 +307,11 @@ def main() -> int:
     torch.manual_seed(cfg.seed)
     torch.cuda.manual_seed_all(cfg.seed)
 
+    # TODO: bfloat16 autocast disabled pending performance investigation
+    # amp_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    amp_ctx = torch.inference_mode(mode=False)  # No-op context for now
+    print("AMP disabled (float32)")
+
     sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
     from gbxcule.rl.dual_lobe_model import DualLobeActorCritic
@@ -487,10 +492,12 @@ def main() -> int:
 
             # === PHASE 1: COLLECT ROLLOUT ===
             model.eval()
-            with torch.no_grad():
+            with torch.no_grad(), amp_ctx:
                 for t in range(cfg.steps_per_rollout):
-                    # Get action from policy
+                    # Get action from policy (convert to float32 for log_softmax)
                     logits, values = model(pixels, senses, events)
+                    logits = logits.float()
+                    values = values.float()
                     probs = torch.softmax(logits, dim=-1)
                     actions_i64 = torch.multinomial(probs, num_samples=1).squeeze(1)
                     logprobs = logprob_from_logits(logits, actions_i64)
@@ -530,6 +537,7 @@ def main() -> int:
 
                 # Get bootstrap value
                 _, last_value = model(pixels, senses, events)
+                last_value = last_value.float()
 
             env_steps += cfg.num_envs * cfg.steps_per_rollout
 
@@ -585,24 +593,27 @@ def main() -> int:
                     mb_returns = flat_returns[mb_idx]
                     mb_advantages = flat_advantages_norm[mb_idx]
 
-                    # Forward pass
-                    logits, values = model(mb_pixels, mb_senses, mb_events)
+                    # Forward pass + loss (in bfloat16, convert to float32 for losses)
+                    with amp_ctx:
+                        logits, values = model(mb_pixels, mb_senses, mb_events)
+                        logits = logits.float()
+                        values = values.float()
 
-                    # Compute losses
-                    losses = ppo_losses(
-                        logits,
-                        mb_actions,
-                        mb_old_logprobs,
-                        mb_returns,
-                        mb_advantages,
-                        values,
-                        clip=cfg.clip,
-                        value_coef=cfg.value_coef,
-                        entropy_coef=cfg.entropy_coef,
-                        normalize_adv=False,  # Already normalized
-                    )
+                        # Compute losses
+                        losses = ppo_losses(
+                            logits,
+                            mb_actions,
+                            mb_old_logprobs,
+                            mb_returns,
+                            mb_advantages,
+                            values,
+                            clip=cfg.clip,
+                            value_coef=cfg.value_coef,
+                            entropy_coef=cfg.entropy_coef,
+                            normalize_adv=False,  # Already normalized
+                        )
 
-                    # Backward pass
+                    # Backward pass (in float32)
                     optimizer.zero_grad()
                     losses["loss_total"].backward()
                     if cfg.grad_clip > 0:

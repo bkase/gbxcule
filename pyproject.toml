@@ -18,6 +18,7 @@ dependencies = [
     "torch==2.9.1",
     "torchvision==0.24.1",
     "warp-lang>=1.5.0",
+    "opencv-python-headless>=4.7.0.72",
 ]
 
 [dependency-groups]

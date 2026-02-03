@@ -22,7 +22,7 @@ class TestCuriosityReset:
 
             default_kwargs = {
                 "rom_path": "red.gb",
-                "state_path": "states/pokemonred_bulbasaur_roundtrip2.state",
+                "state_path": "states/rl_stage1_exit_oak_start.state",
                 "num_envs": 4,
                 "max_steps": 100,
                 "curiosity_reset_on_parcel": True,
@@ -160,7 +160,7 @@ class TestCuriosityResetIntegration:
 
         env = PokeredPackedParcelEnv(
             rom_path="red.gb",
-            state_path="states/pokemonred_bulbasaur_roundtrip2.state",
+            state_path="states/rl_stage1_exit_oak_start.state",
             num_envs=4,
             max_steps=1000,
             curiosity_reset_on_parcel=True,

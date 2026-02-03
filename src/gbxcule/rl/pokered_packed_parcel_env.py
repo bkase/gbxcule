@@ -503,14 +503,18 @@ class PokeredPackedParcelEnv:
         self._last_reward = torch.where(reset_mask, zeros_f32, self._last_reward)
         self._stage_u8 = torch.where(reset_mask, zeros_u8, self._stage_u8)
 
-        # Reset interaction tracking for masked envs
+        # Reset interaction tracking for masked envs - seed from current memory state
+        # This prevents spurious rewards on first step after reset (if reset state
+        # already has dialogue open or items in bag)
         assert self._prev_in_dialogue is not None
         assert self._prev_item_count is not None
-        zeros_bool = torch.zeros_like(self._prev_in_dialogue)
+        mem = self.backend.memory_torch()
+        curr_in_dialogue = is_in_dialogue(mem)
+        curr_item_count = get_bag_item_count(mem)
         self._prev_in_dialogue = torch.where(
-            reset_mask, zeros_bool, self._prev_in_dialogue
+            reset_mask, curr_in_dialogue, self._prev_in_dialogue
         )
-        self._prev_item_count = torch.where(reset_mask, zeros_u8, self._prev_item_count)
+        self._prev_item_count = torch.where(reset_mask, curr_item_count, self._prev_item_count)
 
         # Epoch trick: increment episode_id for masked envs (no full clear)
         assert self._episode_id is not None
