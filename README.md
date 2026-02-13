@@ -1,335 +1,249 @@
-# GBxCuLE Learning Lab
+# GBxCuLE
 
-GPU-native many-env Game Boy runtime (Warp/CUDA) + benchmark/verification harness.
+A GPU-accelerated vectorized Game Boy emulator for reinforcement learning. Emulation cores run fully on the GPU.
 
-## What This Is
+Adapting [CuLE: GPU-Accelerated Atari Emulation for Reinforcement Learning](https://arxiv.org/abs/1907.08467) (Dalton et al, NVLabs) for Game Boy instead of Atari.
 
-A research project exploring whether GPU-native emulation can accelerate reinforcement learning training loops. The reference oracle is [PyBoy](https://github.com/Baekalfen/PyBoy), a mature Python Game Boy emulator.
+**24 million FPS. 400,000x realtime. >3x faster than SOTA. On a home GPU.**
 
-The system includes:
+Pokemon Red complete. Built in 5 days with a cybernetic forge (LLM-assisted development with strong automated verification). Read more in [the blog post](https://bkase.dev/posts/cybernetic-forge).
 
-- **CPU baselines** (`pyboy_single`, `pyboy_vec_mp`) for honest comparison
-- **Benchmark harness** measuring steps-per-second with proper warmup
-- **Verification harness** comparing `warp_vec_cpu` vs `pyboy_single` step-by-step
-- **Micro-ROM test suite** exercising CPU instructions deterministically
+## Performance
 
-## The Hypothesis
+On an NVIDIA DGX Spark [20-core ARM, GB10 GPU], initializing from a Tetris savestate:
 
-> A GPU-native multi-environment Game Boy runtime can achieve **meaningful steady-state throughput speedups** relative to CPU multiprocessing baselines on a moderately powerful NVIDIA GPU for emulator stepping workloads representative of RL training loops.
+1. Advances 24 frames per step (frame skip = 24)
+2. Extracts the observation tensor
+3. Samples a button-press action (random policy)
+4. Applies the action
 
-### What Counts as Success
+No cheating: the GPU executes divergent instruction streams across warp lanes via distinct joypad inputs.
 
-| Metric                  | Target                                   |
-| ----------------------- | ---------------------------------------- |
-| Emulate-only throughput | ≥1.5× vs CPU baseline at scale           |
-| With reward extraction  | ≥1.2× vs CPU baseline                    |
-| Correctness             | Zero register mismatches vs PyBoy oracle |
+| Backend           | Best SPS   | Env Count |
+| ----------------- | ---------- | --------- |
+| **CUDA Warp**     | **17,200** | 16,384    |
+| PyBoy + PufferLib | 5,366      | 64        |
 
-## Install (uv-only)
+Untuned, on a dev box. Datacenter GPUs will be faster.
 
-This project uses [uv](https://docs.astral.sh/uv/) as the single way to install and run everything.
+## How It Works
 
-```bash
-# Clone the repo
-git clone https://github.com/<your-fork>/gbxcule.git
-cd gbxcule
+The system compiles a Game Boy emulator into a single monolithic [NVIDIA Warp](https://nvidia.github.io/warp/) kernel. Each GPU thread simulates one complete Game Boy. At 16,384 environments, that's 16,384 Game Boys running in parallel on a single GPU.
 
-# Install dependencies
-make setup
+The architecture follows a **functional core / imperative shell** pattern:
 
-# Install git hooks (runs checks before each commit)
-make hooks
+```
+src/gbxcule/
+├── core/           # Pure logic: ABI layouts, ISA definitions, action codecs
+├── kernels/        # Warp GPU/CPU kernels: CPU step, PPU render
+│   └── cpu_templates/  # Instruction templates (ALU, loads, jumps, etc.)
+├── backends/       # Environment implementations (PyBoy oracle, Warp CPU/CUDA)
+└── rl/             # RL algorithms and Pokemon Red environments
 ```
 
-## Generate Micro-ROMs
+### The Warp Template System
 
-The benchmark uses small deterministic ROMs that exercise specific CPU instructions:
+This is the core innovation that makes the project tractable. Game Boy CPU emulation requires implementing ~500 opcodes. Rather than hand-writing CUDA, we use a **template-based code generation pipeline**:
 
-```bash
-make roms
+**1. ISA definitions** (`core/isa_sm83.py`) declare each opcode with a template key and placeholder mappings:
+
+```python
+# Opcode 0x3E: LD A,d8
+OpcodeSpec(opcode=0x3E, template_key="ld_r8_d8", replacements={"REG_i": "a_i"})
+
+# Opcode 0x06: LD B,d8  -- same template, different register
+OpcodeSpec(opcode=0x06, template_key="ld_r8_d8", replacements={"REG_i": "b_i"})
 ```
 
-Output: `bench/roms/out/*.gb`
+**2. Templates** (`kernels/cpu_templates/`) are plain Python functions using Warp primitives. Placeholders like `REG_i` get substituted at build time:
 
-## Run Baselines
+```python
+def template_inc_r8(pc_i: int, f_i: int, REG_i: int) -> None:
+    old = REG_i
+    REG_i = (REG_i + 1) & 0xFF
+    z = wp.where(REG_i == 0, 1, 0)
+    hflag = wp.where((old & 0x0F) == 0x0F, 1, 0)
+    cflag = (f_i >> 4) & 0x1
+    f_i = make_flags(z, 0, hflag, cflag)
+    pc_i = (pc_i + 1) & 0xFFFF
+    cycles = 4
+```
+
+Note `wp.where()` instead of `if/else` for branchless GPU-friendly code.
+
+**3. LibCST code generation** (`kernels/cpu_step_builder.py`) performs AST-level transformations:
+
+- Specializes templates by renaming placeholders (e.g. `REG_i` -> `a_i`)
+- Builds a two-level bucketed dispatch tree (bucket by high nibble, then linear scan)
+- Injects the dispatch tree into the kernel skeleton
+- SHA256-hashes the result and caches the generated module
+
+The final output is a single `@wp.kernel` function containing all ~500 opcodes, which Warp JIT-compiles to CUDA PTX. The generated kernel is cached at `~/.cache/gbxcule/warp_kernels/`.
+
+### Micro-ROM Test Harness
+
+Correctness is verified against [PyBoy](https://github.com/Baekalfen/PyBoy) as a trusted oracle. The system generates 23 license-safe micro-ROMs that exercise specific emulator features:
+
+| Category     | ROMs                                               | What they test                    |
+| ------------ | -------------------------------------------------- | --------------------------------- |
+| CPU/ALU      | ALU_LOOP, ALU_FLAGS, ALU16_SP, CB_BITOPS           | Arithmetic, flags, bit operations |
+| Memory       | MEM_RWB, LOADS_BASIC                               | Read/write, load/store variants   |
+| Control flow | FLOW_STACK                                         | CALL/RET/JR/JP, PUSH/POP          |
+| Interrupts   | TIMER_DIV_BASIC, TIMER_IRQ_HALT, EI_DELAY          | Timer, HALT wake, EI delay        |
+| MBC          | MBC1_SWITCH, MBC3_SWITCH, MBC1_RAM, MBC3_RAM       | Bank switching, cartridge RAM     |
+| PPU          | BG_STATIC, BG_SCROLL_ANIM, PPU_WINDOW, PPU_SPRITES | Tiles, scrolling, window, sprites |
+| Divergence   | JOY_DIVERGE_PERSIST                                | Joypad-driven per-env divergence  |
+
+The verification harness (`bench/harness.py`) runs the oracle and device-under-test (DUT) in lockstep, comparing CPU state at every step. On mismatch, it writes a hermetic **repro bundle** containing the ROM, action trace, both states, a diff, and a one-command `repro.sh` script.
+
+LLM agents used these micro-ROMs during development: Codex one-shotted test ROMs in raw hex, then ran them against both the reference emulator and the DUT to find its own bugs.
+
+### Parallel Environment Management
+
+Each environment gets a slice of flat, strided GPU buffers:
+
+- `mem[env_idx * 65536 .. (env_idx+1) * 65536]` — full 64KB address space per Game Boy
+- Per-env CPU registers, PPU state, cartridge state as parallel arrays
+- Observations and rewards computed inside the kernel (zero CPU-GPU transfer)
+
+Episode resets use a CuLE-style **snapshot cache**: a golden state is captured once, then a Warp kernel performs masked memcpy to restore only terminated environments. This avoids disk I/O entirely during training.
+
+Torch integration is zero-copy via `wp.to_torch()`, so the RL training loop never leaves the GPU.
+
+## Quick Start
+
+Requires [uv](https://docs.astral.sh/uv/) and a Game Boy ROM (not included).
 
 ```bash
+git clone https://github.com/bkase/gbxcule.git && cd gbxcule
+make setup    # Install dependencies
+make hooks    # Install pre-commit hooks (runs make check)
+make roms     # Generate micro-ROMs
+```
+
+### Verify Correctness (CPU)
+
+```bash
+make verify        # Step-exact comparison: PyBoy oracle vs Warp CPU
+make verify-smoke  # Quick smoke test (frames_per_step=24)
+```
+
+### Run Benchmarks
+
+```bash
+# CPU baselines
 make bench
-```
 
-Example output:
+# Tetris benchmark (requires tetris.gb ROM and CUDA GPU)
+make bench-tetris-gpu
 
-```
-Backend: pyboy_single
-ROM: ALU_LOOP.gb
-Envs: 1
-Steps: 100 (warmup: 10)
-Time: 0.112s
-Total SPS: 892.5
-Per-env SPS: 892.5
-Frames/sec: 21420.3
-Artifact: bench/runs/20260121_153157_pyboy_single_ALU_LOOP.json
-
-Backend: pyboy_vec_mp
-ROM: ALU_LOOP.gb
-Envs: 360
-Steps: 100 (warmup: 10)
-Time: 3.42s
-Total SPS: 10522.9
-Per-env SPS: 29.2
-Frames/sec: 252548.7
-Artifact: bench/runs/20260122_001005_pyboy_vec_mp_ALU_LOOP.json
-```
-
-## Run Verification (Expected to Pass)
-
-Verification compares a reference backend (PyBoy) against a device-under-test:
-
-```bash
-make verify
-```
-
-The default `make verify` profile runs `pyboy_single` vs `warp_vec_cpu` on both micro-ROMs and should pass.
-
-For a quick sanity pass (RL-ish step quantum):
-
-```bash
-make verify-smoke
-```
-
-To exercise the failure path and confirm mismatch bundles are being written:
-
-```bash
-make verify-mismatch
-```
-
-You can also run the harness directly. Example with memory hashing enabled for MEM_RWB:
-
-```bash
-uv run python bench/harness.py \
-  --verify \
-  --ref-backend pyboy_single \
-  --dut-backend warp_vec_cpu \
-  --rom bench/roms/out/MEM_RWB.gb \
-  --verify-steps 1024 \
-  --compare-every 1 \
-  --frames-per-step 1 \
-  --mem-region C000:C100
-```
-
-### Verify a Real ROM (Fixed Actions)
-
-For deterministic bring-up on a user ROM, replay a fixed action trace:
-
-```bash
-uv run python bench/harness.py \
-  --verify \
-  --ref-backend pyboy_single \
-  --dut-backend warp_vec_cpu \
-  --rom /path/to/rom.gb \
-  --actions-file /path/to/actions.jsonl \
-  --verify-steps 2048 \
-  --compare-every 1 \
-  --frames-per-step 1
-```
-
-`actions.jsonl` is a JSONL file with one list of action indices per step. You can
-reuse the `actions.jsonl` from a mismatch bundle for exact repro.
-
-Example mismatch output:
-
-```
-Verification mode: ref=pyboy_single vs dut=warp_vec_cpu
-ROM: MEM_RWB.gb
-Steps: 1024, compare every 1
-Memory regions: C000:C100
-
-MISMATCH at step 17
-First differing fields: ['pc', 'a', 'f', 'b', 'h']
-Bundle: bench/runs/mismatch/<bundle>/
-Repro: bench/runs/mismatch/<bundle>/repro.sh
-```
-
-## M3 (DGX) Gates
-
-These targets are the **M3 contract** for DGX/CUDA runs and use the explicit
-`warp_vec_cuda` backend:
-
-```bash
-make verify-gpu
-make check-gpu
+# Full scaling sweep (CUDA)
 make bench-gpu
 ```
 
-Defaults are defined in `Makefile` (override via variable prefixes, e.g.
-`M3_VERIFY_STEPS=2048 make verify-gpu`). The scaling gate uses
-`M3_ENV_COUNTS=1,8,64,512,2048,8192` and writes artifacts + report outputs to
-`bench/runs/reports/<timestamp>/`.
-
-## E4 Scaling (full_step)
-
-E4 runs compute minimal reward/obs on device and use the suite ROMs.
-They are **not** part of the commit gate; run them when you want scaling data.
+### GPU Verification
 
 ```bash
-make bench-e4-cpu
-make bench-e4-gpu
+make verify-gpu    # PyBoy oracle vs Warp CUDA
+make check-gpu     # Fast CUDA smoke test
 ```
 
-Reports are written per ROM under:
-
-```
-bench/runs/reports/<timestamp>_e4_cpu/<ROM_ID>/
-bench/runs/reports/<timestamp>_e4_gpu/<ROM_ID>/
-```
-
-Key overrides (all optional):
+### Run All Checks
 
 ```bash
-E4_BASELINE_ENV_COUNTS=1,8,64,128 \
-E4_DUT_ENV_COUNTS=1,8,64,512,2048,8192 \
-E4_STEPS=200 \
-E4_WARMUP_STEPS=10 \
-E4_SYNC_EVERY=64 \
-E4_FRAMES_PER_STEP=24 \
-E4_RELEASE_AFTER_FRAMES=8 \
-E4_STAGE=full_step \
-E4_BASELINE_BACKEND=pyboy_puffer_vec \
-E4_PUFFER_VEC_BACKEND=puffer_mp_sync \
-E4_ACTION_GEN=seeded_random \
-E4_ACTIONS_SEED=1234 \
-E4_ACTION_CODEC=pokemonred_puffer_v1 \
-make bench-e4-gpu
+make check         # Format, lint, typecheck, build ROMs, compile kernels, test
 ```
 
-### Mismatch Bundles
+This is what the pre-commit hook runs. The CPU-only gate completes in under 2 minutes.
 
-When verification fails, a repro bundle is written containing:
+## RL Infrastructure
 
-| File             | Contents                             |
-| ---------------- | ------------------------------------ |
-| `metadata.json`  | ROM SHA, backends, seeds, git commit, GPU/driver, Warp version+provenance |
-| `ref_state.json` | Reference CPU registers at mismatch  |
-| `dut_state.json` | DUT CPU registers at mismatch        |
-| `ref_cart_state.json` | Reference cart/MBC state snapshot |
-| `dut_cart_state.json` | DUT cart/MBC state snapshot       |
-| `diff.json`      | Field-by-field differences           |
-| `actions.jsonl`  | Complete action trace for replay     |
-| `repro.sh`       | One-command reproduction script      |
-| `rom.gb`         | Embedded ROM bytes (hermetic repro)  |
-| `mem_ref_*.bin`  | Optional memory dumps (small regions) |
-| `mem_dut_*.bin`  | Optional memory dumps (small regions) |
+The emulator was built to enable GPU-native RL training on Pokemon Red. While I explored several approaches before setting the project aside, the infrastructure is functional and may be useful to others.
 
-To reproduce a mismatch:
+### What's Here
+
+**Three RL algorithms**, all wired up to the GPU emulator:
+
+- **PPO** (sync and async) — most developed, scales to 16k parallel environments
+- **A2C** — simpler streaming variant
+- **DreamerV3** — full world-model implementation (~5k lines) with RSSM, imagination rollouts, and CUDA replay buffers
+
+**Pokemon Red environments** with quest-aware observations:
+
+- `pokered_packed_parcel_env.py` — multi-modal observations (packed pixels + game senses + event flags), hash-based exploration bonuses, quest-specific rewards (parcel pickup/delivery), curiosity reset on key events
+- `pokered_packed_goal_env.py` — goal-template matching via L1 pixel distance
+- `pokered_pixels_env.py` — basic pixel observations with frame stacking
+
+**Neural network architectures:**
+
+- NatureCNN (Atari-style, 3 conv layers)
+- IMPALA ResNet (deeper, residual blocks)
+- Dual-lobe model (CNN for pixels + MLP for game senses + MLP for event flags, fused)
+
+**A five-stage curriculum** with pre-computed savestates:
+
+| Stage | Task                   | Max Steps |
+| ----- | ---------------------- | --------- |
+| 1     | Exit Oak's lab         | 128       |
+| 2     | Return home (outside)  | 128       |
+| 3     | Enter house            | 96        |
+| 4     | Upstairs at video game | 96        |
+| 5     | It's time to go        | 64        |
+
+**Training scripts** in `tools/`:
 
 ```bash
-bash bench/runs/mismatch/<bundle>/repro.sh
+# Sync PPO for Oak's Parcel quest (most recent, recommended starting point)
+uv run python tools/rl_train_ppo_parcel.py
+
+# Async PPO variant
+uv run python tools/rl_train_async_parcel.py
+
+# DreamerV3
+uv run python tools/rl_train_gpu.py
 ```
 
-## Artifacts
+### What Didn't Work (and Why)
 
-All outputs are structured JSON with stable schemas:
+We tried PPO, A2C, and DreamerV3 on the Oak's Parcel delivery quest. DreamerV3 could learn a world model but was sample-inefficient for this shaped problem. PPO with exploration bonuses showed promise on short navigation stages but hit walls on the full quest. Pokemon Red RL remains hard due to long credit assignment and sparse rewards.
+
+The emulator and training infrastructure work. The RL problem is unsolved. If you're excited about Pokemon RL, this is a solid foundation — start with Stage 1 (Exit Oak's lab) and the sync PPO setup.
+
+## Project Structure
 
 ```
-bench/runs/
-├── reports/
-│   └── <timestamp>/
-│       ├── <timestamp>_pyboy_vec_mp_ALU_LOOP__scaling.json
-│       ├── <timestamp>_warp_vec_cuda_ALU_LOOP__scaling.json
-│       ├── summary.md
-│       └── scaling.png
-├── <timestamp>_<backend>_<rom>.json      # Benchmark results
-├── <timestamp>__scaling.json              # Scaling sweep results
-└── mismatch/
-    └── <timestamp>_<rom>_<ref>_vs_<dut>/  # Verification failures
-        ├── metadata.json
-        ├── ref_state.json
-        ├── dut_state.json
-        ├── ref_cart_state.json
-        ├── dut_cart_state.json
-        ├── diff.json
-        ├── actions.jsonl
-        ├── rom.gb
-        └── repro.sh
+gbxcule/
+├── src/gbxcule/
+│   ├── core/               # Pure logic (ABI, ISA, action codec, signatures)
+│   ├── kernels/            # Warp kernels + template system
+│   │   └── cpu_templates/  # Instruction templates (alu, loads, jumps, stack, bitops)
+│   ├── backends/           # PyBoy oracle, Warp CPU/CUDA, PufferLib integrations
+│   └── rl/                 # PPO, A2C, DreamerV3, Pokemon Red envs
+│       └── dreamer_v3/     # Full DreamerV3 implementation
+├── bench/
+│   ├── harness.py          # Benchmark + verification harness
+│   ├── tetris_bench.py     # Tetris-specific benchmark
+│   ├── roms/               # Micro-ROM generator + suite.yaml
+│   └── analysis/           # Scaling plots, summary reports
+├── tests/                  # 90 test files (CPU instructions, PPU, RL algorithms)
+├── tools/                  # Training scripts, profiling, capture utilities
+├── states/                 # Savestates for RL stages
+├── configs/                # YAML/JSON configurations
+├── history/                # Planning documents (PRD, architecture, milestone plans)
+├── ARCHITECTURE.md         # Engineering architecture (detailed)
+└── CONSTITUTION.md         # Project principles
 ```
-
-## Interpreting Results
-
-### Steps Per Second (SPS) vs Frames Per Second
-
-- **SPS**: How many `step()` calls per second (each step = multiple frames)
-- **Frames/sec**: `SPS × frames_per_step` (default: 24 frames/step)
-- **Total SPS**: `steps × num_envs / seconds` (aggregate throughput)
-- **Per-env SPS**: `steps / seconds` (single-env equivalent)
-
-For RL training, **Total SPS** is what matters - it's how many environment transitions you get per wall-clock second.
-
-### Warmup vs Measured
-
-- Warmup steps are excluded from timing (JIT compilation, cache warming)
-- Only "measured_steps" count toward SPS calculations
-- Check `results.warmup_steps` and `results.measured_steps` in artifacts
-
-## Common Commands
-
-| Command       | Description                            |
-| ------------- | -------------------------------------- |
-| `make setup`  | Install dependencies via uv            |
-| `make hooks`  | Install git pre-commit hooks           |
-| `make fmt`    | Format code and apply safe lint fixes  |
-| `make lint`   | Check formatting and lint              |
-| `make test`   | Run unit tests                         |
-| `make roms`   | Generate micro-ROMs                    |
-| `make bench`  | Run baseline benchmarks                |
-| `make verify` | Run verification (expected pass)       |
-| `make verify-smoke` | Quick verification smoke          |
-| `make verify-mismatch` | Exercise mismatch bundle path |
-| `make verify-gpu` | M3 must-pass verify (DGX/CUDA)      |
-| `make check-gpu` | Fast-ish DGX gate (CUDA smoke)       |
-| `make bench-gpu` | M3 scaling sweep (DGX/CUDA)          |
-| `make check`  | Run all checks (commit hook gate)      |
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Engineering architecture and tech stack
-- [CONSTITUTION.md](CONSTITUTION.md) - Project principles and constraints
-- [history/prd.md](history/prd.md) - Product requirements document
-- [history/m0-epics.md](history/m0-epics.md) - M0 milestone epics and stories
+- [ARCHITECTURE.md](ARCHITECTURE.md) — full engineering architecture and tech stack decisions
+- [history/prd.md](history/prd.md) — product requirements document
+- [history/](history/) — milestone plans, epic breakdowns, development history
 
----
+## Acknowledgments
 
-## Devlog: M0 Shipped
-
-**TL;DR**: Built the measurement infrastructure first. CPU baselines + micro-ROMs + mismatch automation are live. No GPU code yet - that's the point.
-
-### Why this order?
-
-Most emulator projects start with the fun part (GPU kernels) and bolt on testing later. We're inverting that:
-
-1. **Micro-ROMs**: Tiny deterministic ROMs that exercise specific instructions
-2. **CPU baselines**: Honest comparison targets (single + multiprocessing)
-3. **Verification scaffold**: Step-by-step register comparison with repro bundles
-
-The hypothesis is that GPU-native Game Boy emulation can beat CPU multiprocessing at scale. But "beat" needs a definition, and "at scale" needs measurement. M0 gives us both.
-
-### First numbers
-
-```
-pyboy_single:   890 SPS (1 env)
-pyboy_vec_mp: 10523 SPS (360 envs, 20 workers)
-```
-
-These are our targets to beat. The GPU backend needs to exceed ~1.5× these numbers at scale (many envs) to validate the hypothesis.
-
-### What's next
-
-M1: Implement actual Warp/CUDA backend. The verification scaffold will catch every register mismatch. When `make verify` passes, we'll know the GPU is correct.
-
-### Try it
-
-```bash
-git clone https://github.com/<fork>/gbxcule && cd gbxcule
-make setup && make bench
-```
-
-All results land in `bench/runs/*.json` with schema version 1.
+- [CuLE](https://arxiv.org/abs/1907.08467) (Dalton et al, NVLabs) — the original GPU-accelerated Atari emulation paper that inspired this project
+- [PyBoy](https://github.com/Baekalfen/PyBoy) — trusted reference emulator used as the oracle
+- [NVIDIA Warp](https://nvidia.github.io/warp/) — Python framework for JIT-compiling to CUDA kernels
+- [Peter Whidden's Pokemon RL](https://www.youtube.com/watch?v=DcYLT37ImBY) and [drubinstein's Pokemon RL Experiment](https://drubinstein.github.io/pokerl/) — inspiration for the Pokemon Red RL goal
+- [PufferLib](https://github.com/PufferAI/PufferLib) — vectorized environment framework used for CPU baselines
