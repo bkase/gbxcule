@@ -6,7 +6,7 @@ Adapting [CuLE: GPU-Accelerated Atari Emulation for Reinforcement Learning](http
 
 **24 million FPS. 400,000x realtime. >3x faster than SOTA. On a home GPU.**
 
-Pokemon Red complete. Built in 5 days with a cybernetic forge (LLM-assisted development with strong automated verification). Read more in [the blog post](https://bkase.dev/posts/cybernetic-forge).
+Pokemon Red complete. Built in 5 days with a cybernetic forge (LLM-assisted development with strong automated verification). Read more in [the blog post](https://bkase.dev/posts/cuda-gameboy-emulator).
 
 ## Performance
 
