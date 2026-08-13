@@ -872,7 +872,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             return
         mem[base + addr16] = val8
 
-    @wp.kernel
+    @wp.kernel(enable_backward=False)
     def cpu_step(
         mem: wp.array(dtype=wp.uint8),
         rom: wp.array(dtype=wp.uint8),
