@@ -19,7 +19,7 @@ def _verify_no_mismatch(
     rom_path: Path,
     *,
     steps: int = 8,
-    mem_region: tuple[int, int] | None = None,
+    mem_regions: tuple[tuple[int, int], ...] = (),
     check_cpu: bool = True,
 ) -> None:
     ref = PyBoySingleBackend(
@@ -46,8 +46,7 @@ def _verify_no_mismatch(
                 dut_state = normalize_cpu_state(dut.get_cpu_state(0))
                 diff = diff_states(ref_state, dut_state)
                 assert diff is None, f"Mismatch at step {step_idx}: {diff}"
-            if mem_region is not None:
-                lo, hi = mem_region
+            for lo, hi in mem_regions:
                 ref_bytes = ref.read_memory(0, lo, hi)
                 dut_bytes = dut.read_memory(0, lo, hi)
                 assert ref_bytes == dut_bytes, (
@@ -100,8 +99,7 @@ def test_verify_timer_irq_halt() -> None:
     _verify_no_mismatch(
         ROM_DIR / "TIMER_IRQ_HALT.gb",
         steps=8,
-        mem_region=(0xC000, 0xC020),
-        check_cpu=False,
+        mem_regions=((0xC000, 0xC020), (0xFF04, 0xFF10)),
     )
 
 
@@ -110,5 +108,5 @@ def test_verify_ei_delay() -> None:
     _verify_no_mismatch(
         ROM_DIR / "EI_DELAY.gb",
         steps=8,
-        mem_region=(0xC000, 0xC020),
+        mem_regions=((0xC000, 0xC020),),
     )

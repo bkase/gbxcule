@@ -59,15 +59,36 @@ _cpu_step_kernels: dict[tuple[str, int, int, int, int, int], Callable[..., Any]]
 _warp_warmed_devices: set[str] = set()
 
 
+def _configure_warp(wp: Any) -> None:
+    mode = os.environ.get("GBXCULE_WARP_MODE")
+    if mode:
+        wp.config.mode = mode
+
+    raw_optimization_level = os.environ.get("GBXCULE_WARP_OPTIMIZATION_LEVEL")
+    if raw_optimization_level is not None:
+        try:
+            optimization_level = int(raw_optimization_level)
+        except ValueError as exc:
+            raise ValueError(
+                "GBXCULE_WARP_OPTIMIZATION_LEVEL must be an integer from 0 to 3"
+            ) from exc
+        if optimization_level not in range(4):
+            raise ValueError(
+                "GBXCULE_WARP_OPTIMIZATION_LEVEL must be an integer from 0 to 3"
+            )
+        wp.config.optimization_level = optimization_level
+
+    if os.environ.get("GBXCULE_WARP_VERIFY_CUDA") == "1":
+        wp.config.verify_cuda = True
+
+
 def get_warp() -> Any:  # type: ignore[no-untyped-def]
     """Import Warp and initialize once."""
     global _wp, _warp_initialized
     if _wp is None:
         import warp as wp
 
-        mode = os.environ.get("GBXCULE_WARP_MODE")
-        if mode:
-            wp.config.mode = mode
+        _configure_warp(wp)
         _wp = wp
         globals()["wp"] = wp
     if not _warp_initialized:

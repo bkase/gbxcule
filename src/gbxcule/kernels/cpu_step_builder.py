@@ -309,6 +309,9 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             return
 
         remaining = cycles
+        deferred_tac = timer_prev_in[i] < 0
+        deferred_tac_old = (-timer_prev_in[i] - 1) & 0x07
+        # Keep the old TAC setting until the instruction's final machine cycle.
         div = div_counter[i] & 0xFFFF
 
         while remaining > 0:
@@ -322,12 +325,18 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                 )
 
             tac = wp.int32(mem[base + 0xFF07]) & 0x07
+            if deferred_tac:
+                tac = deferred_tac_old
             dt = remaining
 
             if tima_reload_pending[i] != 0:
                 rd = tima_reload_delay[i]
                 if rd < dt:
                     dt = rd
+            if deferred_tac and remaining > 4:
+                until_tac_write = remaining - 4
+                if until_tac_write < dt:
+                    dt = until_tac_write
 
             do_edge = wp.int32(0)
             if (tac & 0x04) != 0:
@@ -365,6 +374,20 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                     tima_reload_pending,
                     tima_reload_delay,
                 )
+            if deferred_tac and remaining == 4:
+                tac_new = wp.int32(mem[base + 0xFF07]) & 0x07
+                if (
+                    timer_in(div, deferred_tac_old) != 0
+                    and timer_in(div, tac_new) == 0
+                ):
+                    tima_inc(
+                        i,
+                        base,
+                        mem,
+                        tima_reload_pending,
+                        tima_reload_delay,
+                    )
+                deferred_tac = False
 
         div_counter[i] = div
         mem[base + 0xFF04] = wp.uint8((div >> 8) & 0xFF)
@@ -749,21 +772,9 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             mem[base + addr16] = val8
             return
         if addr16 == 0xFF07:
-            div = div_counter[i] & 0xFFFF
             tac_old = wp.int32(mem[base + 0xFF07]) & 0x07
-            pre_in = timer_in(div, tac_old)
-            tac_new = wp.int32(val) & 0x07
-            mem[base + addr16] = wp.uint8(tac_new)
-            post_in = timer_in(div, tac_new)
-            timer_prev_in[i] = post_in
-            if pre_in != 0 and post_in == 0:
-                tima_inc(
-                    i,
-                    base,
-                    mem,
-                    tima_reload_pending,
-                    tima_reload_delay,
-                )
+            mem[base + addr16] = wp.uint8(wp.int32(val) & 0x07)
+            timer_prev_in[i] = -(tac_old + 1)
             return
         if addr16 == 0xFF46:
             mem[base + addr16] = val8
@@ -872,7 +883,7 @@ _CPU_STEP_SKELETON = textwrap.dedent(
             return
         mem[base + addr16] = val8
 
-    @wp.kernel
+    @wp.kernel(enable_backward=False)
     def cpu_step(
         mem: wp.array(dtype=wp.uint8),
         rom: wp.array(dtype=wp.uint8),
@@ -1167,7 +1178,8 @@ _CPU_STEP_SKELETON = textwrap.dedent(
                             action_codec_id,
                         )
                         pc_i = vector
-                        service_cycles = 20
+                        # The halted 4-cycle tick consumed the first entry cycle.
+                        service_cycles = 16
                         timer_tick(
                             i,
                             base,
